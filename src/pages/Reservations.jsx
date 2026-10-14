@@ -4,7 +4,6 @@ import { reservationsApi } from '../api';
 import BookingCalendar from '../components/BookingCalendar';
 import PaymentDialog from '../components/PaymentDialog';
 import { Avatar, Card, Chip, Donut, Icon, KpiGrid, MediaCard, conic } from '../components/ui';
-import config from '../config';
 import useApi from '../hooks/useApi';
 
 // Calendar stays and today's arrivals/departures come from the API (see docs/API.md); the remaining sections are still sample data.
@@ -93,8 +92,7 @@ function GuestList({ title, rows }) {
 export default function Reservations() {
   const [tab, setTab] = useState(0);
   const [view, setView] = useState('month');
-  // Sample data covers November 2025; against the live API start on today.
-  const [date, setDate] = useState(() => (config.useMocks ? new Date(2025, 10, 15) : new Date()));
+  const [date, setDate] = useState(() => new Date());
   const [paying, setPaying] = useState(null);
   const from = moment(date).startOf('month').startOf('week').format('YYYY-MM-DD');
   const to = moment(date).endOf('month').endOf('week').add(1, 'day').format('YYYY-MM-DD');

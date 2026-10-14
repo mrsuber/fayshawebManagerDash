@@ -1,4 +1,5 @@
 import LogoutIcon from '@mui/icons-material/Logout';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import TranslateIcon from '@mui/icons-material/Translate';
 import { Badge, Box, Button, Divider, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
@@ -6,7 +7,10 @@ import moment from 'moment';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { notificationsApi } from '../api';
+import config from '../config';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { resetDb } from '../mocks/db';
 import useApi from '../hooks/useApi';
 import useSocketEvent from '../hooks/useSocketEvent';
 import { LANGUAGES } from '../i18n';
@@ -101,6 +105,7 @@ export function LanguageMenu() {
 export function UserMenu() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
+  const toast = useToast();
   const [anchor, setAnchor] = useState(null);
   return (
     <>
@@ -129,6 +134,22 @@ export function UserMenu() {
           </Box>
         )}
         <Divider />
+        {config.useMocks && (
+          <MenuItem
+            onClick={() => {
+              setAnchor(null);
+              resetDb();
+              toast(t('common.resetDone'));
+              // Reload so every screen re-reads the restored sample data.
+              setTimeout(() => window.location.reload(), 600);
+            }}
+          >
+            <ListItemIcon>
+              <RestartAltIcon fontSize="small" />
+            </ListItemIcon>
+            {t('common.resetDemo')}
+          </MenuItem>
+        )}
         <MenuItem
           onClick={() => {
             setAnchor(null);

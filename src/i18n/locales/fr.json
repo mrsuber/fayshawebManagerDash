@@ -130,7 +130,14 @@
     "loadFailed": "Impossible de charger les données",
     "retry": "Réessayer",
     "send": "Envoyer",
-    "updateFailed": "Mise à jour impossible"
+    "updateFailed": "Mise à jour impossible",
+    "close": "Fermer",
+    "search": "Rechercher…",
+    "showing": "{{shown}} sur {{total}}",
+    "nothingFound": "Aucun résultat pour ces filtres",
+    "viewAll": "Tout voir ›",
+    "resetDemo": "Réinitialiser les données de démo",
+    "resetDone": "Données de démo restaurées"
   },
   "payments": {
     "collect": "Encaisser",

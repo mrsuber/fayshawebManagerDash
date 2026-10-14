@@ -1,5 +1,6 @@
 import moment from 'moment';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { conversationsApi } from '../api';
 import { Avatar, Card, Chip, Icon, Placeholder, QuickActions } from '../components/ui';
 import { useToast } from '../context/ToastContext';
@@ -30,6 +31,12 @@ const QUICK = [
 ];
 const SUGGEST = ['Confirm locker collection instructions', 'Suggest a wellness experience for tomorrow', 'Recommend dinner at Riviera this evening'];
 const timeLabel = (iso) => (iso ? moment(iso).format('HH:mm') : '');
+/** Conversation list: time today, "Yesterday", else the date. */
+const dayLabel = (iso) => {
+  if (!iso) return '';
+  const m = moment(iso);
+  return m.isSame(moment(), 'day') ? m.format('HH:mm') : m.isSame(moment().subtract(1, 'day'), 'day') ? 'Yesterday' : m.format('MMM D');
+};
 
 export default function Communications() {
   const toast = useToast();
@@ -37,7 +44,9 @@ export default function Communications() {
   const channel = CH[ch].split(':')[2];
   const threads = useApi(() => conversationsApi.list(channel ? { channel } : undefined), [channel], []);
   const list = threads.data || [];
-  const [selId, setSelId] = useState(null);
+  // ?conversation=<id> (e.g. from Guest 360 → Open in Communications) preselects a thread.
+  const [params] = useSearchParams();
+  const [selId, setSelId] = useState(() => Number(params.get('conversation')) || null);
   const current = list.find((c) => c.id === selId) || list[0];
   const [draft, setDraft] = useState('');
   const thread = useApi(() => (current ? conversationsApi.messages(current.id) : Promise.resolve([])), [current?.id], []);
@@ -142,7 +151,7 @@ export default function Communications() {
               <div className="col" style={{ alignItems: 'flex-end', gap: 4 }}>
                 <span style={{ fontSize: 12, color: 'var(--text-3)', display: 'flex', gap: 4, alignItems: 'center' }}>
                   <Icon name={CHANNEL_ICON[chan] || 'forum'} size={15} color={chan === 'whatsapp' ? '#3fd283' : '#cfc8ba'} />
-                  {lastAtLabel || timeLabel(lastAt)}
+                  {lastAtLabel || dayLabel(lastAt)}
                 </span>
                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 3, background: SC[s], color: 'var(--on-gold)' }}>{s}</span>
               </div>
