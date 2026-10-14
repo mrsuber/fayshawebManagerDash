@@ -16,8 +16,8 @@ export function CardLink({ children, onClick }) {
   );
 }
 
-export function Card({ title, link, aside, headGap, titleSize, gap = 10, padding, style, children }) {
-  const right = aside ?? (link ? <CardLink>{link}</CardLink> : null);
+export function Card({ title, link, onLink, aside, headGap, titleSize, gap = 10, padding, style, children }) {
+  const right = aside ?? (link ? <CardLink onClick={onLink}>{link}</CardLink> : null);
   const titleStyle = titleSize ? { fontSize: titleSize } : undefined;
   return (
     <section className="card" style={{ gap, padding, ...style }}>
@@ -151,7 +151,15 @@ export function QuickActions({ items, cols = 3, iconSize = 24, variant = 'border
   return (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols},1fr)`, gap: 8 }}>
       {items.map((q) => (
-        <div key={q.l} className={`quick ${variant === 'fill' ? 'hov-quick' : 'hov-border-gold'}`} style={{ fontSize, padding, gap }}>
+        <div
+          key={q.l}
+          className={`quick ${variant === 'fill' ? 'hov-quick' : 'hov-border-gold'}`}
+          style={{ fontSize, padding, gap }}
+          onClick={q.onClick}
+          role={q.onClick ? 'button' : undefined}
+          tabIndex={q.onClick ? 0 : undefined}
+          onKeyDown={q.onClick ? (e) => (e.key === 'Enter' || e.key === ' ') && q.onClick() : undefined}
+        >
           <Icon name={q.icon} size={iconSize} color={q.c} />
           {q.l}
         </div>

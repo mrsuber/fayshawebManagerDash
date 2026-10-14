@@ -1,7 +1,9 @@
 # FAY OS — Faysha Wellness Residence dashboard
 
 Management dashboard for Faysha Wellness Residence. It's a React 18 app built with Create React App and is designed to run against the FAY Express/PostgreSQL backend.
-Until you configure a backend, it runs on built-in sample data.
+Until you configure a backend, it runs on built-in sample data. That data is a working store: what you create
+(requests, messages, bookings, notes, payments) is saved in the browser and shows up on every screen.
+Use **user menu → Reset demo data** to start over.
 
 ## Stack
 
@@ -51,7 +53,8 @@ src/
   index.css                   Tailwind layers (preflight off; tokens exposed as colors in tailwind.config.js)
   api/                        axios client + one module per resource (auth, conversations, serviceRequests,
                               reservations, residences, housekeeping, dining, ai, notifications, settings, payments)
-  mocks/data.js               sample data in the API's shapes, served when mocks are on
+  mocks/data.js               seed data in the API's shapes (dates relative to today)
+  mocks/db.js                 working copy the mock API reads/writes, persisted in localStorage
   context/                    AuthContext (JWT/Firebase), SocketContext (socket.io), ToastContext (MUI Snackbar)
   hooks/                      useApi (load + local updates), useSocketEvent
   i18n/                       i18next setup + locales/en.json, fr.json
@@ -64,12 +67,15 @@ src/
     PanoramaDialog.jsx        pannellum 360° residence tour
     ui.jsx                    shared primitives: Card, KpiGrid, Toggle, Bar, Donut, Chip, QuickActions…
   pages/                      one file per screen + Login
+  pages/guest360/             Guest 360 cards, action dialogs (useGuestActions) and formatting helpers
+  components/FormDialog.jsx   generic MUI form dialog (requests, messages, bookings, notes, tags…)
+  components/ViewAllDialog.jsx  "View All" pop-up with search + filter chips
   __tests__/                  app, page and API-client tests
 ```
 
 | Route           | Page                          | Backed by the API |
 |-----------------|-------------------------------|---|
-| `/guest360`     | Guest 360                     | — |
+| `/guest360`     | Guest 360                     | everything: all-guests list, profile, requests, bookings, messages, timeline, history, folio, notes, check-in/out |
 | `/journey`      | Guest Journey                 | — |
 | `/comms`        | Communications Center         | conversations, messages, send, live `message:new` |
 | `/requests`     | Service Requests & Operations | list, mark completed, live create/update |

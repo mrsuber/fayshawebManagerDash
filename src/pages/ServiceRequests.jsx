@@ -7,7 +7,7 @@ import useApi from '../hooks/useApi';
 import useSocketEvent from '../hooks/useSocketEvent';
 
 // Presentational config; requests come from the API (see docs/API.md).
-const SC = { 'In Progress': '#2f6fe8', Completed: '#1f9d55', Scheduled: '#2f6fe8', Escalated: '#c43a3a', 'On Hold': '#7c4ddb' };
+const SC = { New: '#b8862e', 'In Progress': '#2f6fe8', Completed: '#1f9d55', Scheduled: '#2f6fe8', Escalated: '#c43a3a', 'On Hold': '#7c4ddb' };
 const PC = { High: '#ff6b6b', Normal: '#3fd283', Low: '#e8b84a' };
 const CATS = ['All Requests', 'Housekeeping', 'Maintenance', 'Dining', 'Wellness', 'Transportation', 'Experiences', 'Concierge'];
 const KPIS = [

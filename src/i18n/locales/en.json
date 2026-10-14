@@ -130,7 +130,14 @@
     "loadFailed": "Couldn't load data",
     "retry": "Retry",
     "send": "Send",
-    "updateFailed": "Update failed"
+    "updateFailed": "Update failed",
+    "close": "Close",
+    "search": "Search…",
+    "showing": "Showing {{shown}} of {{total}}",
+    "nothingFound": "Nothing matches your filters",
+    "viewAll": "View All ›",
+    "resetDemo": "Reset demo data",
+    "resetDone": "Demo data restored"
   },
   "payments": {
     "collect": "Collect Payment",

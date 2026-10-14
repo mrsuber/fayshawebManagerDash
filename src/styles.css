@@ -330,3 +330,20 @@ input { font-family: var(--sans); }
 .fay-calendar .rbc-time-header-gutter { display: none; }
 .fay-calendar .rbc-allday-cell { height: auto; }
 .fay-calendar .rbc-header a { color: var(--text-3); }
+
+/* Small square icon button used in list rows (complete / cancel). */
+.mini-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mini-btn:hover { border-color: var(--gold); color: var(--gold); }
+button.hov-gold-bg:hover { border-color: var(--gold); }

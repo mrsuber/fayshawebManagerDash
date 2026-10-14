@@ -1,9 +1,9 @@
 import api from './client';
 import { withMock } from './mock';
-import * as mock from '../mocks/data';
+import { getDb } from '../mocks/db';
 
 /** GET /residences → Residence[] */
-export const list = () => withMock(() => api.get('/residences'), mock.residences);
+export const list = () => withMock(() => api.get('/residences'), () => getDb().residences);
 
 /** PATCH /residences/:id/devices/:deviceId { on } */
 export const setDevice = (id, deviceId, on) => withMock(() => api.patch(`/residences/${id}/devices/${encodeURIComponent(deviceId)}`, { on }), { ok: true });

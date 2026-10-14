@@ -28,6 +28,37 @@ Field names are camelCase. With `pg`, alias columns in SQL (`guest_name AS "gues
 
 `user`: `{ id, name, email, role }`
 
+## Guests (Guest 360)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/guests?status=&q=` | — | `GuestSummary[]` (most recent stay first). `status`: `In House \| Arriving \| Upcoming \| Checked Out \| VIP` |
+| GET | `/guests/:id` | — | `Guest` |
+| PATCH | `/guests/:id` | `{ tags?, preferences?, vip? }` | `Guest` |
+| POST | `/guests/:id/check-in` | — | `Guest` (status `In House`, digital key on) |
+| POST | `/guests/:id/check-out` | — | `Guest` (status `Checked Out`, digital key off) |
+| GET | `/guests/:id/timeline` | — | `TimelineEvent[]` newest first |
+| GET | `/guests/:id/stays` | — | `Stay[]` newest first |
+| GET | `/guests/:id/bookings` | — | `Booking[]` by start time |
+| POST | `/guests/:id/bookings` | `{ type, title, startsAt, endsAt, guests, notes }` | `Booking` |
+| PATCH | `/guests/:id/bookings/:bookingId` | `{ status }` (e.g. `Cancelled`) | `Booking` |
+| GET | `/guests/:id/notes` | — | `Note[]` newest first |
+| POST | `/guests/:id/notes` | `{ body }` | `Note` (author = signed-in user) |
+| GET | `/guests/:id/folio` | — | `{ charges, payments, total, paid, balance, currency }` |
+| POST | `/guests/:id/payments` | `{ amount, method }` | `Payment` (staff-recorded; card payments go through Stripe below) |
+| GET | `/guests/:id/conversation` | — | `{ conversation \| null, messages: Message[] }` |
+| POST | `/guests/:id/messages` | `{ channel, body }` | `Message`. Create the conversation if needed and emit `message:new`. |
+
+- `GuestSummary`: `{ id, name, vip, status, residence, collection, checkIn, checkOut, country, totalStays, lastStayAt }`
+- `Guest`: `{ id, name, vip, status, residence, collection, checkIn, checkOut, checkInTime, checkOutTime, adults, children, purpose, tags: string[], contact: { phone, email, country, language, timeZone }, flags: { digitalKey, parking }, preferences: Preference[], services: Service[], insights: string[], value: { revenue, stays, satisfaction } }`
+  - `Preference`: `{ key, icon, color, title, detail }` (`icon` is a Material Symbols name)
+  - `Service` (smart locker and resident services): `{ key, icon, color, title, detail, status }`
+- `TimelineEvent`: `{ id, guestId, at, title, category }`. Write one whenever a request, booking, message, note, payment or check-in/out happens for the guest.
+- `Stay`: `{ id, guestId, residence, checkIn, checkOut, nights, purpose, satisfaction, amount, status: Upcoming | Current | Completed }`
+- `Booking`: `{ id, guestId, type: wellness | dining | experience | transport, title, startsAt, endsAt, guests, status: Confirmed | Pending | Completed | Cancelled, notes }`
+- `Note`: `{ id, guestId, body, author, createdAt }`
+- `Charge`: `{ id, guestId, date, description, category, amount }`; `Payment`: `{ id, guestId, date, method, amount }`
+
 ## Conversations (Communications)
 
 | Method | Path | Response |
@@ -36,7 +67,7 @@ Field names are camelCase. With `pg`, alias columns in SQL (`guest_name AS "gues
 | GET | `/conversations/:id/messages` | `Message[]` oldest first |
 | POST | `/conversations/:id/messages` `{ body }` | `Message` — also emit `message:new` |
 
-- `Conversation`: `{ id, guestName, lastMessage, lastAt, channel, stayStatus }`
+- `Conversation`: `{ id, guestId, guestName, lastMessage, lastAt, channel, stayStatus }`
   - `channel`: `in_app | whatsapp | email | sms | phone | note`
   - `stayStatus`: `Arriving | In House | Checked Out`
 - `Message`: `{ id, conversationId, fromStaff, sender, body, createdAt }`
@@ -45,12 +76,13 @@ Field names are camelCase. With `pg`, alias columns in SQL (`guest_name AS "gues
 
 | Method | Path | Response |
 |---|---|---|
-| GET | `/service-requests?department=` | `ServiceRequest[]` newest first |
+| GET | `/service-requests?department=&guestId=` | `ServiceRequest[]` newest first |
+| POST | `/service-requests` `{ guestId, title, department, priority, location, notes }` | `ServiceRequest` with status `New`. Also emit `service-request:created`. |
 | PATCH | `/service-requests/:id` `{ status }` | `ServiceRequest` — also emit `service-request:updated` |
 
-`ServiceRequest`: `{ id, number, createdAt, guestName, title, location, priority, status, department }`
+`ServiceRequest`: `{ id, number, createdAt, guestId, guestName, title, location, priority, status, department, notes }`
 - `priority`: `High | Normal | Low`
-- `status`: `In Progress | Completed | Scheduled | Escalated | On Hold`
+- `status`: `New | In Progress | Completed | Scheduled | Escalated | On Hold`
 - `department`: `Housekeeping | Maintenance | Dining | Wellness | Transportation | Experiences | Concierge`
 
 ## Reservations
