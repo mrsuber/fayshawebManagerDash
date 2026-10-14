@@ -1,0 +1,153 @@
+{
+  "nav": {
+    "guests": "Clients",
+    "reservations": "Réservations",
+    "residences": "Résidences",
+    "operations": "Opérations",
+    "wellness": "Bien-être",
+    "dining": "Restauration",
+    "experiences": "Expériences",
+    "analytics": "Analyses",
+    "ai": "Commande IA"
+  },
+  "pages": {
+    "guest360": {
+      "label": "Client 360",
+      "title": "Client 360",
+      "sub": "Profil client complet. Chaque séjour. Chaque préférence. Chaque interaction.",
+      "tag": "Connaître chaque client. Anticiper chaque besoin."
+    },
+    "journey": {
+      "label": "Parcours client",
+      "title": "Parcours client",
+      "sub": "De la réservation à l'après-séjour — une expérience fluide et personnalisée.",
+      "tag": "Chaque séjour, un parcours personnalisé."
+    },
+    "comms": {
+      "label": "Communications",
+      "title": "Centre de communications",
+      "sub": "Communication client unifiée sur tous les canaux.",
+      "tag": "Séjours connectés. Expériences exceptionnelles."
+    },
+    "requests": {
+      "label": "Demandes de service",
+      "title": "Demandes de service & opérations",
+      "sub": "Suivez et gérez toutes les demandes clients, tous services confondus.",
+      "tag": "Chaque demande. Chaque service. À l'heure."
+    },
+    "reservations": {
+      "label": "Réservations",
+      "title": "Gestion des réservations",
+      "sub": "Réservations, disponibilités, tarifs et séjours — au même endroit.",
+      "tag": "Réservations fluides. Séjours exceptionnels."
+    },
+    "residences": {
+      "label": "Résidences",
+      "title": "Résidences & maison connectée",
+      "sub": "Chaque résidence, chaque pièce, chaque appareil — en direct.",
+      "tag": "Maisons intelligentes. Confort sans effort."
+    },
+    "housekeeping": {
+      "label": "Entretien",
+      "title": "Entretien",
+      "sub": "État des chambres, plannings de ménage, linge et produits d'accueil.",
+      "tag": "Impeccable. Chaque chambre. Chaque jour."
+    },
+    "maintenance": {
+      "label": "Maintenance",
+      "title": "Maintenance",
+      "sub": "Ordres de travail, maintenance préventive et état des systèmes.",
+      "tag": "Des espaces parfaits. Entretenus en silence."
+    },
+    "wellness": {
+      "label": "Bien-être & Spa",
+      "title": "Bien-être & Spa",
+      "sub": "Réservations, installations, soins et expériences bien-être personnalisées.",
+      "tag": "Le bien-être pour un meilleur vous. Esprit. Corps. Équilibre."
+    },
+    "dining": {
+      "label": "Restauration",
+      "title": "Gestion de la restauration",
+      "sub": "Réservations, commandes, menus et expériences culinaires personnalisées.",
+      "tag": "Une table d'exception. Des moments inoubliables."
+    },
+    "transport": {
+      "label": "Transport",
+      "title": "Transport",
+      "sub": "Transferts, flotte, chauffeurs et déplacements des clients.",
+      "tag": "Arrivez dans le confort. Repartez avec style."
+    },
+    "experiences": {
+      "label": "Expériences",
+      "title": "Expériences",
+      "sub": "Activités, excursions et moments signature soigneusement sélectionnés.",
+      "tag": "Des moments qui restent."
+    },
+    "analytics": {
+      "label": "Analyses",
+      "title": "Analyses",
+      "sub": "Performance du chiffre d'affaires, de l'occupation, du service et de la satisfaction.",
+      "tag": "Des données derrière chaque décision."
+    },
+    "ai": {
+      "label": "Commande IA",
+      "title": "Centre de commande FAY IA",
+      "sub": "Votre partenaire intelligent pour une hospitalité d'exception.",
+      "tag": "Des opérations plus intelligentes. Des clients plus heureux."
+    },
+    "settings": {
+      "label": "Paramètres",
+      "title": "Paramètres",
+      "sub": "Établissement, équipe, intégrations et préférences.",
+      "tag": "Configuré pour l'excellence."
+    }
+  },
+  "layout": {
+    "concierge": "Concierge IA",
+    "tagline1": "Une destination.",
+    "tagline2": "Une sérénité infinie.",
+    "notifications": "Notifications",
+    "markAllRead": "Tout marquer comme lu",
+    "noNotifications": "Aucune notification",
+    "language": "Langue",
+    "logout": "Se déconnecter"
+  },
+  "auth": {
+    "title": "Connexion à FAY OS",
+    "subtitle": "Tableau de bord de gestion de Faysha Wellness Residence",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "signIn": "Se connecter",
+    "google": "Continuer avec Google",
+    "or": "ou",
+    "failed": "Échec de la connexion"
+  },
+  "common": {
+    "save": "Enregistrer",
+    "saved": "Enregistré",
+    "cancel": "Annuler",
+    "loading": "Chargement…",
+    "loadFailed": "Impossible de charger les données",
+    "retry": "Réessayer",
+    "send": "Envoyer",
+    "updateFailed": "Mise à jour impossible"
+  },
+  "payments": {
+    "collect": "Encaisser",
+    "title": "Encaisser un paiement",
+    "amount": "Montant",
+    "pay": "Payer {{amount}}",
+    "success": "Paiement réussi",
+    "notConfigured": "Stripe n'est pas configuré. Définissez REACT_APP_STRIPE_PUBLISHABLE_KEY et l'API de paiement.",
+    "for": "Réservation de {{guest}} · {{residence}}"
+  },
+  "residences": {
+    "view360": "Visite 360°",
+    "no360": "Aucune image panoramique pour cette résidence"
+  },
+  "settings": {
+    "phone": "Téléphone",
+    "email": "E-mail",
+    "contact": "Contact"
+  }
+}

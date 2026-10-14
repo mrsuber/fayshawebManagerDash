@@ -1,3 +1,6 @@
 node_modules
-dist
-*.tsbuildinfo
+build
+coverage
+.env
+.env.local
+.env.*.local
