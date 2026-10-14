@@ -3,7 +3,7 @@ import { guestsApi, serviceRequestsApi } from '../../api';
 import FormDialog from '../../components/FormDialog';
 import PaymentDialog from '../../components/PaymentDialog';
 import { useToast } from '../../context/ToastContext';
-import { BOOKING_TYPES, CHANNELS, DEPARTMENTS, localInput } from './format';
+import { BOOKING_TYPES, CHANNELS, DEPARTMENTS, localInput, toLocalInput } from './format';
 
 const TAG_SUGGESTIONS = ['Wellness & Recovery', 'Fine Dining', 'Outdoor Experiences', 'Business', 'Family', 'Spa', 'Golf', 'Water Activities', 'Celebration', 'Fitness', 'Cultural', 'Pool'];
 const DURATIONS = [
@@ -44,7 +44,10 @@ export default function useGuestActions(guest, onChanged) {
     checkIn: () => run(guestsApi.checkIn(guest.id), `${guest.name} checked in`),
   };
 
-  const booking = BOOKING_TYPES[preset.type] || BOOKING_TYPES.wellness;
+  const bookingType = BOOKING_TYPES[preset.type] || BOOKING_TYPES.wellness;
+  // A preset title (e.g. from a recommendation) is offered first even if it isn't in the type's catalogue.
+  const booking = { ...bookingType, options: preset.title && !bookingType.options.includes(preset.title) ? [preset.title, ...bookingType.options] : bookingType.options };
+  const resched = preset.booking;
 
   const dialogs = guest && (
     <>
@@ -89,12 +92,32 @@ export default function useGuestActions(guest, onChanged) {
           { name: 'guests', label: 'Guests', type: 'number', required: true },
           { name: 'notes', label: 'Notes', type: 'textarea', rows: 2 },
         ]}
-        initial={{ title: booking.options[0], startsAt: localInput(1, preset.type === 'dining' ? '20:00' : '10:00'), duration: 60, guests: guest.adults || 1 }}
+        initial={{ title: preset.title || booking.options[0], startsAt: localInput(1, preset.type === 'dining' ? '20:00' : '10:00'), duration: 60, guests: guest.adults || 1 }}
         onSubmit={({ startsAt, duration, guests, ...v }) => {
           const start = new Date(startsAt);
           return guestsApi
             .createBooking(guest.id, { ...v, type: preset.type || 'wellness', guests: Number(guests), startsAt: start.toISOString(), endsAt: new Date(start.getTime() + duration * 60000).toISOString() })
             .then(done(`${v.title} booked`));
+        }}
+        onClose={close}
+      />
+      <FormDialog
+        open={is('reschedule')}
+        title={`Modify – ${resched?.title || ''}`}
+        subtitle={guest.name}
+        submitLabel="Save Changes"
+        fields={[
+          { name: 'startsAt', label: 'Starts', type: 'datetime', required: true },
+          { name: 'guests', label: 'Guests', type: 'number', required: true },
+          { name: 'notes', label: 'Notes', type: 'textarea', rows: 2 },
+        ]}
+        initial={resched ? { startsAt: toLocalInput(resched.startsAt), guests: resched.guests, notes: resched.notes || '' } : {}}
+        onSubmit={({ startsAt, guests, notes }) => {
+          const start = new Date(startsAt);
+          const length = new Date(resched.endsAt) - new Date(resched.startsAt);
+          return guestsApi
+            .updateBooking(guest.id, resched.id, { startsAt: start.toISOString(), endsAt: new Date(start.getTime() + length).toISOString(), guests: Number(guests), notes })
+            .then(done(`${resched.title} updated`));
         }}
         onClose={close}
       />

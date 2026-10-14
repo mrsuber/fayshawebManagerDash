@@ -203,7 +203,7 @@ export function MediaCard({ img, imgHeight = 70, children, bodyGap = 4, bodyPadd
   );
 }
 
-export function VenueTile({ img, n, d, height }) {
+export function VenueTile({ img, n, d, height, onClick }) {
   return (
     <div
       className="ph hov-border-gold"
@@ -219,6 +219,8 @@ export function VenueTile({ img, n, d, height }) {
         position: 'relative',
         cursor: 'pointer',
       }}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
     >
       <span className="mono-label" style={{ position: 'absolute', top: 10, left: 12 }}>
         {img}

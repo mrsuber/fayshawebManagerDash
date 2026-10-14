@@ -54,9 +54,10 @@ src/
   api/                        axios client + one module per resource (auth, conversations, serviceRequests,
                               reservations, residences, housekeeping, dining, ai, notifications, settings, payments)
   mocks/data.js               seed data in the API's shapes (dates relative to today)
+  mocks/collections.js        seed rows for the operational list resources
   mocks/db.js                 working copy the mock API reads/writes, persisted in localStorage
   context/                    AuthContext (JWT/Firebase), SocketContext (socket.io), ToastContext (MUI Snackbar)
-  hooks/                      useApi (load + local updates), useSocketEvent
+  hooks/                      useApi (load + local updates), useCollection (CRUD list), useGuestOptions, useSocketEvent
   i18n/                       i18next setup + locales/en.json, fr.json
   lib/firebase.js             lazy Firebase: Google sign-in, FCM token, foreground pushes
   components/
@@ -73,27 +74,30 @@ src/
   __tests__/                  app, page and API-client tests
 ```
 
-| Route           | Page                          | Backed by the API |
+| Route           | Page                          | What works (on sample data or the API) |
 |-----------------|-------------------------------|---|
-| `/guest360`     | Guest 360                     | everything: all-guests list, profile, requests, bookings, messages, timeline, history, folio, notes, check-in/out |
-| `/journey`      | Guest Journey                 | — |
-| `/comms`        | Communications Center         | conversations, messages, send, live `message:new` |
-| `/requests`     | Service Requests & Operations | list, mark completed, live create/update |
-| `/reservations` | Reservations Management       | calendar stays, today's arrivals/departures, Stripe payment |
-| `/residences`   | Residences & Smart Home       | residences, device toggles, climate, scenes, 360° tour |
-| `/housekeeping` | Housekeeping                  | status board, live `housekeeping:updated` |
-| `/maintenance`  | Maintenance                   | — |
-| `/wellness`     | Wellness & Spa                | — |
-| `/dining`       | Dining Management             | floor-plan table status |
-| `/transport`    | Transportation                | — |
-| `/experiences`  | Experiences                   | — |
-| `/analytics`    | Analytics                     | — |
-| `/ai`           | FAY AI Command Center         | `POST /ai/ask` |
-| `/settings`     | Settings                      | property details (editable, phone input) |
+| `/guest360`     | Guest 360                     | all-guests list, profile, requests, bookings, messages, timeline, history, folio, notes, check-in/out |
+| `/journey`      | Guest Journey                 | any guest: stages, timeline, milestones (view/modify/cancel), recommendations → booking, automations, satisfaction |
+| `/comms`        | Communications Center         | channels, search, date/stay filters, new message, reply / internal note, guest context tabs, quick actions |
+| `/requests`     | Service Requests & Operations | create, search, date range, status/priority/department changes, live KPIs & charts |
+| `/reservations` | Reservations Management       | 9 working tabs, new reservation (overlap check), cancel/confirm, check-in/out, packages, groups, rates |
+| `/residences`   | Residences & Smart Home       | devices, climate, scenes, security toggles, device alerts, 360° tour |
+| `/housekeeping` | Housekeeping                  | status board, tasks (create/advance), team, linen restock, guest notes |
+| `/maintenance`  | Maintenance                   | work orders (create/assign/status), alerts → work orders, preventive schedule, technicians, diagnostics |
+| `/wellness`     | Wellness & Spa                | schedule (room-clash check), availability grid, packages, recommendations, guest profile |
+| `/dining`       | Dining Management             | reservations (seat/complete), floor plan, orders, menu, walk-ins, dietary requests |
+| `/transport`    | Transportation                | transfers, assignment, fleet, chauffeurs, flight watch → pickup, live map |
+| `/experiences`  | Experiences                   | catalogue (add, pause), booking with capacity check, offers to guests |
+| `/analytics`    | Analytics                     | 7/30 days, YTD and custom ranges, CSV export, top services |
+| `/ai`           | FAY AI Command Center         | ask FAY, live KPIs, alerts, priorities, insights → priorities, cameras |
+| `/settings`     | Settings                      | property, team & roles, residences, AI behaviour, notifications, integrations, billing |
 | (header)        | Notifications                 | list, mark read, FCM device token, live `notification:new` |
 
-Pages marked "—", and the static panels on the other pages, still read constants at the top of the page file.
-To connect one, add a function to `src/api/`, put its sample data in `src/mocks/data.js`, and load it with `useApi`.
+Every “View All ›” opens a searchable, filterable pop-up of that card's items. Mutations go through `src/api/*`; most operational
+lists use the generic collections API (`src/api/collections.js` + `useCollection`). Their endpoints and fields are listed in docs/API.md.
+
+A few decorative panels (e.g. the energy chart on Residences, the response-time chart on Service Requests) are still
+constants in the page file.
 
 ## Adding a translation
 

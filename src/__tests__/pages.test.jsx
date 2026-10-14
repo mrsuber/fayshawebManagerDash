@@ -10,7 +10,7 @@ test('Communications sends a message to the selected guest', async () => {
   renderWithProviders(<Communications />);
   const input = await screen.findByPlaceholderText('Type a message to Abba Abdouraman…');
   await userEvent.type(input, 'Your locker code is 4821{enter}');
-  expect(await screen.findByText('Your locker code is 4821')).toBeInTheDocument();
+  expect((await screen.findAllByText('Your locker code is 4821')).length).toBeGreaterThan(0);
   expect(input).toHaveValue('');
 });
 

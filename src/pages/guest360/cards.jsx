@@ -48,7 +48,7 @@ export function RequestRow({ r, onComplete }) {
       <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{when(r.createdAt)}</span>
       <StatusPill s={r.status} minWidth={92} />
       {onComplete && r.status !== 'Completed' && (
-        <button type="button" className="mini-btn" onClick={() => onComplete(r)} title="Mark as completed">
+        <button type="button" className="mini-btn" onClick={() => onComplete(r)} title="Mark as completed" aria-label="Mark as completed">
           <Icon name="check" size={18} />
         </button>
       )}
@@ -62,7 +62,7 @@ export function BookingRow({ b, onCancel }) {
     <ListRow key={b.id} icon={type.icon} c={type.color} t={b.title} d={`${slot(b.startsAt, b.endsAt)}${b.guests ? ` · ${b.guests} guest${b.guests > 1 ? 's' : ''}` : ''}`}>
       <StatusPill s={b.status} minWidth={92} />
       {onCancel && ['Confirmed', 'Pending'].includes(b.status) && new Date(b.startsAt) > new Date() && (
-        <button type="button" className="mini-btn" onClick={() => onCancel(b)} title="Cancel booking">
+        <button type="button" className="mini-btn" onClick={() => onCancel(b)} title="Cancel booking" aria-label="Cancel booking">
           <Icon name="close" size={18} />
         </button>
       )}

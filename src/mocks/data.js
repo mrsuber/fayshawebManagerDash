@@ -6,6 +6,7 @@
  * `buildSeed()` creates a fresh copy; src/mocks/db.js keeps the working copy (persisted in localStorage).
  */
 import moment from 'moment';
+import { buildCollections } from './collections';
 
 export const user = { id: 1, name: 'FAY Admin', email: 'admin@faysha.com', role: 'admin' };
 
@@ -372,21 +373,32 @@ const CAL_STAYS = [
 ];
 const CAL_GUESTS = ['Grace N.', 'Carlos Mendez', 'Linda E.', 'Michael Chen', 'Marie T.', 'Richard Thompson', 'James & Anna', 'David Kim', 'Abba Abdouraman', 'Elena Petrova', 'Sophie Laurent', 'Carlos Mendez'];
 
+const SOURCES = ['Direct Website', 'Repeat Guests', 'Travel Partners', 'Direct Website', 'Corporate', 'Events & Groups', 'Direct Website', 'Repeat Guests', 'Walk-in / Other', 'Travel Partners', 'Direct Website', 'Repeat Guests'];
+
 function buildReservations() {
   const start = moment().startOf('month').startOf('week');
   const d = (offset) => start.clone().add(offset, 'days').format('YYYY-MM-DD');
-  return CAL_STAYS.map(([residence, collection, s, nights], i) => ({
+  const rate = (c) => RATE[collectionOf(c === 'Riviera 2' ? 'Riviera' : c)];
+  const list = CAL_STAYS.map(([residence, collection, s, nights], i) => ({
     id: 5000 + i,
+    number: `FYH${7800 + i}`,
     guestName: CAL_GUESTS[i],
     residence,
     collection,
     checkIn: d(s),
     checkOut: d(s + nights),
     guests: 2,
-    status: 'Confirmed',
-    totalAmount: nights * 690,
+    status: i === 1 ? 'Pending' : 'Confirmed',
+    source: SOURCES[i],
+    bookedAt: past(-(20 - i), '10:00'),
+    totalAmount: nights * rate(collection),
     currency: 'usd',
   }));
+  list.push(
+    { id: 5100, number: 'FYH7790', guestName: 'Oliver Grant', residence: 'Riviera 3', collection: 'Riviera', checkIn: d(18), checkOut: d(20), guests: 2, status: 'Cancelled', source: 'Travel Partners', bookedAt: past(-30, '09:00'), cancelledAt: past(-3, '16:20'), totalAmount: 1560, currency: 'usd' },
+    { id: 5101, number: 'FYH7791', guestName: 'Chen Wei', residence: 'Allure Penthouse 2', collection: 'Allure Penthouse', checkIn: d(24), checkOut: d(26), guests: 1, status: 'Cancelled', source: 'Corporate', bookedAt: past(-25, '11:30'), cancelledAt: past(-1, '09:10'), totalAmount: 2960, currency: 'usd' },
+  );
+  return list;
 }
 
 const movement = (rows) => rows.map(([time, guestName, residence, guests, status], i) => ({ id: i + 1, time, guestName, residence, guests, status }));
@@ -407,6 +419,7 @@ export function buildSeed() {
   const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
 
   return {
+    ...buildCollections({ at, past, day }),
     guests,
     stays: buildStays(guests),
     timeline: buildTimeline(guests),
@@ -445,7 +458,7 @@ export function buildSeed() {
       ['Allure Penthouse 2', 'Allure Penthouse', null, 'Vacant'],
       ['Serenity 3', 'Serenity Collection', null, 'Ready'],
       ['Riviera 3', 'Riviera Collection', 'Sophie Laurent', 'Occupied'],
-    ].map(([name, collection, guestName, status], i) => ({ id: i + 1, name, collection, guestName, status, panoramaUrl: null, targetTemp: 22, scene: 'relax' })),
+    ].map(([name, collection, guestName, status], i) => ({ id: i + 1, name, collection, guestName, status, panoramaUrl: null, targetTemp: 22, scene: 'relax', devicesOff: { '0-2': true, '1-2': true }, security: { front: 'Secured', garage: 'Secured', privacy: i % 3 === 0 ? 'On' : 'Off' } })),
     housekeepingRooms: [
       ['Serenity 1', 'Occupied', 'DND until 9 AM'],
       ['Serenity 2', 'Inspect', 'Maya R.'],

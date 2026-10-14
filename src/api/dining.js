@@ -5,9 +5,12 @@ import { getDb, mutate } from '../mocks/db';
 /** GET /dining/tables → DiningTable[] */
 export const tables = () => withMock(() => api.get('/dining/tables'), () => getDb().diningTables);
 
-/** PATCH /dining/tables/:id { status } */
-export const setTableStatus = (id, status) =>
+/** PATCH /dining/tables/:id { status, guestName? } */
+export const setTable = (id, changes) =>
   withMock(
-    () => api.patch(`/dining/tables/${encodeURIComponent(id)}`, { status }),
-    () => mutate((d) => Object.assign(d.diningTables.find((t) => t.id === id), { status })),
+    () => api.patch(`/dining/tables/${encodeURIComponent(id)}`, changes),
+    () => mutate((d) => Object.assign(d.diningTables.find((t) => t.id === id), changes)),
   );
+
+/** @deprecated use setTable */
+export const setTableStatus = (id, status) => setTable(id, { status });

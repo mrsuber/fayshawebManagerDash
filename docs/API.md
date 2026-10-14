@@ -89,12 +89,17 @@ Field names are camelCase. With `pg`, alias columns in SQL (`guest_name AS "gues
 
 | Method | Path | Response |
 |---|---|---|
-| GET | `/reservations?from=YYYY-MM-DD&to=YYYY-MM-DD` | `Reservation[]` that overlap the range (the calendar asks for the visible month) |
+| GET | `/reservations?from=YYYY-MM-DD&to=YYYY-MM-DD&status=` | `Reservation[]` that overlap the range (the calendar asks for the visible month) |
+| POST | `/reservations` `{ guestId?, guestName, residence, collection, checkIn, checkOut, guests, source, packageId?, totalAmount }` | `Reservation`. Respond **409** with `{ message }` when the residence is already booked for those dates. |
+| PATCH | `/reservations/:id` `{ status }` | `Reservation`. `Cancelled` frees the dates. |
 | GET | `/reservations/today` | `{ arrivals: Movement[], departures: Movement[] }` |
+| PATCH | `/reservations/today/:kind/:id` `{ status }` | front-desk check-in/out. `kind` is `arrivals` or `departures`. |
 
-- `Reservation`: `{ id, guestName, residence, collection, checkIn, checkOut, guests, status, totalAmount, balanceDue?, currency }`
+- `Reservation`: `{ id, number, guestName, guestId?, residence, collection, checkIn, checkOut, guests, status, source, bookedAt, cancelledAt?, package?, totalAmount, balanceDue?, currency }`
   - `checkOut` is the departure date, so the calendar bar ends the night before.
   - `collection` sets the bar color: `Serenity | Villa Spectra | Allure Penthouse | Riviera | Riviera 2`.
+  - `status` is `Confirmed | Pending | Cancelled`.
+  - `source` is one of `Direct Website | Repeat Guests | Travel Partners | Corporate | Events & Groups | Walk-in / Other`.
   - `totalAmount`/`balanceDue` are major units (e.g. `1380` = $1,380.00).
 - `Movement`: `{ id, time, guestName, residence, guests, status }`, where `time` is a display string such as `"2:00 PM"`.
 
@@ -116,11 +121,12 @@ Don't trust `amount` from the client: recompute it from the reservation. Mark th
 | PATCH | `/residences/:id/devices/:deviceId` | `{ on }` |
 | PATCH | `/residences/:id/climate` | `{ targetTemp }` (16–30) |
 | POST | `/residences/:id/scene` | `{ scene }` (`welcome | relax | sleep | away | wake up`) |
+| PATCH | `/residences/:id/security` | `{ front?: 'Secured' \| 'Unlocked', garage?: 'Secured' \| 'Open', privacy?: 'On' \| 'Off' }` |
 
-`Residence`: `{ id, name, collection, guestName, status, panoramaUrl, targetTemp, scene }`
+`Residence`: `{ id, name, collection, guestName, status, panoramaUrl, targetTemp, scene, devicesOff: { [deviceId]: true }, security: { front, garage, privacy } }`
 - `status`: `Occupied | Arriving | Maintenance | Cleaning | Vacant | Ready`
 - `panoramaUrl`: an equirectangular JPEG for the 360° tour (pannellum), or `null`. Serve it from the same origin or with CORS headers.
-- `deviceId` is currently `"<Room>/<Device>"`, e.g. `Living Room/Lights`. Return real device IDs from the API to replace it.
+- `deviceId` is currently `"<roomIndex>-<deviceIndex>"` for the sample room layout. Return real device IDs from the API to replace it.
 
 ## Housekeeping
 
@@ -136,7 +142,7 @@ Don't trust `amount` from the client: recompute it from the reservation. Mark th
 | Method | Path | Body |
 |---|---|---|
 | GET | `/dining/tables` | → `DiningTable[]` |
-| PATCH | `/dining/tables/:id` | `{ status }` |
+| PATCH | `/dining/tables/:id` | `{ status, guestName? }` (seating a reservation sets both) |
 
 `DiningTable`: `{ id, status, guestName }`, where `status` is `Available | Seated | Reserved | Cleaning`.
 
@@ -165,6 +171,84 @@ Don't trust `amount` from the client: recompute it from the reservation. Mark th
 | PUT | `/settings/property` | `Property` → `Property` |
 
 `Property`: `{ name, brand, timeZone, currency, checkInTime, checkOutTime, phone, email }`. `phone` is digits only with the country code (react-phone-input-2), e.g. `971501234567`.
+
+## Analytics
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD` | `Report` |
+
+`Report` contains:
+- `unit`: `day | week | month` (the bucket size for `series`).
+- `kpis`: `[{ l, n, format?: 'money', d }]`, where `d` is the change, e.g. `"↑ 12%"`.
+- `series`: `[{ label, stays, services }]`.
+- `mix`: `[{ l, v, c }]`, where `v` is a percentage.
+- `total`.
+- `occupancy`: `[{ l, v }]`.
+- `satisfaction`: `[{ l, v, c }]`.
+- `topServices`: `[{ n, count, revenue }]`.
+
+The page offers 7 days, 30 days, year to date or a custom range, and exports the report as CSV in the browser.
+
+## Settings (preferences)
+
+| Method | Path | Body |
+|---|---|---|
+| GET | `/settings/preferences` | → `{ ai, notifications, billing }` |
+| PATCH | `/settings/preferences` | any of `{ ai, notifications, billing }`; deep-merge each group |
+| POST | `/notifications/test` | send a test notification to the signed-in user |
+
+- `ai`: `{ autoReply, recommendations, autoAssign, smartHome, approvalOver500 }` (booleans).
+- `notifications`: `{ [event]: { push, email, sms } }` for the events `vipArrival | escalation | newRequest | payment | deviceAlert`.
+- `billing`: `{ plan, price, card (last 4), nextInvoice }`.
+
+## Operational list resources
+
+Most remaining screens use plain CRUD collections (`src/api/collections.js`), all with the same four routes:
+
+```
+GET    {path}?field=value   → Item[]      (filter by exact field match)
+POST   {path}               → Item        (server sets id, createdAt; fills guestName from guestId)
+PATCH  {path}/:id           → Item
+DELETE {path}/:id           → { ok: true }
+```
+
+| Resource | Path | Item fields |
+|---|---|---|
+| Journey automations | `/journey/automations` | `icon, title, detail, enabled` |
+| Housekeeping tasks | `/housekeeping/tasks` | `time, title, location, assignee, status: Scheduled \| In Progress \| Completed` |
+| Housekeeping staff | `/housekeeping/staff` | `name, zone, shift` |
+| Linen & amenities | `/housekeeping/stock` | `item, level (0–100), par` |
+| Guest notes for housekeeping | `/housekeeping/guest-notes` | `icon, residence, guest, text` |
+| Work orders | `/maintenance/work-orders` | `number, title, location, priority: High \| Medium \| Low, technician, status: Open \| In Progress \| Scheduled \| Awaiting Parts \| Completed, createdAt` |
+| Preventive maintenance | `/maintenance/preventive` | `date, title, location, duration, status: Planned \| Done` |
+| System health | `/maintenance/systems` | `icon, name, health (0–100), checkedAt` |
+| Maintenance device alerts | `/maintenance/alerts` | `icon, severity, title, detail, location, status: Open \| Converted, workOrder?` |
+| Technicians | `/maintenance/technicians` | `name, skill, status: Available \| On job \| Off shift` |
+| Residence device alerts | `/residences/alerts` | `icon, severity, residence, title, raisedAt, status: Open \| Resolved` |
+| Wellness appointments | `/wellness/appointments` | `date, start, end (HH:mm), treatment, guestId, guestName, room, status: Upcoming \| In Progress \| Completed \| Cancelled`. Reject overlapping times in the same room. |
+| Wellness packages | `/wellness/packages` | `title, guestId, guestName, date, start, end, status: Confirmed \| Pending` |
+| Dining reservations | `/dining/reservations` | `date, time, guestId, guestName, covers, venue, table, status: Confirmed \| Seated \| Completed \| Cancelled, source: Reservation \| Walk-in, notes` |
+| Dining orders | `/dining/orders` | `number, venue, items, time, location, status: Confirmed \| Preparing \| Ready \| Delivered, guestId, total` |
+| Menu | `/dining/menu` | `name, venue, price, category, available, popular` |
+| Transfers | `/transport/transfers` | `date, time, kind, guestId, guestName, from, to, vehicle, driver, status: Scheduled \| Assigned \| En Route \| Completed \| Delayed \| Cancelled` |
+| Fleet | `/transport/fleet` | `icon, name, detail, status` |
+| Chauffeurs | `/transport/drivers` | `name, area, status: Available \| On Trip \| Off Duty, phone` |
+| Flights | `/transport/flights` | `flight, guestId, guestName, direction: Arrival \| Departure, airport, time, status` |
+| Experiences catalogue | `/experiences` | `img, category, name, description, duration, capacity, price, active` |
+| Experience bookings | `/experiences/bookings` | `startsAt, experience, guestId, guestName, pax, status, total`. Reject `pax > capacity`. |
+| Room types | `/reservations/room-types` | `collection, units, rate, capacity, bedrooms, view` |
+| Packages | `/reservations/packages` | `name, detail, price (per night), nights, collection` |
+| Groups & events | `/reservations/groups` | `dates, name, residences, guests, status: Inquiry \| Pending \| Confirmed, contact` |
+| AI alerts | `/ai/alerts` | `icon, severity, title, detail, raisedAt, status: Open \| Resolved, link (app route)` |
+| AI priorities | `/ai/priorities` | `title, level: High \| Medium \| Low, done` |
+| Team | `/settings/team` | `name, email, role, department, status: Active \| Invited \| Deactivated`. Send the invite email with Nodemailer on POST. |
+| Integrations | `/settings/integrations` | `icon, name, detail, status: Connected \| Action needed \| Disconnected` |
+| Invoices | `/settings/invoices` | `number, date, amount, status` |
+
+Some creates should also do what the sample data does: add a guest timeline entry and/or a notification (see `EFFECTS` in `src/api/collections.js`):
+- work order → notification
+- transfer, dining reservation or order, wellness appointment, experience booking → entry on the guest's timeline
 
 ## Socket.io
 

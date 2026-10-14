@@ -56,3 +56,5 @@ export const slot = (startsAt, endsAt) => `${dayName(moment(startsAt))}, ${momen
 export const nights = (g) => moment(g.checkOut).diff(moment(g.checkIn), 'days');
 /** Value for a datetime-local input, `days` from now at `hhmm`. */
 export const localInput = (days = 1, hhmm = '10:00') => `${moment().add(days, 'days').format('YYYY-MM-DD')}T${hhmm}`;
+/** ISO timestamp → datetime-local input value. */
+export const toLocalInput = (iso) => moment(iso).format('YYYY-MM-DDTHH:mm');
