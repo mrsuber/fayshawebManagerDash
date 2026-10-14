@@ -137,6 +137,7 @@ export const updateBooking = (id, bookingId, changes) =>
         const b = d.bookings.find((x) => x.id === bookingId);
         Object.assign(b, changes);
         if (changes.status) addTimeline(d, b.guestId, `${changes.status} – ${b.title}`, BOOKING_CATEGORY[b.type] || 'Booking');
+        else if (changes.startsAt) addTimeline(d, b.guestId, `Rescheduled – ${b.title}`, BOOKING_CATEGORY[b.type] || 'Booking');
         return b;
       }),
   );

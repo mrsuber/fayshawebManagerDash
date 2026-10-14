@@ -10,7 +10,8 @@ const KEY = 'fayos.mockdb.v2';
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY));
-    if (saved && saved.guests) return saved;
+    // Collections added in newer versions come from the seed; saved ones keep the user's changes.
+    if (saved && saved.guests) return { ...buildSeed(), ...saved };
   } catch {
     /* storage unavailable or corrupt */
   }

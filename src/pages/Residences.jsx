@@ -5,6 +5,9 @@ import PanoramaDialog from '../components/PanoramaDialog';
 import { Card, Donut, Icon, KpiGrid, Placeholder, Toggle } from '../components/ui';
 import { useToast } from '../context/ToastContext';
 import useApi from '../hooks/useApi';
+import useCollection from '../hooks/useCollection';
+import ViewAllDialog from '../components/ViewAllDialog';
+import moment from 'moment';
 
 // Residences come from the API (see docs/API.md); room/device layout and the side panels are still sample data.
 const SC = { Occupied: '#1f7a48', Arriving: '#2f6fe8', Maintenance: '#c43a3a', Cleaning: '#6b5a3a', Vacant: '#3a3f48', Ready: '#1f9d55' };
@@ -67,18 +70,15 @@ const ENVI = [
   { icon: 'air', c: '#3fd283', v: 'Excellent', l: 'Air quality' },
   { icon: 'water_drop', c: '#4fc3f7', v: '142 L', l: 'Water today' },
 ];
+/** Security rows; `key` is the residence.security field, `states` cycles on click. */
 const SECURITY = [
-  { icon: 'door_front', c: '#3fd283', t: 'Front Door', d: 'Locked · Digital key active', s: 'Secured', sc: '#1f7a48' },
-  { icon: 'deployed_code', c: '#4fc3f7', t: 'Smart Locker 07', d: '1 package waiting', s: 'Ready', sc: '#1f9d55' },
-  { icon: 'garage', c: '#cfc8ba', t: 'Garage', d: 'Closed · 1 vehicle', s: 'Secured', sc: '#1f7a48' },
-  { icon: 'do_not_disturb_on', c: '#e8b84a', t: 'Privacy Mode', d: 'Do not disturb until 9 AM', s: 'On', sc: '#6b5a3a' },
+  { key: 'front', icon: 'door_front', c: '#3fd283', t: 'Front Door', on: 'Locked · Digital key active', offText: 'Unlocked', states: ['Secured', 'Unlocked'] },
+  { key: 'garage', icon: 'garage', c: '#cfc8ba', t: 'Garage', on: 'Closed · 1 vehicle', offText: 'Open', states: ['Secured', 'Open'] },
+  { key: 'privacy', icon: 'do_not_disturb_on', c: '#e8b84a', t: 'Privacy Mode', on: 'Do not disturb until 9 AM', offText: 'Housekeeping welcome', states: ['On', 'Off'] },
 ];
+const SEC_COLOR = { Secured: '#1f7a48', On: '#6b5a3a', Unlocked: '#c43a3a', Open: '#c43a3a', Off: '#3a3f48' };
+const SEVERITY = { High: '#ff6b6b', Medium: '#e8b84a', Low: '#5b8ff0' };
 const ENERGY = ['30%', '22%', '18%', '16%', '20%', '38%', '55%', '62%', '48%', '70%', '82%', '64%'];
-const ALERTS = [
-  { icon: 'warning', c: '#ff6b6b', t: 'Riviera 2 – AC below optimal level', time: '28m' },
-  { icon: 'battery_alert', c: '#e8b84a', t: 'Villa Spectra 1 – Lock battery 15%', time: '2h' },
-  { icon: 'wifi_off', c: '#ff6b6b', t: 'Serenity 3 – Terrace sensor offline', time: '3h' },
-];
 const T_MIN = 16;
 const T_MAX = 30;
 const roundBtn = {
@@ -95,7 +95,9 @@ const roundBtn = {
 export default function Residences() {
   const { t } = useTranslation();
   const toast = useToast();
-  const { data } = useApi(residencesApi.list, [], []);
+  const { data, setData } = useApi(residencesApi.list, [], []);
+  const alerts = useCollection('deviceAlerts');
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const list = data || [];
   const [sel, setSel] = useState(0);
   const [scene, setScene] = useState(1);
@@ -105,6 +107,12 @@ export default function Residences() {
   const current = list[sel] || {};
   const { id, name, collection: col, guestName, status } = current;
   const guest = guestName || '—';
+
+  useEffect(() => {
+    setOff(current.devicesOff || {});
+    // Only when switching residence; later toggles are local + persisted through the API.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current.id]);
 
   useEffect(() => {
     if (current.targetTemp) setTemp(current.targetTemp);
@@ -126,15 +134,55 @@ export default function Residences() {
   const toggleDevice = (k, room, device) => {
     const turnOn = !!off[k];
     setOff((o) => ({ ...o, [k]: !o[k] }));
-    residencesApi.setDevice(id, `${room}/${device}`, turnOn).catch((e) => {
+    setData((l) => l.map((r) => (r.id === id ? { ...r, devicesOff: { ...(r.devicesOff || {}), [k]: !turnOn } } : r)));
+    residencesApi.setDevice(id, k, turnOn).catch((e) => {
       setOff((o) => ({ ...o, [k]: !o[k] }));
       fail(e);
     });
   };
+  const security = current.security || {};
+  const toggleSecurity = (row) => {
+    const now = security[row.key] || row.states[0];
+    const next = row.states[(row.states.indexOf(now) + 1) % row.states.length];
+    setData((l) => l.map((r) => (r.id === id ? { ...r, security: { ...security, [row.key]: next } } : r)));
+    residencesApi
+      .setSecurity(id, { [row.key]: next })
+      .then(() => toast(`${name} · ${row.t}: ${next}`))
+      .catch(fail);
+  };
+  const openAlerts = alerts.items.filter((a) => a.status === 'Open');
+  const alertRow = (a) => (
+    <div key={a.id} className="row-line" style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, padding: '6px 0' }}>
+      <Icon name={a.icon} size={20} color={a.status === 'Open' ? SEVERITY[a.severity] : 'var(--faint)'} />
+      <span style={{ flex: 1, color: a.status === 'Open' ? undefined : 'var(--dim)' }}>
+        {a.residence} – {a.title}
+      </span>
+      <span style={{ color: 'var(--dim)', fontSize: 12 }}>{moment(a.raisedAt).fromNow(true)}</span>
+      {a.status === 'Open' ? (
+        <button type="button" className="mini-btn" title="Mark resolved" aria-label="Mark resolved" onClick={() => alerts.update(a.id, { status: 'Resolved' }, `${a.residence} alert resolved`)}>
+          <Icon name="check" size={16} />
+        </button>
+      ) : (
+        <span style={{ fontSize: 11, color: 'var(--green-bright)' }}>Resolved</span>
+      )}
+    </div>
+  );
   const pct = `${((temp - T_MIN) / (T_MAX - T_MIN)) * 100}%`;
   return (
     <div className="stack">
-      <KpiGrid items={KPIS} />
+      <KpiGrid
+        items={KPIS.map((k) =>
+          k.l === 'Occupied'
+            ? { ...k, n: String(list.filter((r) => r.status === 'Occupied').length) }
+            : k.l === 'Residences'
+              ? { ...k, n: String(list.length) }
+              : k.l === 'Devices Offline'
+                ? { ...k, n: String(openAlerts.length) }
+                : k.l === 'Doors Secured'
+                  ? { ...k, n: `${Math.round((list.filter((r) => (r.security?.front || 'Secured') === 'Secured').length / Math.max(1, list.length)) * 100)}%` }
+                  : k,
+        )}
+      />
 
       <div className="grid-cols">
         <section className="card" style={{ padding: 12, gap: 6 }}>
@@ -281,17 +329,27 @@ export default function Residences() {
             </div>
           </Card>
 
-          <Card title="Access & Security" gap={6}>
-            {SECURITY.map((r) => (
-              <div key={r.t} className="row-line" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '6px 0' }}>
-                <Icon name={r.icon} size={22} color={r.c} />
-                <div className="col" style={{ flex: 1 }}>
-                  <span style={{ fontSize: 14 }}>{r.t}</span>
-                  <span className="sub">{r.d}</span>
+          <Card title="Access & Security" aside={<span style={{ fontSize: 12, color: 'var(--muted)' }}>Tap a status to change it</span>} gap={6}>
+            {SECURITY.map((r) => {
+              const st = security[r.key] || r.states[0];
+              const on = st === r.states[0];
+              return (
+                <div key={r.key} className="row-line" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '6px 0' }}>
+                  <Icon name={r.icon} size={22} color={on ? r.c : '#ff6b6b'} />
+                  <div className="col" style={{ flex: 1 }}>
+                    <span style={{ fontSize: 14 }}>{r.t}</span>
+                    <span className="sub">{on ? r.on : r.offText}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleSecurity(r)}
+                    style={{ padding: '3px 10px', borderRadius: 4, fontSize: 12, background: SEC_COLOR[st], color: 'var(--text)', border: 0, cursor: 'pointer', fontFamily: 'var(--sans)' }}
+                  >
+                    {st}
+                  </button>
                 </div>
-                <span style={{ padding: '3px 10px', borderRadius: 4, fontSize: 12, background: r.sc }}>{r.s}</span>
-              </div>
-            ))}
+              );
+            })}
           </Card>
 
           <Card title="Energy Today" aside={<span style={{ fontSize: 14, color: 'var(--green-bright)' }}>↓ 12%</span>} gap={8}>
@@ -310,17 +368,20 @@ export default function Residences() {
             </div>
           </Card>
 
-          <Card title="Device Alerts" gap={6}>
-            {ALERTS.map((a) => (
-              <div key={a.t} className="row-line" style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, padding: '6px 0' }}>
-                <Icon name={a.icon} size={20} color={a.c} />
-                <span style={{ flex: 1 }}>{a.t}</span>
-                <span style={{ color: 'var(--dim)', fontSize: 12 }}>{a.time}</span>
-              </div>
-            ))}
+          <Card title={`Device Alerts (${openAlerts.length})`} link="View All ›" onLink={() => setAlertsOpen(true)} gap={6}>
+            {openAlerts.length ? openAlerts.slice(0, 4).map(alertRow) : <span className="sub">All clear — no open alerts.</span>}
           </Card>
         </div>
       </div>
+      <ViewAllDialog
+        open={alertsOpen}
+        onClose={() => setAlertsOpen(false)}
+        title="Device Alerts"
+        items={alerts.items}
+        searchText={(a) => `${a.residence} ${a.title}`}
+        filters={{ options: ['All', 'Open', 'Resolved', 'High', 'Medium', 'Low'], get: (a) => [a.status, a.severity] }}
+        renderItem={alertRow}
+      />
       <PanoramaDialog residence={tour} onClose={() => setTour(null)} />
     </div>
   );

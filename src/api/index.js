@@ -10,4 +10,6 @@ export * as aiApi from './ai';
 export * as notificationsApi from './notifications';
 export * as settingsApi from './settings';
 export * as guestsApi from './guests';
+export * as collectionsApi from './collections';
+export * as analyticsApi from './analytics';
 export * as paymentsApi from './payments';

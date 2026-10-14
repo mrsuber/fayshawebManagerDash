@@ -347,3 +347,13 @@ input { font-family: var(--sans); }
 }
 .mini-btn:hover { border-color: var(--gold); color: var(--gold); }
 button.hov-gold-bg:hover { border-color: var(--gold); }
+
+/* Toolbar buttons rendered as <button> (same look as the div versions). */
+button.btn-gold,
+button.btn-outline { font-family: var(--sans); cursor: pointer; }
+button.btn-gold { border: 0; }
+button.btn-gold:disabled { opacity: 0.5; cursor: default; }
+button.btn-outline { background: transparent; color: var(--text); }
+button.btn-outline:hover { border-color: var(--gold); }
+button.cta-sm { border: 0; cursor: pointer; font-family: var(--sans); }
+.mini-btn:disabled { opacity: 0.35; cursor: default; }
