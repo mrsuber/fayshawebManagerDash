@@ -1,67 +1,100 @@
 # FAY OS — Faysha Wellness Residence dashboard
 
-React + Vite + TypeScript implementation of the FAY OS Claude Design handoff (`FAY OS.dc.html` and its 15 page files).
+Management dashboard for Faysha Wellness Residence. It's a React 18 app built with Create React App and is designed to run against the FAY Express/PostgreSQL backend.
+Until you configure a backend, it runs on built-in sample data.
+
+## Stack
+
+| | |
+|---|---|
+| Framework / build | React 18.2, React Scripts 5.0.1 (CRA) |
+| Styling | Tailwind CSS 3.4.1, MUI 7.3.8 (Emotion), design tokens in `src/styles.css` |
+| UI | @mui/icons-material, react-big-calendar (moment), pannellum-react (360° tours), react-phone-input-2 |
+| Routing | React Router DOM 6.20 |
+| Data | Axios 1.6.2 (JWT bearer), Socket.io-client 4.8.3 |
+| i18n | i18next + react-i18next (English, French) |
+| Auth | JWT from the API; optional Google sign-in through Firebase 10.7.1 |
+| Push | Firebase Cloud Messaging (`public/firebase-messaging-sw.js`) |
+| Payments | Stripe Payment Element (@stripe/react-stripe-js) |
+| Tests | Jest + React Testing Library |
 
 ## Run
 
 ```bash
-npm install
-npm run dev        # http://localhost:5173
-npm run build      # type-check + production build into dist/
+npm install          # .npmrc sets legacy-peer-deps (pannellum-react declares a React 16 peer)
+cp .env.example .env # optional: leave as-is to run on sample data
+npm start            # http://localhost:3000
+npm test             # watch mode; `npm run test:ci` for a single run
+npm run build        # production build into build/
 ```
+
+### Connecting the backend
+
+1. Start the Express API on port 5000. In development, CRA proxies `/api` to it (`"proxy"` in `package.json`).
+2. In `.env`, set `REACT_APP_USE_MOCKS=false`. For a remote API, also set `REACT_APP_API_URL=https://…/api`.
+3. Add `REACT_APP_STRIPE_PUBLISHABLE_KEY` and the `REACT_APP_FIREBASE_*` values to enable payments, Google sign-in and push notifications.
+
+The endpoints, payload shapes, Socket.io events and an Express wiring sketch are in **[docs/API.md](docs/API.md)**.
 
 ## Structure
 
 ```
+public/
+  index.html                  fonts (Cormorant Garamond, Jost, Material Symbols)
+  firebase-messaging-sw.js    background push notifications
 src/
-  main.tsx              entry (BrowserRouter)
-  App.tsx               routes — one per page; "/" redirects to the last page visited
-  styles.css            design tokens (:root vars) + shared classes (card, chip, tab, toggle, kpi…)
-  data/pages.ts         page titles/subtitles/taglines, sidebar order, top-nav groups
+  index.js                    providers: MUI theme, router, toasts, auth, socket, i18n
+  App.jsx                     routes; /login + auth guard; "/" → last page visited
+  config.js                   REACT_APP_* env → runtime config (API URL, mock mode, Stripe, Firebase)
+  theme.js                    MUI dark theme (gold primary, brand fonts)
+  styles.css                  design tokens (:root vars) + shared classes (card, chip, tab, toggle, kpi…)
+  index.css                   Tailwind layers (preflight off; tokens exposed as colors in tailwind.config.js)
+  api/                        axios client + one module per resource (auth, conversations, serviceRequests,
+                              reservations, residences, housekeeping, dining, ai, notifications, settings, payments)
+  mocks/data.js               sample data in the API's shapes, served when mocks are on
+  context/                    AuthContext (JWT/Firebase), SocketContext (socket.io), ToastContext (MUI Snackbar)
+  hooks/                      useApi (load + local updates), useSocketEvent
+  i18n/                       i18next setup + locales/en.json, fr.json
+  lib/firebase.js             lazy Firebase: Google sign-in, FCM token, foreground pushes
   components/
-    Layout.tsx          sidebar, top nav, hero header, <Outlet/>
-    ui.tsx              shared primitives: Card, KpiGrid, Toggle, Bar, Donut, Chip, QuickActions, Placeholder…
-  pages/                one file per screen (Guest360, GuestJourney, Communications, ServiceRequests,
-                        Reservations, Residences, Housekeeping, Maintenance, Wellness, Dining,
-                        Transportation, Experiences, Analytics, AICommand, Settings)
+    Layout.jsx                sidebar, top nav, hero header
+    HeaderMenus.jsx           language, notifications (live) and user menus
+    BookingCalendar.jsx       react-big-calendar stays view
+    PaymentDialog.jsx         Stripe Payment Element dialog
+    PanoramaDialog.jsx        pannellum 360° residence tour
+    ui.jsx                    shared primitives: Card, KpiGrid, Toggle, Bar, Donut, Chip, QuickActions…
+  pages/                      one file per screen + Login
+  __tests__/                  app, page and API-client tests
 ```
 
-| Route           | Page                          | Design file                 |
-|-----------------|-------------------------------|-----------------------------|
-| `/guest360`     | Guest 360                     | `Guest360.dc.html`          |
-| `/journey`      | Guest Journey                 | `GuestJourney.dc.html`      |
-| `/comms`        | Communications Center         | `Communications.dc.html`    |
-| `/requests`     | Service Requests & Operations | `ServiceRequests.dc.html`   |
-| `/reservations` | Reservations Management       | `Reservations.dc.html`      |
-| `/residences`   | Residences & Smart Home       | `Residences.dc.html`        |
-| `/housekeeping` | Housekeeping                  | `Housekeeping.dc.html`      |
-| `/maintenance`  | Maintenance                   | `Maintenance.dc.html`       |
-| `/wellness`     | Wellness & Spa                | `Wellness.dc.html`          |
-| `/dining`       | Dining Management             | `Dining.dc.html`            |
-| `/transport`    | Transportation                | `Transportation.dc.html`    |
-| `/experiences`  | Experiences                   | `Experiences.dc.html`       |
-| `/analytics`    | Analytics                     | `Analytics.dc.html`         |
-| `/ai`           | FAY AI Command Center         | `AICommand.dc.html`         |
-| `/settings`     | Settings                      | `Settings.dc.html`          |
+| Route           | Page                          | Backed by the API |
+|-----------------|-------------------------------|---|
+| `/guest360`     | Guest 360                     | — |
+| `/journey`      | Guest Journey                 | — |
+| `/comms`        | Communications Center         | conversations, messages, send, live `message:new` |
+| `/requests`     | Service Requests & Operations | list, mark completed, live create/update |
+| `/reservations` | Reservations Management       | calendar stays, today's arrivals/departures, Stripe payment |
+| `/residences`   | Residences & Smart Home       | residences, device toggles, climate, scenes, 360° tour |
+| `/housekeeping` | Housekeeping                  | status board, live `housekeeping:updated` |
+| `/maintenance`  | Maintenance                   | — |
+| `/wellness`     | Wellness & Spa                | — |
+| `/dining`       | Dining Management             | floor-plan table status |
+| `/transport`    | Transportation                | — |
+| `/experiences`  | Experiences                   | — |
+| `/analytics`    | Analytics                     | — |
+| `/ai`           | FAY AI Command Center         | `POST /ai/ask` |
+| `/settings`     | Settings                      | property details (editable, phone input) |
+| (header)        | Notifications                 | list, mark read, FCM device token, live `notification:new` |
 
-## Data
+Pages marked "—", and the static panels on the other pages, still read constants at the top of the page file.
+To connect one, add a function to `src/api/`, put its sample data in `src/mocks/data.js`, and load it with `useApi`.
 
-Every page keeps its sample data as constants at the top of the file under
-`// Mock data — replace with API calls.` Swap those for fetches/hooks when the backend exists.
+## Adding a translation
 
-## Interactions carried over from the prototype
-
-- Communications: pick a thread, switch channels, type + send (Enter or Send), "Use" an AI suggested reply.
-- Service Requests: filter by department, select a row, "Mark as Completed".
-- Reservations: tabs and Month/Week/Day toggles (visual state only).
-- Residences: pick a residence, scenes, per-device toggles, climate −/+ (16–30°).
-- Housekeeping: tap a non-occupied residence to advance Dirty → Cleaning → Inspect → Ready.
-- Dining: venue filter on reservations; tap a table to cycle its status (legend counts update).
-- Experiences / Analytics: category and date-range chips.
-- AI Command: canned answers for the suggested prompts, free-text fallback, mic on/off.
-- Guest Journey / Settings: working toggles.
+Strings for navigation, page headers, the login screen and dialogs are in `src/i18n/locales/*.json`.
+To add a language, add a catalogue with the same keys, then register it in `LANGUAGES` and `resources` in `src/i18n/index.js`.
 
 ## Placeholders
 
 Photos are striped placeholders labelled with what goes there (e.g. "guest portrait", "residence photo").
-Icons use the Material Symbols Outlined font; type faces are Cormorant Garamond (headings) and Jost (body).
+Icons on the original screens use the Material Symbols Outlined font; new MUI controls use @mui/icons-material.

@@ -1,0 +1,153 @@
+{
+  "nav": {
+    "guests": "Guests",
+    "reservations": "Reservations",
+    "residences": "Residences",
+    "operations": "Operations",
+    "wellness": "Wellness",
+    "dining": "Dining",
+    "experiences": "Experiences",
+    "analytics": "Analytics",
+    "ai": "AI Command"
+  },
+  "pages": {
+    "guest360": {
+      "label": "Guest 360",
+      "title": "Guest 360",
+      "sub": "Complete guest profile. Every stay. Every preference. Every touchpoint.",
+      "tag": "Know every guest. Anticipate every need."
+    },
+    "journey": {
+      "label": "Guest Journey",
+      "title": "Guest Journey",
+      "sub": "From booking to beyond — a seamless, personalized experience.",
+      "tag": "Every stay, a personalized journey."
+    },
+    "comms": {
+      "label": "Communications",
+      "title": "Communications Center",
+      "sub": "Unified guest communication across all channels.",
+      "tag": "Connected stays. Exceptional experiences."
+    },
+    "requests": {
+      "label": "Service Requests",
+      "title": "Service Requests & Operations",
+      "sub": "Track and manage all guest requests across departments.",
+      "tag": "Every request. Every service. On time."
+    },
+    "reservations": {
+      "label": "Reservations",
+      "title": "Reservations Management",
+      "sub": "Manage bookings, availability, rates and guest stays — all in one place.",
+      "tag": "Seamless bookings. Exceptional stays."
+    },
+    "residences": {
+      "label": "Residences",
+      "title": "Residences & Smart Home",
+      "sub": "Every residence, every room, every device — live.",
+      "tag": "Intelligent homes. Effortless comfort."
+    },
+    "housekeeping": {
+      "label": "Housekeeping",
+      "title": "Housekeeping",
+      "sub": "Room status, cleaning schedules, linen and amenities.",
+      "tag": "Immaculate. Every room. Every day."
+    },
+    "maintenance": {
+      "label": "Maintenance",
+      "title": "Maintenance",
+      "sub": "Work orders, preventive care and system health.",
+      "tag": "Flawless spaces. Quietly maintained."
+    },
+    "wellness": {
+      "label": "Wellness & Spa",
+      "title": "Wellness & Spa",
+      "sub": "Bookings, facilities, treatments and personalized wellness experiences.",
+      "tag": "Wellness for a better you. Mind. Body. Balance."
+    },
+    "dining": {
+      "label": "Dining",
+      "title": "Dining Management",
+      "sub": "Reservations, orders, menus and personalized dining experiences.",
+      "tag": "Exceptional dining. Memorable moments."
+    },
+    "transport": {
+      "label": "Transportation",
+      "title": "Transportation",
+      "sub": "Transfers, fleet, chauffeurs and guest movement.",
+      "tag": "Arrive in comfort. Depart in style."
+    },
+    "experiences": {
+      "label": "Experiences",
+      "title": "Experiences",
+      "sub": "Curated activities, excursions and signature moments.",
+      "tag": "Moments worth remembering."
+    },
+    "analytics": {
+      "label": "Analytics",
+      "title": "Analytics",
+      "sub": "Performance across revenue, occupancy, service and satisfaction.",
+      "tag": "Insight behind every decision."
+    },
+    "ai": {
+      "label": "AI Command",
+      "title": "FAY AI Command Center",
+      "sub": "Your intelligent partner for exceptional hospitality.",
+      "tag": "Smarter operations. Happier guests."
+    },
+    "settings": {
+      "label": "Settings",
+      "title": "Settings",
+      "sub": "Property, team, integrations and preferences.",
+      "tag": "Configured for excellence."
+    }
+  },
+  "layout": {
+    "concierge": "AI Concierge",
+    "tagline1": "One destination.",
+    "tagline2": "Endless serenity.",
+    "notifications": "Notifications",
+    "markAllRead": "Mark all read",
+    "noNotifications": "No notifications",
+    "language": "Language",
+    "logout": "Sign out"
+  },
+  "auth": {
+    "title": "Sign in to FAY OS",
+    "subtitle": "Faysha Wellness Residence management dashboard",
+    "email": "Email",
+    "password": "Password",
+    "signIn": "Sign in",
+    "google": "Continue with Google",
+    "or": "or",
+    "failed": "Sign-in failed"
+  },
+  "common": {
+    "save": "Save",
+    "saved": "Saved",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "loadFailed": "Couldn't load data",
+    "retry": "Retry",
+    "send": "Send",
+    "updateFailed": "Update failed"
+  },
+  "payments": {
+    "collect": "Collect Payment",
+    "title": "Collect payment",
+    "amount": "Amount",
+    "pay": "Pay {{amount}}",
+    "success": "Payment succeeded",
+    "notConfigured": "Stripe isn't configured. Set REACT_APP_STRIPE_PUBLISHABLE_KEY and the payments API.",
+    "for": "{{guest}}'s reservation · {{residence}}"
+  },
+  "residences": {
+    "view360": "360° Tour",
+    "no360": "No panorama image for this residence yet"
+  },
+  "settings": {
+    "phone": "Phone",
+    "email": "Email",
+    "contact": "Contact"
+  }
+}
