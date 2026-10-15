@@ -1,5 +1,9 @@
 # FAY OS — Faysha Wellness Residence dashboard
 
+> **This dashboard now lives in FayshaaWeb.** It was merged into the main site as `frontend/src/manager`
+> (served at `/manager`, backed by `backend/routes/manager` at `/api/manager`). Make changes there;
+> this repository is kept as the standalone prototype it was built in.
+
 Management dashboard for Faysha Wellness Residence. It's a React 18 app built with Create React App and is designed to run against the FAY Express/PostgreSQL backend.
 Until you configure a backend, it runs on built-in sample data. That data is a working store: what you create
 (requests, messages, bookings, notes, payments) is saved in the browser and shows up on every screen.
