@@ -96,7 +96,10 @@ Terms acceptance (`terms_accepted`, `terms_accepted_at`) is stored with every bo
 
 ## Deploying (same server as v1)
 
-1. Database: `cd backend && node migrations/run.js 021_create_hq.sql` (properties, the audit log, approvals and the HR
+Step by step, with backups and rollback: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+
+1. Database: `cd backend && node migrations/run.js 020_create_manager_operations.sql` (FAY OS), `node migrations/run.js 021_create_hq.sql` (properties, the audit log, approvals and the HR
    Manager role), then `node migrations/run.js 022_align_wellness_schema.sql` (brings old wellness tables up to the
    unified wellness system the app and FAY OS use, and adds the standard activities if they are missing). Both are
    additive and safe to re-run.
