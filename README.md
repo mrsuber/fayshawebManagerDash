@@ -1,110 +1,94 @@
-# FAY OS — Faysha Wellness Residence dashboard
+# Faysha Wellness Residence — v2
 
-Management dashboard for Faysha Wellness Residence. It's a React 18 app built with Create React App and is designed to run against the FAY Express/PostgreSQL backend.
-Until you configure a backend, it runs on built-in sample data. That data is a working store: what you create
-(requests, messages, bookings, notes, payments) is saved in the browser and shows up on every screen.
-Use **user menu → Reset demo data** to start over.
+The second version of the Faysha platform. It continues
+[FayshaaWeb](https://github.com/mrsuber/FayshaaWeb) (v1). The backend, the manager dashboard and the
+current administrator pages come from v1. The public website is new, built from the approved design.
 
-## Stack
+| URL | Who | What |
+|---|---|---|
+| `/` | Guests | The public website: residences, availability and booking (details, terms of stay, card or mobile money payment, confirmation), wellness, about, careers, feedback, contact, terms, privacy |
+| `/login` | Everyone | One sign-in for the whole platform. Managers go to `/manager` and administrators to `/admin`. Guests are pointed to the app. (`/admin/login` still works.) |
+| `/manager` | Managers, super administrators | **FAY OS** operations dashboard: Guest 360, journey, communications, requests, reservations, residences & smart home, housekeeping, maintenance, wellness, dining, transport, experiences, analytics, FAY AI, settings |
+| `/admin` | Super administrators, content managers | Website content (Page Management), apartments & categories, bookings, payments, deposit boxes, HR, wellness catalogue, users. These are the v1 pages; the new super administrator dashboard replaces them next. |
 
-| | |
-|---|---|
-| Framework / build | React 18.2, React Scripts 5.0.1 (CRA) |
-| Styling | Tailwind CSS 3.4.1, MUI 7.3.8 (Emotion), design tokens in `src/styles.css` |
-| UI | @mui/icons-material, react-big-calendar (moment), pannellum-react (360° tours), react-phone-input-2 |
-| Routing | React Router DOM 6.20 |
-| Data | Axios 1.6.2 (JWT bearer), Socket.io-client 4.8.3 |
-| i18n | i18next + react-i18next (English, French) |
-| Auth | JWT from the API; optional Google sign-in through Firebase 10.7.1 |
-| Push | Firebase Cloud Messaging (`public/firebase-messaging-sw.js`) |
-| Payments | Stripe Payment Element (@stripe/react-stripe-js) |
-| Tests | Jest + React Testing Library |
+## Repository
 
-## Run
+```
+frontend/          React 18 (Create React App), Tailwind, MUI
+  src/site/        public website: pages, components, site.css (design tokens), api.js, mocks.js, i18n.js (EN/FR)
+  src/site/legal/  terms of service and privacy policy text (shared by /terms, /privacy and the booking flow)
+  src/manager/     FAY OS manager dashboard (lazy-loaded, styles scoped to body.fayos)
+  src/pages/admin/ administrator pages (lazy-loaded)
+  public/images/site/  website imagery
+backend/           Express + PostgreSQL API (/api), Socket.io, Stripe, Firebase push, email
+docs/              MANAGER_API.md (dashboard API contract), SERVER_SETUP.md
+```
+
+## Design
+
+The website, the dashboards and the apps share one look:
+
+- **Ground and surfaces:** `#0a0c0f`, `#101318`
+- **Gold:** `#e8b84a`
+- **Text:** warm ivory `#ece6da`
+- **Type:** Cormorant Garamond for headings, Jost for text, and Cinzel for the FAYSHA wordmark (it matches the logo)
+
+The tokens are in `frontend/src/site/site.css`; `frontend/src/manager/styles.css` uses the same values. The "The Faysha app"
+section shows the guest app's real home screen in the app's own colours (`mobile/src/constants/theme.js` in v1).
+
+Page copy can be edited per language in **Admin → Page Management** (stored by `/api/pages`). The visual editor renders the
+new site pages, so the text you click is the text on the live site. Residence photos and 360° panoramas come from
+**Admin → Apartments / Categories**; until a category has a photo, the site shows a striped placeholder.
+
+## Run locally
 
 ```bash
-npm install          # .npmrc sets legacy-peer-deps (pannellum-react declares a React 16 peer)
-cp .env.example .env # optional: leave as-is to run on sample data
-npm start            # http://localhost:3000
-npm test             # watch mode; `npm run test:ci` for a single run
-npm run build        # production build into build/
+# API (port 5001)
+cd backend && npm install && cp .env.example .env   # fill in DB, JWT, Stripe, SMTP
+npm run dev
+
+# Website + dashboards (port 3000)
+cd frontend && npm install && cp .env.example .env
+npm start
 ```
 
-### Connecting the backend
+To work on the website or the manager dashboard without a backend, set `REACT_APP_USE_MOCKS=true` in `frontend/.env`
+(development only). Both then run on built-in sample data.
 
-1. Start the Express API on port 5000. In development, CRA proxies `/api` to it (`"proxy"` in `package.json`).
-2. In `.env`, set `REACT_APP_USE_MOCKS=false`. For a remote API, also set `REACT_APP_API_URL=https://…/api`.
-3. Add `REACT_APP_STRIPE_PUBLISHABLE_KEY` and the `REACT_APP_FIREBASE_*` values to enable payments, Google sign-in and push notifications.
+Tests: `cd frontend && npm run test:ci` (website and manager dashboard). Production build: `npm run build`.
 
-The endpoints, payload shapes, Socket.io events and an Express wiring sketch are in **[docs/API.md](docs/API.md)**.
+## Payments
 
-## Structure
+- **Card:** Stripe. The booking is created as *pending*, the PaymentIntent is confirmed in the browser, and
+  `POST /api/bookings/:id/confirm` checks the intent with Stripe before confirming and releasing the digital key.
+  Needs `REACT_APP_STRIPE_PUBLISHABLE_KEY` (frontend) and `STRIPE_SECRET_KEY` (backend).
+- **MTN Mobile Money / Orange Money:** `POST /api/payments/mobile-money` records a pending `mobile_money` payment with the
+  guest's number and their terms acceptance. **No mobile money gateway is connected yet**, so staff confirm the booking
+  once the money arrives (manager dashboard, or `POST /api/bookings/:id/confirm` as staff), which sends the
+  confirmation and the digital key. Connecting a provider (e.g. Campay, Notch Pay, MTN MoMo API) replaces that manual step.
 
-```
-public/
-  index.html                  fonts (Cormorant Garamond, Jost, Material Symbols)
-  firebase-messaging-sw.js    background push notifications
-src/
-  index.js                    providers: MUI theme, router, toasts, auth, socket, i18n
-  App.jsx                     routes; /login + auth guard; "/" → last page visited
-  config.js                   REACT_APP_* env → runtime config (API URL, mock mode, Stripe, Firebase)
-  theme.js                    MUI dark theme (gold primary, brand fonts)
-  styles.css                  design tokens (:root vars) + shared classes (card, chip, tab, toggle, kpi…)
-  index.css                   Tailwind layers (preflight off; tokens exposed as colors in tailwind.config.js)
-  api/                        axios client + one module per resource (auth, conversations, serviceRequests,
-                              reservations, residences, housekeeping, dining, ai, notifications, settings, payments)
-  mocks/data.js               seed data in the API's shapes (dates relative to today)
-  mocks/collections.js        seed rows for the operational list resources
-  mocks/db.js                 working copy the mock API reads/writes, persisted in localStorage
-  context/                    AuthContext (JWT/Firebase), SocketContext (socket.io), ToastContext (MUI Snackbar)
-  hooks/                      useApi (load + local updates), useCollection (CRUD list), useGuestOptions, useSocketEvent
-  i18n/                       i18next setup + locales/en.json, fr.json
-  lib/firebase.js             lazy Firebase: Google sign-in, FCM token, foreground pushes
-  components/
-    Layout.jsx                sidebar, top nav, hero header
-    HeaderMenus.jsx           language, notifications (live) and user menus
-    BookingCalendar.jsx       react-big-calendar stays view
-    PaymentDialog.jsx         Stripe Payment Element dialog
-    PanoramaDialog.jsx        pannellum 360° residence tour
-    ui.jsx                    shared primitives: Card, KpiGrid, Toggle, Bar, Donut, Chip, QuickActions…
-  pages/                      one file per screen + Login
-  pages/guest360/             Guest 360 cards, action dialogs (useGuestActions) and formatting helpers
-  components/FormDialog.jsx   generic MUI form dialog (requests, messages, bookings, notes, tags…)
-  components/ViewAllDialog.jsx  "View All" pop-up with search + filter chips
-  __tests__/                  app, page and API-client tests
-```
+Terms acceptance (`terms_accepted`, `terms_accepted_at`) is stored with every booking, as in v1.
 
-| Route           | Page                          | What works (on sample data or the API) |
-|-----------------|-------------------------------|---|
-| `/guest360`     | Guest 360                     | all-guests list, profile, requests, bookings, messages, timeline, history, folio, notes, check-in/out |
-| `/journey`      | Guest Journey                 | any guest: stages, timeline, milestones (view/modify/cancel), recommendations → booking, automations, satisfaction |
-| `/comms`        | Communications Center         | channels, search, date/stay filters, new message, reply / internal note, guest context tabs, quick actions |
-| `/requests`     | Service Requests & Operations | create, search, date range, status/priority/department changes, live KPIs & charts |
-| `/reservations` | Reservations Management       | 9 working tabs, new reservation (overlap check), cancel/confirm, check-in/out, packages, groups, rates |
-| `/residences`   | Residences & Smart Home       | devices, climate, scenes, security toggles, device alerts, 360° tour |
-| `/housekeeping` | Housekeeping                  | status board, tasks (create/advance), team, linen restock, guest notes |
-| `/maintenance`  | Maintenance                   | work orders (create/assign/status), alerts → work orders, preventive schedule, technicians, diagnostics |
-| `/wellness`     | Wellness & Spa                | schedule (room-clash check), availability grid, packages, recommendations, guest profile |
-| `/dining`       | Dining Management             | reservations (seat/complete), floor plan, orders, menu, walk-ins, dietary requests |
-| `/transport`    | Transportation                | transfers, assignment, fleet, chauffeurs, flight watch → pickup, live map |
-| `/experiences`  | Experiences                   | catalogue (add, pause), booking with capacity check, offers to guests |
-| `/analytics`    | Analytics                     | 7/30 days, YTD and custom ranges, CSV export, top services |
-| `/ai`           | FAY AI Command Center         | ask FAY, live KPIs, alerts, priorities, insights → priorities, cameras |
-| `/settings`     | Settings                      | property, team & roles, residences, AI behaviour, notifications, integrations, billing |
-| (header)        | Notifications                 | list, mark read, FCM device token, live `notification:new` |
+## Deploying (same server as v1)
 
-Every “View All ›” opens a searchable, filterable pop-up of that card's items. Mutations go through `src/api/*`; most operational
-lists use the generic collections API (`src/api/collections.js` + `useCollection`). Their endpoints and fields are listed in docs/API.md.
+1. Database: run any new migrations from `backend/migrations` (v2 adds none so far).
+2. Backend: deploy `backend/` in place of v1's backend. Add the new variables from `backend/.env.example`:
+   `CONTACT_EMAIL` (contact form recipient), `APP_URL`, and the Stripe and SMTP values if they are not set already.
+3. Frontend: `cd frontend && REACT_APP_API_URL=/api npm run build`, then publish `build/` (as v1's `build-production.sh` does).
+4. Old v1 addresses (`/booking`, `/amenities`, `/apartments/:id`, `/terms-of-service`, `/privacy-policy`) redirect to the
+   new pages, so links in emails that were already sent keep working.
 
-A few decorative panels (e.g. the energy chart on Residences, the response-time chart on Service Requests) are still
-constants in the page file.
+## Roadmap
 
-## Adding a translation
-
-Strings for navigation, page headers, the login screen and dialogs are in `src/i18n/locales/*.json`.
-To add a language, add a catalogue with the same keys, then register it in `LANGUAGES` and `resources` in `src/i18n/index.js`.
-
-## Placeholders
-
-Photos are striped placeholders labelled with what goes there (e.g. "guest portrait", "residence photo").
-Icons on the original screens use the Material Symbols Outlined font; new MUI controls use @mui/icons-material.
+1. ~~Public website~~ (this release)
+2. Super administrator dashboard ("the boss section"). It keeps everything v1 `/admin` does and adds:
+   - roles and permissions editor
+   - staff accounts by department, and an HR-only login
+   - view the system as any manager or staff member
+   - audit log of who changed what
+   - revenue across rooms, dining and wellness
+   - approvals: refunds, discounts, leave
+   - property switcher, for when a second residence opens
+3. Guest app (v1 `mobile/`) updated to the v2 API and design
+4. Staff app, showing each person only their role's screens: housekeeping, maintenance, dining/F&B, concierge/front desk,
+   drivers, spa therapists

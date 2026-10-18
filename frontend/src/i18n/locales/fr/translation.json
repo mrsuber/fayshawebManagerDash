@@ -1,0 +1,110 @@
+{
+  "nav": {
+    "home": "Accueil",
+    "about": "À propos",
+    "amenities": "Équipements",
+    "contact": "Contact",
+    "booking": "Réserver votre séjour"
+  },
+  "hero": {
+    "title": "Location Intelligente",
+    "subtitle": "Redéfinie",
+    "description": "Découvrez le mélange parfait de la commodité d'Airbnb et du luxe hôtelier dans les premières propriétés intelligentes du Cameroun.",
+    "bookNow": "Réserver maintenant",
+    "learnMore": "En savoir plus"
+  },
+  "stats": {
+    "properties": "Propriétés",
+    "guests": "Clients satisfaits",
+    "support": "Assistance",
+    "rating": "Note"
+  },
+  "features": {
+    "title": "Ce qui nous rend",
+    "titleAccent": "Uniques",
+    "subtitle": "Nous ne sommes pas qu'une simple plateforme de location. Nous possédons et gérons chaque propriété avec une technologie intelligente de pointe.",
+    "ownedProperties": {
+      "title": "Propriétés détenues",
+      "description": "Appartements et chambres entièrement meublés dans nos propres bâtiments, garantissant qualité et confort constants."
+    },
+    "smartAccess": {
+      "title": "Accès intelligent",
+      "description": "Codes générés automatiquement à durée limitée pour une entrée sans faille. Pas de clés, pas de tracas."
+    },
+    "smartTV": {
+      "title": "Intégration Smart TV",
+      "description": "Contrôlez votre chambre, réservez des services et consultez les horaires depuis votre Smart TV."
+    },
+    "amenities": {
+      "title": "Équipements premium",
+      "description": "Piscine, salle de sport et services de conciergerie. Le luxe hôtelier rencontre le confort domestique."
+    }
+  },
+  "howItWorks": {
+    "title": "Comment ça",
+    "titleAccent": "Marche",
+    "subtitle": "Simple, fluide et intelligent. Commencez en trois étapes faciles.",
+    "step1": {
+      "title": "Parcourir et réserver",
+      "description": "Recherchez nos appartements et chambres entièrement meublés, vérifiez la disponibilité et réservez en ligne instantanément."
+    },
+    "step2": {
+      "title": "Recevoir le code d'accès",
+      "description": "Recevez votre code d'accès intelligent à durée limitée par email et SMS avant votre arrivée."
+    },
+    "step3": {
+      "title": "S'enregistrer et profiter",
+      "description": "Utilisez votre code pour entrer, explorez les équipements sur votre Smart TV et profitez de votre séjour."
+    }
+  },
+  "gallery": {
+    "title": "Explorez nos",
+    "titleAccent": "Propriétés",
+    "subtitle": "Faites une visite virtuelle de nos appartements magnifiquement meublés, équipements modernes et espaces de luxe.",
+    "viewAll": "Voir tous les équipements"
+  },
+  "whyChoose": {
+    "title": "Pourquoi choisir",
+    "titleAccent": "Faysha",
+    "subtitle": "Nous révolutionnons l'expérience de location au Cameroun avec des propriétés détenues, une technologie intelligente et une hospitalité inégalée.",
+    "quality": {
+      "title": "Qualité garantie",
+      "description": "Chaque propriété est détenue et entretenue par nous pour assurer une excellence constante."
+    },
+    "instant": {
+      "title": "Accès instantané",
+      "description": "Des serrures intelligentes avec codes à durée limitée signifient un enregistrement sans faille, sans attente."
+    },
+    "value": {
+      "title": "Meilleur rapport qualité-prix",
+      "description": "Prix compétitifs avec équipements et services de qualité hôtelière inclus."
+    },
+    "support": {
+      "title": "Assistance 24/7",
+      "description": "Notre équipe sur place est toujours prête à vous aider pour toute demande."
+    }
+  },
+  "testimonials": {
+    "title": "Ce que disent nos",
+    "titleAccent": "Clients",
+    "subtitle": "Ne vous contentez pas de nous croire sur parole. Voici ce que disent nos clients satisfaits."
+  },
+  "cta": {
+    "title": "Prêt à découvrir la vie intelligente?",
+    "description": "Réservez votre séjour aujourd'hui et découvrez pourquoi les clients choisissent Faysha pour le confort, la commodité et les équipements de pointe.",
+    "button": "Réservez maintenant"
+  },
+  "footer": {
+    "description": "Location intelligente redéfinie. Découvrez le mélange parfait de la commodité d'Airbnb et du luxe hôtelier au Cameroun.",
+    "quickLinks": "Liens rapides",
+    "services": "Services et plus",
+    "contact": "Nous contacter",
+    "shortTerm": "Séjours courts",
+    "longTerm": "Locations longues",
+    "pool": "Piscine et Gym",
+    "careers": "Carrières",
+    "rights": "Faysha - Propriété par Résultat. Tous droits réservés.",
+    "privacy": "Politique de confidentialité",
+    "terms": "Conditions d'utilisation"
+  }
+}
