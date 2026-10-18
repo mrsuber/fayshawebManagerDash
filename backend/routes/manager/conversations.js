@@ -4,6 +4,7 @@
  */
 
 const express = require('express');
+const { notifyGuest } = require('../../services/guestPush');
 const { db, ah, httpError, isoTime, emit } = require('./lib');
 const { stayStatuses } = require('./guestData');
 
@@ -101,6 +102,9 @@ async function sendStaffMessage(req, guestId, { channel = 'in_app', body }) {
   if (io && !internal) {
     io.to(`user_${guestId}`).emit('new_message', rows[0]);
     io.to('admin').emit('new_message', rows[0]);
+  }
+  if (!internal && channel === 'in_app') {
+    notifyGuest(req.app, guestId, { title: 'Faysha concierge', body: message.body.slice(0, 160), event: 'message:push', data: { screen: 'Concierge' } });
   }
   emit(req, 'message:new', message);
 

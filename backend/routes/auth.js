@@ -123,6 +123,88 @@ router.post('/login', async (req, res) => {
 });
 
 /**
+ * POST /api/auth/register
+ * Guest sign-up from the Faysha app: { fullName, email, password, phone? }.
+ * Returns the same { token, user } as login. Accounts created by a booking already exist: those guests
+ * use "Forgot password" (or the temporary password from their confirmation email) instead.
+ */
+router.post('/register', async (req, res) => {
+  try {
+    const { fullName, email, password, phone } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!fullName || !String(fullName).trim() || !cleanEmail || !password) {
+      return res.status(400).json({ success: false, error: 'Name, email and password are required' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ success: false, error: 'Enter a valid email address' });
+    }
+    if (String(password).length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      return res.status(400).json({ success: false, error: 'Use at least 8 characters, with letters and a number' });
+    }
+
+    const db = require('../config/database');
+    const existing = await db.query('SELECT id FROM users WHERE LOWER(email) = $1', [cleanEmail]);
+    if (existing.rows.length) {
+      return res.status(409).json({
+        success: false,
+        error: 'An account already exists for this email. Sign in, or use "Forgot password" to set a new password.',
+        code: 'ACCOUNT_EXISTS'
+      });
+    }
+
+    let role = await db.query("SELECT id, name, display_name, permissions FROM roles WHERE name = 'guest'");
+    if (!role.rows.length) {
+      role = await db.query(
+        `INSERT INTO roles (name, display_name, description, permissions, is_system_role)
+         VALUES ('guest', 'Guest', 'Guest user with booking and wellness app access', '{"bookings": {"view": true, "edit": true}, "wellness": {"view": true, "book": true}}', true)
+         RETURNING id, name, display_name, permissions`
+      );
+    }
+    const r = role.rows[0];
+    const username = `${cleanEmail.split('@')[0].replace(/[^a-z0-9]/g, '').slice(0, 30) || 'guest'}_${Math.floor(1000 + Math.random() * 9000)}`;
+    const { rows } = await db.query(
+      `INSERT INTO users (email, username, password_hash, full_name, phone, role_id, status, email_verified, is_password_temporary, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active', false, false, false)
+       RETURNING id, email, username, full_name, email_verified`,
+      [cleanEmail, username, await bcrypt.hash(password, 10), String(fullName).trim(), phone || null, r.id]
+    );
+    const user = rows[0];
+
+    // Link earlier bookings made with this email (e.g. a booking before the account existed).
+    await db.query('UPDATE bookings SET user_id = $1 WHERE user_id IS NULL AND LOWER(guest_email) = $2', [user.id, cleanEmail]);
+
+    const emailService = require('../services/email.service');
+    emailService.sendEmail({
+      to: cleanEmail,
+      subject: 'Welcome to Faysha',
+      text: `Hello ${user.full_name},\n\nYour Faysha account is ready. Sign in to the Faysha app with ${cleanEmail} to book your stay, open your door with your digital key and talk to your concierge.\n\nOne destination, endless serenity.`,
+      html: `<p>Hello ${String(user.full_name).replace(/[<>&]/g, '')},</p><p>Your Faysha account is ready. Sign in to the Faysha app with <b>${cleanEmail}</b> to book your stay, open your door with your digital key and talk to your concierge.</p><p><i>One destination, endless serenity.</i></p>`
+    }).catch((e) => console.error('Welcome email failed:', e.message));
+
+    const token = jwt.sign({ userId: user.id, email: user.email, role: r.name }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        fullName: user.full_name,
+        role: r.name,
+        roleDisplayName: r.display_name,
+        permissions: r.permissions,
+        emailVerified: user.email_verified,
+        mustChangePassword: false,
+        isPasswordTemporary: false
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ success: false, error: 'An error occurred during sign-up' });
+  }
+});
+
+/**
  * POST /api/auth/logout
  * Logout (client-side token removal, but we can add token blacklist later)
  */

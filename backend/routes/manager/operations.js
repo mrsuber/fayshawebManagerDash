@@ -5,6 +5,7 @@
  */
 
 const express = require('express');
+const { notifyGuest } = require('../../services/guestPush');
 const { crud } = require('./crud');
 const { notify } = require('./lib');
 
@@ -98,6 +99,10 @@ router.use(
     order: 'created_at DESC',
     async after(req, item, ctx) {
       await autoNumber('dining_orders', '#D')(req, item, ctx);
+      if (ctx.op === 'update' && item.guestId && ctx.before && item.status !== ctx.before.status) {
+        const words = { Preparing: 'is being prepared', Ready: 'is ready and on its way', Delivered: 'has been delivered — enjoy' };
+        if (words[item.status]) notifyGuest(req.app, item.guestId, { title: 'Dining', body: `Your order ${words[item.status]}.`, event: 'dining:updated', data: { id: item.id, status: item.status, screen: 'Dining' } });
+      }
       // The guest timeline picks orders up from dining_orders; the charge goes on the folio.
       if (ctx.op === 'create' && item.guestId && item.total > 0) {
         await ctx.q.query(
@@ -125,6 +130,12 @@ router.use(
     guest: true,
     required: ['date'],
     order: 'date DESC, time',
+    async after(req, item, ctx) {
+      if (ctx.op === 'update' && item.guestId && ctx.before && item.status !== ctx.before.status) {
+        const words = { Assigned: `is confirmed${item.driver ? ` — ${item.driver} will drive you` : ''}`, 'En Route': 'is on its way', Delayed: 'is running late', Cancelled: 'was cancelled' };
+        if (words[item.status]) notifyGuest(req.app, item.guestId, { title: item.kind || 'Your ride', body: `Your ride on ${item.date} at ${item.time || ''} ${words[item.status]}.`, event: 'transfer:updated', data: { id: item.id, status: item.status, screen: 'Transfers' } });
+      }
+    },
   }),
 );
 router.use('/transport/fleet', crud({ table: 'fleet_vehicles', fields: f('icon', 'name', 'detail', 'status'), required: ['name'], order: 'id' }));

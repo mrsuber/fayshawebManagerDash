@@ -4,6 +4,7 @@ const db = require('../config/database');
 const pool = db.pool;
 const bcrypt = require('bcryptjs');
 const emailService = require('../services/email.service');
+const { notifyGuest } = require('../services/guestPush');
 const keyGenerator = require('../utils/keyGenerator');
 const QRCode = require('qrcode');
 const { authenticateToken, requireStaff, userFromRequest, STAFF_ROLES } = require('../middleware/auth');
@@ -995,6 +996,16 @@ router.post('/:id/confirm', async (req, res) => {
     // Note: Comprehensive email with all booking details and digital keys
     // is automatically sent via the sendApartmentDigitalKey call above
     // No need to send separate booking confirmation email
+
+    // Tell the guest in the app (push + live update) that their stay is confirmed.
+    if (booking.user_id) {
+      notifyGuest(req.app, booking.user_id, {
+        title: 'Your stay is confirmed',
+        body: `${booking.category_display_name} · ${new Date(booking.check_in_date).toDateString()}. Your digital key is ready in the app.`,
+        event: 'stay:confirmed',
+        data: { bookingId: booking.id, screen: 'MyStays' }
+      });
+    }
 
     res.json({
       success: true,
