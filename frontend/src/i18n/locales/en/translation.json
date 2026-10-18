@@ -1,0 +1,110 @@
+{
+  "nav": {
+    "home": "Home",
+    "about": "About",
+    "amenities": "Amenities",
+    "contact": "Contact",
+    "booking": "Book Your Stay"
+  },
+  "hero": {
+    "title": "Smart Rental Living",
+    "subtitle": "Redefined",
+    "description": "Experience the perfect blend of Airbnb convenience and hotel luxury in Cameroon's first smart rental properties.",
+    "bookNow": "Book Your Stay",
+    "learnMore": "Learn More"
+  },
+  "stats": {
+    "properties": "Properties",
+    "guests": "Happy Guests",
+    "support": "Support",
+    "rating": "Rating"
+  },
+  "features": {
+    "title": "What Makes Us",
+    "titleAccent": "Unique",
+    "subtitle": "We're not just another rental platform. We own and manage every property with cutting-edge smart technology.",
+    "ownedProperties": {
+      "title": "Owned Properties",
+      "description": "Fully furnished apartments and rooms in our own buildings, ensuring consistent quality and comfort."
+    },
+    "smartAccess": {
+      "title": "Smart Access",
+      "description": "Auto-generated time-limited codes for seamless entry. No keys, no hassle."
+    },
+    "smartTV": {
+      "title": "Smart TV Integration",
+      "description": "Control your room, book services, and check schedules right from your in-room Smart TV."
+    },
+    "amenities": {
+      "title": "Premium Amenities",
+      "description": "Pool, gym, and concierge services. Hotel luxury meets home comfort."
+    }
+  },
+  "howItWorks": {
+    "title": "How It",
+    "titleAccent": "Works",
+    "subtitle": "Simple, seamless, and smart. Get started in three easy steps.",
+    "step1": {
+      "title": "Browse & Book",
+      "description": "Search our fully furnished apartments and rooms, check availability, and book online instantly."
+    },
+    "step2": {
+      "title": "Receive Access Code",
+      "description": "Get your time-limited smart access code via email and SMS before arrival."
+    },
+    "step3": {
+      "title": "Check In & Enjoy",
+      "description": "Use your code to enter, explore amenities on your Smart TV, and enjoy your stay."
+    }
+  },
+  "gallery": {
+    "title": "Explore Our",
+    "titleAccent": "Properties",
+    "subtitle": "Take a virtual tour of our beautifully furnished apartments, modern amenities, and luxury spaces.",
+    "viewAll": "View All Amenities"
+  },
+  "whyChoose": {
+    "title": "Why Choose",
+    "titleAccent": "Faysha",
+    "subtitle": "We're revolutionizing the rental experience in Cameroon with owned properties, smart technology, and unmatched hospitality.",
+    "quality": {
+      "title": "Guaranteed Quality",
+      "description": "Every property is owned and maintained by us to ensure consistent excellence."
+    },
+    "instant": {
+      "title": "Instant Access",
+      "description": "Smart locks with time-limited codes mean seamless check-in, no waiting."
+    },
+    "value": {
+      "title": "Best Value",
+      "description": "Competitive pricing with hotel-grade amenities and services included."
+    },
+    "support": {
+      "title": "24/7 Support",
+      "description": "Our on-site team is always ready to assist with any request."
+    }
+  },
+  "testimonials": {
+    "title": "What Our",
+    "titleAccent": "Guests Say",
+    "subtitle": "Don't just take our word for it. Here's what our satisfied guests have to say."
+  },
+  "cta": {
+    "title": "Ready to Experience Smart Living?",
+    "description": "Book your stay today and discover why guests choose Faysha for comfort, convenience, and cutting-edge amenities.",
+    "button": "Book Your Stay Now"
+  },
+  "footer": {
+    "description": "Smart rental living redefined. Experience the perfect blend of Airbnb convenience and hotel luxury in Cameroon.",
+    "quickLinks": "Quick Links",
+    "services": "Services & More",
+    "contact": "Contact Us",
+    "shortTerm": "Short-term Stays",
+    "longTerm": "Long-term Rentals",
+    "pool": "Pool & Gym",
+    "careers": "Careers",
+    "rights": "Faysha - Property by Result. All rights reserved.",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service"
+  }
+}

@@ -1,0 +1,365 @@
+/*
+ * FAY OS manager dashboard styles.
+ * Every rule is scoped to body.fayos: ManagerApp adds that class to <body> while the dashboard
+ * is mounted (MUI dialogs and menus portal into <body>, so they pick these styles up too),
+ * and removes it on unmount, so nothing here reaches the public site or /admin.
+ */
+body.fayos {
+  --bg: #0a0c0f;
+  --bg-sidebar: #07090b;
+  --surface: #101318;
+  --surface-2: #14171d;
+  --surface-3: #1a1e25;
+  --input-bg: #0c0e12;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  --text: #ece6da;
+  --text-2: #e6e0d4;
+  --text-3: #cfc8ba;
+  --muted: #a9a294;
+  --dim: #8f897d;
+  --faint: #5c6270;
+  --ph-label: #646b78;
+
+  --gold: #e8b84a;
+  --gold-hover: #f4d27e;
+  --on-gold: #1a1408;
+  --track: #262a31;
+  --off: #3a3f48;
+
+  --green: #1f9d55;
+  --green-bright: #3fd283;
+  --blue: #2f6fe8;
+  --blue-soft: #5b8ff0;
+  --purple: #9b7bf0;
+  --purple-deep: #7c4ddb;
+  --cyan: #4fc3f7;
+  --pink: #f06292;
+  --red: #d94040;
+  --red-soft: #ff6b6b;
+
+  --serif: 'Cormorant Garamond', serif;
+  --sans: Jost, sans-serif;
+}
+
+body.fayos * { box-sizing: border-box; }
+
+body.fayos {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body.fayos a { color: var(--gold); text-decoration: none; }
+body.fayos a:hover { color: var(--gold-hover); }
+
+body.fayos input { font-family: var(--sans); }
+
+body.fayos ::-webkit-scrollbar { width: 8px; height: 8px; }
+body.fayos ::-webkit-scrollbar-thumb { background: #2a2e36; border-radius: 4px; }
+
+/* ---------- Primitives ---------- */
+
+body.fayos .icon {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+body.fayos .serif { font-family: var(--serif); }
+body.fayos .mono-label { font-family: monospace; font-size: 10px; color: var(--ph-label); }
+
+body.fayos .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+body.fayos .card-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+body.fayos .card-title { font-family: var(--serif); font-size: 22px; font-weight: 600; }
+body.fayos .card-link { font-size: 13px; font-family: var(--sans); color: var(--gold); background: none; border: 0; padding: 0; cursor: pointer; }
+body.fayos .card-link:hover { color: var(--gold-hover); }
+
+body.fayos .col { display: flex; flex-direction: column; }
+body.fayos .stack { display: flex; flex-direction: column; gap: 14px; }
+body.fayos .stack-min { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* Responsive column grid: side columns stack under main content on narrow screens */
+body.fayos .grid-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+body.fayos .grid-cols-320 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+
+body.fayos .row-line { border-bottom: 1px solid var(--border-soft); }
+
+body.fayos .sub { font-size: 12px; color: var(--muted); }
+
+/* Striped image placeholders */
+body.fayos .ph {
+  --s: 8px;
+  background: repeating-linear-gradient(135deg, #1c2129 0 var(--s), #161a21 var(--s) calc(var(--s) * 2));
+}
+body.fayos .ph-avatar {
+  --s: 4px;
+  border-radius: 50%;
+  background: repeating-linear-gradient(135deg, #2a2e36 0 var(--s), #22262d var(--s) calc(var(--s) * 2));
+  flex-shrink: 0;
+}
+
+/* Buttons */
+body.fayos .btn-gold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 15px;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+body.fayos .fay-btn-outline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 14px;
+}
+body.fayos .cta-sm {
+  text-align: center;
+  padding: 5px;
+  border-radius: 4px;
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Selectable chips */
+body.fayos .chip {
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  user-select: none;
+}
+body.fayos .chip.on { border-color: var(--gold); background: rgba(232, 184, 74, 0.15); }
+
+/* Tabs with underline */
+body.fayos .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+body.fayos .tab {
+  padding: 10px 18px;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+}
+body.fayos .tab.on { color: var(--gold); border-bottom-color: var(--gold); }
+
+/* Toggle switch */
+body.fayos .toggle {
+  border-radius: 999px;
+  padding: 2px;
+  cursor: pointer;
+  display: flex;
+  justify-content: flex-start;
+  background: var(--off);
+  flex-shrink: 0;
+  border: 0;
+}
+body.fayos .toggle.on { background: var(--green); justify-content: flex-end; }
+body.fayos .toggle > span { border-radius: 50%; background: #fff; }
+
+/* Progress bar */
+body.fayos .bar { background: var(--track); border-radius: 3px; height: 6px; }
+body.fayos .bar > div { height: 100%; border-radius: inherit; }
+
+/* Donut / ring */
+body.fayos .donut { border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+body.fayos .donut > div {
+  border-radius: 50%;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* KPI tiles */
+body.fayos .kpis { display: grid; gap: 10px; }
+body.fayos .kpi {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+body.fayos .kpi-n { font-family: var(--serif); font-size: 28px; font-weight: 600; line-height: 1; }
+body.fayos .kpi-l { font-size: 13px; color: var(--text-3); }
+
+/* Quick action tiles */
+body.fayos .quick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+}
+
+/* Hover variants (mirror the prototype's style-hover rules) */
+body.fayos .hov-border-gold:hover { border-color: var(--gold) !important; }
+body.fayos .hov-quick:hover { border-color: var(--gold) !important; background: rgba(232, 184, 74, 0.06) !important; }
+body.fayos .hov-row:hover { background: rgba(255, 255, 255, 0.03) !important; }
+body.fayos .hov-gold-bg:hover { background: rgba(232, 184, 74, 0.1) !important; }
+body.fayos .hov-nav:hover { background: rgba(232, 184, 74, 0.08) !important; }
+body.fayos .hov-gold-text:hover { color: var(--gold) !important; }
+
+/* ---------- Shell ---------- */
+
+body.fayos .shell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+body.fayos .sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-right: 1px solid rgba(232, 184, 74, 0.12);
+}
+
+body.fayos .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--text-2);
+  border: 1px solid transparent;
+  background: transparent;
+}
+body.fayos .nav-item.on,
+body.fayos .top-item.on {
+  background: linear-gradient(90deg, rgba(232, 184, 74, 0.22), rgba(232, 184, 74, 0.06));
+  border-color: rgba(232, 184, 74, 0.55);
+}
+body.fayos .nav-item:hover { color: var(--text-2); }
+body.fayos .top-item {
+  padding: 9px 14px;
+  border-radius: 6px;
+  font-size: 15px;
+  cursor: pointer;
+  color: var(--text);
+  border: 1px solid transparent;
+}
+
+/* ---------- react-big-calendar (dark) ---------- */
+
+body.fayos .fay-calendar .rbc-month-view,
+body.fayos .fay-calendar .rbc-time-view { border-color: var(--border); border-radius: 6px; }
+body.fayos .fay-calendar .rbc-header { border-color: var(--border); color: var(--muted); font-weight: 400; font-size: 12px; padding: 6px 0; }
+body.fayos .fay-calendar .rbc-month-row + .rbc-month-row,
+body.fayos .fay-calendar .rbc-day-bg + .rbc-day-bg,
+body.fayos .fay-calendar .rbc-header + .rbc-header,
+body.fayos .fay-calendar .rbc-time-content,
+body.fayos .fay-calendar .rbc-time-header-content,
+body.fayos .fay-calendar .rbc-timeslot-group,
+body.fayos .fay-calendar .rbc-time-content > * + * > *,
+body.fayos .fay-calendar .rbc-day-slot .rbc-time-slot { border-color: var(--border-soft); }
+body.fayos .fay-calendar .rbc-off-range-bg { background: rgba(255, 255, 255, 0.02); }
+body.fayos .fay-calendar .rbc-off-range { color: var(--faint); }
+body.fayos .fay-calendar .rbc-date-cell { font-size: 12px; color: var(--text-3); padding: 4px 6px; }
+body.fayos .fay-calendar .rbc-today { background: rgba(232, 184, 74, 0.08); }
+body.fayos .fay-calendar .rbc-event.rbc-selected { box-shadow: 0 0 0 2px var(--gold); }
+body.fayos .fay-calendar .rbc-show-more { background: transparent; color: var(--gold); font-size: 11px; }
+body.fayos .fay-calendar .rbc-overlay { background: var(--surface-2); border-color: var(--border); }
+body.fayos .fay-calendar .rbc-time-gutter,
+body.fayos .fay-calendar .rbc-label { color: var(--muted); font-size: 11px; }
+body.fayos .fay-calendar .rbc-current-time-indicator { background: var(--gold); }
+
+/* ---------- react-phone-input-2 (dark) ---------- */
+
+body.fayos .fay-phone .react-tel-input .form-control {
+  width: 100%;
+  height: 41px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+}
+body.fayos .fay-phone .react-tel-input .flag-dropdown,
+body.fayos .fay-phone .react-tel-input .selected-flag:hover,
+body.fayos .fay-phone .react-tel-input .flag-dropdown.open .selected-flag { background: var(--surface-2); border-color: var(--border-strong); }
+body.fayos .fay-phone .react-tel-input .country-list { background: var(--surface-2); color: var(--text); }
+body.fayos .fay-phone .react-tel-input .country-list .country:hover,
+body.fayos .fay-phone .react-tel-input .country-list .country.highlight { background: var(--surface-3); }
+body.fayos .fay-phone .react-tel-input .country-list .search { background: var(--surface-2); }
+body.fayos .fay-phone .react-tel-input .country-list .search-box { background: var(--input-bg); color: var(--text); border-color: var(--border-strong); }
+body.fayos .fay-calendar-week .rbc-time-content,
+body.fayos .fay-calendar-day .rbc-time-content { display: none; }
+body.fayos .fay-calendar-week .rbc-time-header,
+body.fayos .fay-calendar-day .rbc-time-header { min-height: 160px; }
+body.fayos .fay-calendar .rbc-time-header-gutter { display: none; }
+body.fayos .fay-calendar .rbc-allday-cell { height: auto; }
+body.fayos .fay-calendar .rbc-header a { color: var(--text-3); }
+
+/* Small square icon button used in list rows (complete / cancel). */
+body.fayos .mini-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+body.fayos .mini-btn:hover { border-color: var(--gold); color: var(--gold); }
+body.fayos button.hov-gold-bg:hover { border-color: var(--gold); }
+
+/* Toolbar buttons rendered as <button> (same look as the div versions). */
+body.fayos button.btn-gold,
+body.fayos button.fay-btn-outline { font-family: var(--sans); cursor: pointer; }
+body.fayos button.btn-gold { border: 0; }
+body.fayos button.btn-gold:disabled { opacity: 0.5; cursor: default; }
+body.fayos button.fay-btn-outline { background: transparent; color: var(--text); }
+body.fayos button.fay-btn-outline:hover { border-color: var(--gold); }
+body.fayos button.cta-sm { border: 0; cursor: pointer; font-family: var(--sans); }
+body.fayos .mini-btn:disabled { opacity: 0.35; cursor: default; }
