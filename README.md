@@ -10,6 +10,7 @@ current administrator pages come from v1. The public website is new, built from 
 | `/login` | Everyone | One sign-in for the whole platform. Managers go to `/manager` and administrators to `/admin`. Guests are pointed to the app. (`/admin/login` still works.) |
 | `/manager` | Managers, super administrators | **FAY OS** operations dashboard: Guest 360, journey, communications, requests, reservations, residences & smart home, housekeeping, maintenance, wellness, dining, transport, experiences, analytics, FAY AI, settings |
 | `/admin` | Super administrators, and any role granted an HQ area | **Faysha HQ**, the boss section: overview, finance, approvals, staff & departments, roles & permissions, view as, HR, properties, audit log, plus residences, bookings, wellness catalogue, feedback and website content |
+| iOS / Android | Guests | **The Faysha app** (`mobile/`): stay hub, digital key, smart home, requests, in-residence dining, experiences, rides, bill, concierge chat, wellness, rewards, booking with card or mobile money. See [mobile/README.md](mobile/README.md) |
 
 ## Repository
 
@@ -21,8 +22,9 @@ frontend/          React 18 (Create React App), Tailwind, MUI
   src/admin/       Faysha HQ, the super administrator dashboard (lazy-loaded, styles scoped to body.fayhq)
   src/pages/admin/ v1 administrator screens, shown inside HQ until each is rebuilt
   public/images/site/  website imagery
-backend/           Express + PostgreSQL API (/api), Socket.io, Stripe, Firebase push, email
-docs/              MANAGER_API.md (FAY OS API), HQ_API.md (HQ API), SERVER_SETUP.md
+backend/           Express + PostgreSQL API (/api), Socket.io, Stripe, Expo and Firebase push, email
+mobile/            the guest app (Expo SDK 57, React Native)
+docs/              MANAGER_API.md (FAY OS API), HQ_API.md (HQ API), GUEST_API.md (guest app API), SERVER_SETUP.md
 ```
 
 ## Design
@@ -35,7 +37,7 @@ The website, the dashboards and the apps share one look:
 - **Type:** Cormorant Garamond for headings, Jost for text, and Cinzel for the FAYSHA wordmark (it matches the logo)
 
 The tokens are in `frontend/src/site/site.css`; `frontend/src/manager/styles.css` uses the same values. The "The Faysha app"
-section shows the guest app's real home screen in the app's own colours (`mobile/src/constants/theme.js` in v1).
+section shows the guest app's real home screen in the app's own colours (`mobile/src/constants/theme.js`).
 
 Page copy can be edited per language in **Admin → Page Management** (stored by `/api/pages`). The visual editor renders the
 new site pages, so the text you click is the text on the live site. Residence photos and 360° panoramas come from
@@ -51,12 +53,15 @@ npm run dev
 # Website + dashboards (port 3000)
 cd frontend && npm install && cp .env.example .env
 npm start
+
+# Guest app (Expo)
+cd mobile && npm install && npx expo start
 ```
 
 To work on the website or the manager dashboard without a backend, set `REACT_APP_USE_MOCKS=true` in `frontend/.env`
 (development only). Both then run on built-in sample data.
 
-Tests: `cd frontend && npm run test:ci` (website, FAY OS and HQ) and `cd backend && npm test` (HQ access rules and audit). Production build: `npm run build`.
+Tests: `cd frontend && npm run test:ci` (website, FAY OS and HQ) and `cd backend && npm test` (HQ access rules, audit, guest notifications). Production build: `npm run build`.
 
 ## Faysha HQ (`/admin`)
 
@@ -91,17 +96,26 @@ Terms acceptance (`terms_accepted`, `terms_accepted_at`) is stored with every bo
 
 ## Deploying (same server as v1)
 
-1. Database: `cd backend && node migrations/run.js 021_create_hq.sql`. It adds properties, the audit log, approvals and the HR Manager role. It is additive and safe to re-run.
+Step by step, with backups and rollback: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+
+1. Database: `cd backend && node migrations/run.js 020_create_manager_operations.sql` (FAY OS), `node migrations/run.js 021_create_hq.sql` (properties, the audit log, approvals and the HR
+   Manager role), then `node migrations/run.js 022_align_wellness_schema.sql` (brings old wellness tables up to the
+   unified wellness system the app and FAY OS use, and adds the standard activities if they are missing). Both are
+   additive and safe to re-run.
 2. Backend: deploy `backend/` in place of v1's backend. Add the new variables from `backend/.env.example`:
-   `CONTACT_EMAIL` (contact form recipient), `APP_URL`, and the Stripe and SMTP values if they are not set already.
+   `CONTACT_EMAIL` (contact form recipient), `APP_URL`, `PROPERTY_WIFI_SSID` / `PROPERTY_WIFI_PASSWORD` (shown with the
+   digital key), and the Stripe and SMTP values if they are not set already.
 3. Frontend: `cd frontend && REACT_APP_API_URL=/api npm run build`, then publish `build/` (as v1's `build-production.sh` does).
 4. Old v1 addresses (`/booking`, `/amenities`, `/apartments/:id`, `/terms-of-service`, `/privacy-policy`) redirect to the
    new pages, so links in emails that were already sent keep working.
+5. Guest app: build with EAS and publish to the stores (see [mobile/README.md](mobile/README.md)). The current v1 app
+   keeps working against the new backend, except its sign-up screen, which only the new app has.
 
 ## Roadmap
 
 1. ~~Public website~~ (this release)
 2. ~~Super administrator dashboard, Faysha HQ~~ (this release). Next for HQ: rebuild the remaining v1 screens natively, and let managers raise approval requests from FAY OS
-3. Guest app (v1 `mobile/`) updated to the v2 API and design
+3. ~~Guest app updated to the v2 API and design~~ (this release). Next: connect a mobile money gateway, Apple Pay / Google Pay
 4. Staff app, showing each person only their role's screens: housekeeping, maintenance, dining/F&B, concierge/front desk,
    drivers, spa therapists

@@ -38,6 +38,7 @@ const { auditTrail, requireAreaByMethod } = require('./middleware/hq');
 // Manager dashboard (FAY OS) API
 const managerRoutes = require('./routes/manager');
 const adminRoutes = require('./routes/admin');
+const guestRoutes = require('./routes/guest');
 
 // Initialize Express app
 const app = express();
@@ -126,6 +127,9 @@ app.use('/api/manager', managerRoutes);
 
 // Faysha HQ (super administrator dashboard) API — access by HQ area, see middleware/hq.js
 app.use('/api/admin', adminRoutes);
+
+// Guest API for the Faysha app (own data only) — see routes/guest/index.js
+app.use('/api/guest', guestRoutes);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));

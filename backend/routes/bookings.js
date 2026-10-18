@@ -4,6 +4,7 @@ const db = require('../config/database');
 const pool = db.pool;
 const bcrypt = require('bcryptjs');
 const emailService = require('../services/email.service');
+const { notifyGuest } = require('../services/guestPush');
 const keyGenerator = require('../utils/keyGenerator');
 const QRCode = require('qrcode');
 const { authenticateToken, requireStaff, userFromRequest, STAFF_ROLES } = require('../middleware/auth');
@@ -617,57 +618,13 @@ router.post('/', async (req, res) => {
     console.log('✅ Booking created with ID:', bookingResult.rows[0].id);
     console.log('✅ Booking number:', bookingResult.rows[0].booking_number);
 
-    // Track if we need to store a temporary password
+    // A new account's temporary password is kept with the booking and sent in the confirmation email once paid.
+    // It is never returned here: this endpoint is public, so the response must not carry sign-in details.
+    // (An existing account that still has a temporary password gets a fresh one emailed at confirmation.)
     let passwordToStore = null;
-
-    // Store credentials in response for API (will be saved to send in comprehensive email at payment confirmation)
     if (accountInfo.isNewAccount) {
       passwordToStore = accountInfo.temporaryPassword;
       response.accountCreated = true;
-      response.credentials = {
-        email: accountInfo.email,
-        username: accountInfo.username,
-        temporaryPassword: accountInfo.temporaryPassword
-      };
-
-      console.log('🎉 New account created for:', accountInfo.email);
-      console.log('📧 Temporary password:', accountInfo.temporaryPassword);
-      console.log('👤 Username:', accountInfo.username);
-    } else {
-      // Existing account - check if they have a temporary password
-      try {
-        const userResult = await pool.query(
-          'SELECT username, is_password_temporary FROM users WHERE id = $1',
-          [accountInfo.userId]
-        );
-
-        if (userResult.rows.length > 0 && userResult.rows[0].is_password_temporary) {
-          // User has temporary password - generate new one
-          const bcrypt = require('bcryptjs');
-          const newTempPassword = generateTempPassword();
-          const hashedPassword = await bcrypt.hash(newTempPassword, 10);
-
-          await pool.query(
-            'UPDATE users SET password_hash = $1 WHERE id = $2',
-            [hashedPassword, accountInfo.userId]
-          );
-
-          // Store password to be saved after response
-          passwordToStore = newTempPassword;
-
-          console.log('🔄 Generated new temporary password for existing user:', guest_email);
-          console.log('📧 New temporary password:', newTempPassword);
-          console.log('👤 Username:', userResult.rows[0].username);
-
-          response.credentials = {
-            email: guest_email,
-            username: userResult.rows[0].username,
-            temporaryPassword: newTempPassword
-          };
-        }
-      } catch (error) {
-        console.error('❌ Error handling existing user credentials:', error);
-      }
     }
 
     // Store temporary password in booking AFTER commit to avoid transaction abort
@@ -678,7 +635,6 @@ router.post('/', async (req, res) => {
           SET temporary_password = $1
           WHERE id = $2
         `, [passwordToStore, bookingResult.rows[0].id]);
-        console.log('✅ Temporary password stored in booking');
       } catch (updateError) {
         // Ignore error if column doesn't exist yet (migration pending)
         console.log('⚠️ Could not store temporary password (migration may be pending):', updateError.message);
@@ -909,7 +865,6 @@ router.post('/:id/confirm', async (req, res) => {
         let credentials = null;
         if (booking.user_id) {
           console.log('📧 Checking credentials for user_id:', booking.user_id);
-          console.log('📧 booking.temporary_password:', booking.temporary_password);
 
           const userResult = await pool.query(
             `SELECT username, email, is_password_temporary FROM users WHERE id = $1`,
@@ -944,7 +899,6 @@ router.post('/:id/confirm', async (req, res) => {
                 [hashedPassword, booking.user_id]
               );
 
-              console.log('✅ New temporary password generated:', newTempPassword);
 
               credentials = {
                 username: userResult.rows[0].username,
@@ -995,6 +949,16 @@ router.post('/:id/confirm', async (req, res) => {
     // Note: Comprehensive email with all booking details and digital keys
     // is automatically sent via the sendApartmentDigitalKey call above
     // No need to send separate booking confirmation email
+
+    // Tell the guest in the app (push + live update) that their stay is confirmed.
+    if (booking.user_id) {
+      notifyGuest(req.app, booking.user_id, {
+        title: 'Your stay is confirmed',
+        body: `${booking.category_display_name} · ${new Date(booking.check_in_date).toDateString()}. Your digital key is ready in the app.`,
+        event: 'stay:confirmed',
+        data: { bookingId: booking.id, screen: 'MyStays' }
+      });
+    }
 
     res.json({
       success: true,
@@ -1215,6 +1179,9 @@ router.post('/:id/send-digital-key-email', requireStaff, async (req, res) => {
 });
 
 // Get all active digital keys for logged-in user
+/** A DATE column (parsed by pg as local midnight) → "YYYY-MM-DD". */
+const calendarDay = (d) => (d instanceof Date ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : d);
+
 router.get('/user/my-keys', authenticateToken, async (req, res) => {
   try {
     // Keys belong to the signed-in guest; staff may look up any guest with ?user_id=.
@@ -1258,8 +1225,10 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
       bookingId: booking.booking_id,
       bookingNumber: booking.booking_number,
       apartmentName: booking.apartment_name,
-      villaNumber: `VILLA ${booking.unit_number}`,
+      villaNumber: `RESIDENCE ${booking.unit_number}`,
       floor: booking.floor,
+      // The guest network, set per property in the environment (shown only with a confirmed stay).
+      wifi: process.env.PROPERTY_WIFI_SSID ? { ssid: process.env.PROPERTY_WIFI_SSID, password: process.env.PROPERTY_WIFI_PASSWORD || '' } : null,
       building: booking.building,
       gateQRCode: booking.gate_qr_code,
       doorPIN: booking.door_pin,
@@ -1269,8 +1238,9 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
         status: 'secure', // TODO: Implement deposit box status tracking
         packageCount: 0 // TODO: Implement package tracking
       },
-      checkIn: booking.check_in_date,
-      checkOut: booking.check_out_date,
+      // Calendar days as YYYY-MM-DD, so the app shows the same date in every time zone.
+      checkIn: calendarDay(booking.check_in_date),
+      checkOut: calendarDay(booking.check_out_date),
       status: booking.status === 'checked_in' ? 'active' : 'upcoming'
     }));
 

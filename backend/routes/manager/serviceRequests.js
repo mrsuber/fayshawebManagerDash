@@ -3,6 +3,7 @@
  */
 
 const express = require('express');
+const { notifyGuest } = require('../../services/guestPush');
 const { db, ah, httpError, isoTime, emit, addTimeline, notify, findGuest } = require('./lib');
 
 const router = express.Router();
@@ -126,6 +127,10 @@ router.patch(
     const request = await one(req.params.id);
     if (status && status !== before.status) {
       await addTimeline(null, request.guestId, `${request.title} – ${status}`, 'Service Request', { performedBy: req.user.id });
+      const words = { 'In Progress': 'is being taken care of', Completed: 'is done', Scheduled: 'is scheduled', Cancelled: 'was cancelled', 'On Hold': 'is on hold' };
+      if (request.guestId && words[status]) {
+        notifyGuest(req.app, request.guestId, { title: `${request.department}`, body: `Your request “${request.title}” ${words[status]}.`, event: 'request:updated', data: { id: request.id, status, screen: 'Requests' } });
+      }
       if (status === 'Escalated') await notify(req, 'Request escalated', `${request.title} · ${request.department}`, { link: '/requests' });
     }
     emit(req, 'service-request:updated', request);

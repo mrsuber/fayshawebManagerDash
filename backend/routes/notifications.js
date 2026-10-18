@@ -1,7 +1,7 @@
 // Notification API Routes
 const express = require('express');
 const router = express.Router();
-const { requireStaff } = require('../middleware/auth');
+const { requireStaff, authenticateToken } = require('../middleware/auth');
 const db = require('../config/database');
 const {
   sendNotificationToDevice,
@@ -16,15 +16,17 @@ const {
  * Register FCM token
  * POST /api/notifications/register
  */
-router.post('/register', async (req, res) => {
+// Signed-in only: the device is registered for the signed-in user (a userId in the body is ignored),
+// so nobody can sign a device up for someone else's notifications.
+router.post('/register', authenticateToken, async (req, res) => {
   try {
-    const { token, userId, platform = 'web', deviceInfo = {} } = req.body;
+    const { token, platform = 'web', deviceInfo = {} } = req.body;
+    const userId = req.user.id;
 
-    // Validate required fields
-    if (!token || !userId) {
+    if (!token) {
       return res.status(400).json({
         success: false,
-        error: 'Token and userId are required'
+        error: 'Token is required'
       });
     }
 
@@ -75,7 +77,7 @@ router.post('/register', async (req, res) => {
  * Unregister FCM token
  * POST /api/notifications/unregister
  */
-router.post('/unregister', async (req, res) => {
+router.post('/unregister', authenticateToken, async (req, res) => {
   try {
     const { token } = req.body;
 
@@ -87,8 +89,8 @@ router.post('/unregister', async (req, res) => {
     }
 
     await db.query(
-      'UPDATE fcm_tokens SET is_active = false WHERE token = $1',
-      [token]
+      'UPDATE fcm_tokens SET is_active = false WHERE token = $1 AND user_id = $2',
+      [token, req.user.id]
     );
 
     res.json({
@@ -248,7 +250,7 @@ router.post('/broadcast', requireStaff, async (req, res) => {
  * Subscribe user to topic
  * POST /api/notifications/subscribe
  */
-router.post('/subscribe', async (req, res) => {
+router.post('/subscribe', requireStaff, async (req, res) => {
   try {
     const { userId, topic } = req.body;
 
@@ -289,7 +291,7 @@ router.post('/subscribe', async (req, res) => {
  * Unsubscribe user from topic
  * POST /api/notifications/unsubscribe
  */
-router.post('/unsubscribe', async (req, res) => {
+router.post('/unsubscribe', requireStaff, async (req, res) => {
   try {
     const { userId, topic } = req.body;
 

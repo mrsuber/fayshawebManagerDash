@@ -2,6 +2,7 @@
 // Handles wellness metrics, activities, bookings, concierge, and smart home controls
 
 const express = require('express');
+const { notifyGuest } = require('../services/guestPush');
 const router = express.Router();
 const db = require('../config/database');
 const { authenticateToken, requireStaff } = require('../middleware/auth');
@@ -1254,6 +1255,7 @@ router.post('/admin/concierge/messages', staffOrConciergeBot, async (req, res) =
 
       // Send to specific user
       io.to(`user_${user_id}`).emit('new_message', messageData);
+      notifyGuest(req.app, user_id, { title: 'Faysha concierge', body: String(messageData.message || '').slice(0, 160), event: 'message:push', data: { screen: 'Concierge' } });
 
       // Also broadcast to all admin listeners
       io.to('admin').emit('new_message', messageData);
