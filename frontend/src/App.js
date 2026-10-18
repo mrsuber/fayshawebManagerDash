@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import './i18n/config';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ViewAsBanner from './admin/components/ViewAsBanner';
 
 // Public website (src/site)
 import SiteLayout from './site/SiteLayout';
@@ -19,32 +20,9 @@ import LegacyApartment from './site/pages/LegacyApartment';
 import { Privacy, Terms } from './site/pages/Legal';
 import { ForgotPassword, Login, NotFound, ResetPassword } from './site/pages/Account';
 
-// Super administrator dashboard (v1 pages, kept until the new boss dashboard replaces them).
-// Lazy-loaded so visitors to the public site never download it.
+// Faysha HQ — the super administrator dashboard (src/admin), its own bundle, loaded only at /admin.
+const AdminApp = lazy(() => import('./admin/AdminApp'));
 const ChangePassword = lazy(() => import('./pages/admin/ChangePassword'));
-const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
-const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
-const PageManagement = lazy(() => import('./pages/admin/PageManagement'));
-const UserManagement = lazy(() => import('./pages/admin/UserManagement'));
-const ApartmentCategories = lazy(() => import('./pages/admin/ApartmentCategories'));
-const Apartments = lazy(() => import('./pages/admin/Apartments'));
-const Bookings = lazy(() => import('./pages/admin/Bookings'));
-const DepositBoxManagement = lazy(() => import('./pages/admin/DepositBoxManagement'));
-const Payments = lazy(() => import('./pages/admin/Payments'));
-const AvailabilityCalendar = lazy(() => import('./pages/admin/AvailabilityCalendar'));
-const FeedbackManagement = lazy(() => import('./pages/admin/FeedbackManagement'));
-const Jobs = lazy(() => import('./pages/admin/hr/Jobs'));
-const Applications = lazy(() => import('./pages/admin/hr/Applications'));
-const Employees = lazy(() => import('./pages/admin/hr/Employees'));
-const Attendance = lazy(() => import('./pages/admin/hr/Attendance'));
-const Leave = lazy(() => import('./pages/admin/hr/Leave'));
-const WellnessActivities = lazy(() => import('./pages/admin/WellnessActivities'));
-const WellnessZones = lazy(() => import('./pages/admin/WellnessZones'));
-const WellnessBookings = lazy(() => import('./pages/admin/WellnessBookings'));
-const WellnessAvailability = lazy(() => import('./pages/admin/WellnessAvailability'));
-const WellnessConcierge = lazy(() => import('./pages/admin/WellnessConcierge'));
-const WellnessMetrics = lazy(() => import('./pages/admin/WellnessMetrics'));
-const GuestManagement = lazy(() => import('./pages/admin/GuestManagement'));
 
 // Manager dashboard (FAY OS): its own bundle, loaded only when someone opens /manager.
 const ManagerApp = lazy(() => import('./manager/ManagerApp'));
@@ -85,42 +63,17 @@ function App() {
             }
           />
 
-          {/* Super administrator dashboard */}
+          {/* Faysha HQ — super administrators and any role granted an HQ area */}
           <Route
-            path="/admin"
+            path="/admin/*"
             element={
               <ProtectedRoute requiredRole="admin">
                 <Suspense fallback={null}>
-                  <AdminLayout />
+                  <AdminApp />
                 </Suspense>
               </ProtectedRoute>
             }
-          >
-            <Route index element={<Dashboard />} />
-            <Route path="change-password" element={<ChangePassword />} />
-            <Route path="users" element={<UserManagement />} />
-            <Route path="guests" element={<GuestManagement />} />
-            <Route path="pages" element={<PageManagement />} />
-            <Route path="categories" element={<ApartmentCategories />} />
-            <Route path="apartments" element={<Apartments />} />
-            <Route path="bookings" element={<Bookings />} />
-            <Route path="deposit-boxes" element={<DepositBoxManagement />} />
-            <Route path="calendar" element={<AvailabilityCalendar />} />
-            <Route path="payments" element={<Payments />} />
-            <Route path="feedback" element={<FeedbackManagement />} />
-            <Route path="hr/jobs" element={<Jobs />} />
-            <Route path="hr/applications" element={<Applications />} />
-            <Route path="hr/employees" element={<Employees />} />
-            <Route path="hr/attendance" element={<Attendance />} />
-            <Route path="hr/leave" element={<Leave />} />
-            <Route path="wellness/dashboard" element={<WellnessMetrics />} />
-            <Route path="wellness/activities" element={<WellnessActivities />} />
-            <Route path="wellness/zones" element={<WellnessZones />} />
-            <Route path="wellness/bookings" element={<WellnessBookings />} />
-            <Route path="wellness/availability" element={<WellnessAvailability />} />
-            <Route path="wellness/concierge" element={<WellnessConcierge />} />
-            <Route path="settings" element={<Navigate to="/manager/settings" replace />} />
-          </Route>
+          />
 
           {/* Public website */}
           <Route element={<SiteLayout />}>
@@ -150,6 +103,7 @@ function App() {
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
+        <ViewAsBanner />
       </Router>
     </AuthProvider>
   );

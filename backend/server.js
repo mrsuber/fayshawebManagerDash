@@ -33,10 +33,11 @@ const contactRoutes = require('./routes/contact');
 const employeesRoutes = require('./routes/employees');
 const attendanceRoutes = require('./routes/attendance');
 const leaveRoutes = require('./routes/leave');
-const { requireStaff } = require('./middleware/auth');
+const { auditTrail, requireAreaByMethod } = require('./middleware/hq');
 
 // Manager dashboard (FAY OS) API
 const managerRoutes = require('./routes/manager');
+const adminRoutes = require('./routes/admin');
 
 // Initialize Express app
 const app = express();
@@ -97,6 +98,9 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+// Audit trail: every change made by a signed-in user is recorded (HQ → Audit log)
+app.use('/api', auditTrail);
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -113,12 +117,15 @@ app.use('/api/wellness-unified', wellnessUnifiedRoutes); // NEW: Unified wellnes
 app.use('/api/deposit-box', depositBoxRoutes);
 app.use('/api/contact', contactRoutes); // public contact form (website)
 app.use('/api/jobs', jobsRoutes); // listing and applications are public (Careers page); management is staff-only
-app.use('/api/employees', requireStaff, employeesRoutes);
-app.use('/api/attendance', requireStaff, attendanceRoutes);
-app.use('/api/leave', requireStaff, leaveRoutes);
+app.use('/api/employees', requireAreaByMethod('hr'), employeesRoutes); // super administrators, managers and HR roles
+app.use('/api/attendance', requireAreaByMethod('hr'), attendanceRoutes); // super administrators, managers and HR roles
+app.use('/api/leave', requireAreaByMethod('hr'), leaveRoutes); // super administrators, managers and HR roles
 
 // Manager dashboard (FAY OS) API — staff only, see routes/manager/index.js
 app.use('/api/manager', managerRoutes);
+
+// Faysha HQ (super administrator dashboard) API — access by HQ area, see middleware/hq.js
+app.use('/api/admin', adminRoutes);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
@@ -231,7 +238,9 @@ io.use(async (socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token;
   if (!token) return next();
   try {
-    const { userId } = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-this-in-production');
+    const { userId, imp } = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-change-this-in-production');
+    // View-as (read-only) sessions get no live staff channel, so they can't send messages.
+    if (imp) return next();
     const { rows } = await db.query(
       `SELECT u.id, r.name AS role FROM users u JOIN roles r ON r.id = u.role_id
         WHERE u.id = $1 AND u.deleted_at IS NULL AND u.status = 'active'`,

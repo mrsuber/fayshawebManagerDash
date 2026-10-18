@@ -76,6 +76,18 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    // "View as" tokens (HQ → Staff → View as) let a super administrator see what someone else sees.
+    // They are strictly read-only: anything that would change data is refused here, for every route.
+    if (decoded.imp) {
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        return res.status(403).json({
+          success: false,
+          error: 'View-as mode is read-only.',
+          message: 'View-as mode is read-only. Return to HQ to make changes.'
+        });
+      }
+    }
+
     // Attach user info to request
     req.user = {
       id: user.id,
@@ -87,7 +99,8 @@ const authenticateToken = async (req, res, next) => {
       permissions: user.permissions,
       emailVerified: user.email_verified,
       mustChangePassword: user.must_change_password,
-      isPasswordTemporary: user.is_password_temporary
+      isPasswordTemporary: user.is_password_temporary,
+      impersonatedBy: decoded.imp || null
     };
 
     next();
@@ -230,7 +243,9 @@ const userFromRequest = async (req) => {
   try {
     const token = (req.headers['authorization'] || '').split(' ')[1];
     if (!token) return null;
-    const { userId } = jwt.verify(token, JWT_SECRET);
+    const { userId, imp } = jwt.verify(token, JWT_SECRET);
+    // View-as tokens never unlock staff-only behaviour on public routes.
+    if (imp) return null;
     const result = await db.query(
       `SELECT u.id, u.email, u.full_name, r.name AS role
          FROM users u JOIN roles r ON u.role_id = r.id
