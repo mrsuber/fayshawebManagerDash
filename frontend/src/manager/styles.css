@@ -363,3 +363,10 @@ body.fayos button.fay-btn-outline { background: transparent; color: var(--text);
 body.fayos button.fay-btn-outline:hover { border-color: var(--gold); }
 body.fayos button.cta-sm { border: 0; cursor: pointer; font-family: var(--sans); }
 body.fayos .mini-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* Tailwind's preflight (src/index.css) resets button backgrounds after MUI's styles load, which left
+   contained MUI buttons transparent. Restore their fill. */
+body.fayos .MuiButton-containedPrimary:not(.Mui-disabled) { background-color: var(--gold); color: var(--on-gold); }
+body.fayos .MuiButton-containedPrimary:not(.Mui-disabled):hover { background-color: var(--gold-hover); }
+body.fayos .MuiButton-containedError:not(.Mui-disabled) { background-color: var(--red); color: #fff; }
+body.fayos .MuiButton-containedSuccess:not(.Mui-disabled) { background-color: var(--green); color: #fff; }

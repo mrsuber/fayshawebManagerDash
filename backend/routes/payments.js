@@ -384,91 +384,77 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
   }
 });
 
-// Process refund
-router.post('/:id/refund', requireStaff, async (req, res) => {
-  const client = await pool.connect();
+const refundError = (status, message) => Object.assign(new Error(message), { status });
 
+/**
+ * Refunds a completed payment (through Stripe when it was a card payment) and cancels its booking.
+ * Shared by POST /api/payments/:id/refund and HQ approvals. Throws errors carrying an HTTP status.
+ */
+async function processRefund(id, refundAmount, refundReason) {
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const { id } = req.params;
-    const { refund_amount, refund_reason } = req.body;
-
-    const paymentResult = await client.query(
-      'SELECT * FROM payments WHERE id = $1',
-      [id]
-    );
-
-    if (paymentResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'Payment not found'
-      });
-    }
-
+    const paymentResult = await client.query('SELECT * FROM payments WHERE id = $1', [id]);
+    if (paymentResult.rows.length === 0) throw refundError(404, 'Payment not found');
     const payment = paymentResult.rows[0];
-
-    if (payment.status !== 'completed') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Only completed payments can be refunded'
-      });
-    }
+    if (payment.status !== 'completed') throw refundError(400, 'Only completed payments can be refunded');
 
     // Process Stripe refund if payment was through Stripe
     if (payment.payment_method === 'stripe' && payment.stripe_payment_intent_id) {
       try {
         const refund = await stripe.refunds.create({
           payment_intent: payment.stripe_payment_intent_id,
-          amount: refund_amount ? Math.round(parseFloat(refund_amount)) : undefined,
+          amount: refundAmount ? Math.round(parseFloat(refundAmount)) : undefined,
           reason: 'requested_by_customer'
         });
         console.log('Stripe refund created:', refund.id);
       } catch (stripeError) {
         console.error('Stripe refund error:', stripeError);
-        await client.query('ROLLBACK');
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to process Stripe refund',
-          error: stripeError.message
-        });
+        throw refundError(500, `Failed to process Stripe refund: ${stripeError.message}`);
       }
     }
 
-    // Update payment
     await client.query(`
       UPDATE payments
       SET status = 'refunded', refunded_at = CURRENT_TIMESTAMP,
           refund_amount = $1, refund_reason = $2
       WHERE id = $3
-    `, [refund_amount, refund_reason, id]);
+    `, [refundAmount || payment.amount, refundReason, id]);
 
-    // Update booking to cancelled
     await client.query(`
       UPDATE bookings
       SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP,
           cancellation_reason = $1
       WHERE id = $2
-    `, [refund_reason, payment.booking_id]);
+    `, [refundReason, payment.booking_id]);
 
     await client.query('COMMIT');
+    return payment;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
+// Process refund
+router.post('/:id/refund', requireStaff, async (req, res) => {
+  try {
+    const { refund_amount, refund_reason } = req.body;
+    await processRefund(req.params.id, refund_amount, refund_reason);
     res.json({
       success: true,
       message: 'Refund processed successfully'
     });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('Error processing refund:', error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
-      message: 'Failed to process refund',
+      message: error.status ? error.message : 'Failed to process refund',
       error: error.message
     });
-  } finally {
-    client.release();
   }
 });
 
@@ -502,3 +488,4 @@ router.get('/stats/overview', requireStaff, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.processRefund = processRefund;

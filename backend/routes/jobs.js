@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
-const { requireStaff } = require('../middleware/auth');
+const { requireAreaByMethod } = require('../middleware/hq');
+
+// Posting jobs and reviewing applications: super administrators, managers and HR roles.
+const hrStaff = requireAreaByMethod('hr');
 const multer = require('multer');
 const path = require('path');
 
@@ -37,7 +40,7 @@ const upload = multer({
 // ============================================
 
 // Create new job posting
-router.post('/', requireStaff, async (req, res) => {
+router.post('/', hrStaff, async (req, res) => {
   try {
     const {
       title, department_id, category_id, description, responsibilities,
@@ -177,7 +180,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Update job posting
-router.put('/:id', requireStaff, async (req, res) => {
+router.put('/:id', hrStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -234,7 +237,7 @@ router.put('/:id', requireStaff, async (req, res) => {
 });
 
 // Delete job posting
-router.delete('/:id', requireStaff, async (req, res) => {
+router.delete('/:id', hrStaff, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -342,7 +345,7 @@ router.post('/:id/apply', upload.fields([
 });
 
 // Get applications for a job
-router.get('/:id/applications', requireStaff, async (req, res) => {
+router.get('/:id/applications', hrStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.query;
@@ -387,7 +390,7 @@ router.get('/:id/applications', requireStaff, async (req, res) => {
 });
 
 // Get all applications (admin)
-router.get('/applications/all', requireStaff, async (req, res) => {
+router.get('/applications/all', hrStaff, async (req, res) => {
   try {
     const { status, job_id } = req.query;
 
@@ -439,7 +442,7 @@ router.get('/applications/all', requireStaff, async (req, res) => {
 });
 
 // Update application status
-router.put('/applications/:id/status', requireStaff, async (req, res) => {
+router.put('/applications/:id/status', hrStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const { status, review_notes } = req.body;

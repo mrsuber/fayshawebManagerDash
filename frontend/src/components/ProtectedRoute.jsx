@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { canOpenHq, homeFor } from '../admin/access';
 
 const ProtectedRoute = ({ children, allowPasswordChange = false, requiredRole = null }) => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -27,19 +28,13 @@ const ProtectedRoute = ({ children, allowPasswordChange = false, requiredRole = 
     }
   }
 
-  // Role check. 'admin' = the /admin site dashboard; 'manager' = the /manager operations dashboard.
-  // Super administrators can use both.
+  // Role check. 'admin' = Faysha HQ (super administrators and roles granted an HQ area);
+  // 'manager' = the FAY OS operations dashboard (managers and super administrators).
   if (requiredRole) {
-    const adminRoles = ['superadmin', 'content_manager', 'editor'];
-    const allowed = {
-      admin: adminRoles,
-      manager: ['manager', 'superadmin'],
-    }[requiredRole] || [requiredRole];
-
-    if (!allowed.includes(user?.role)) {
-      if (user?.role === 'manager') return <Navigate to="/manager" replace />;
-      if (adminRoles.includes(user?.role)) return <Navigate to="/admin" replace />;
-      return <Navigate to="/login" replace />;
+    const allowed = requiredRole === 'admin' ? canOpenHq(user) : requiredRole === 'manager' ? ['manager', 'superadmin'].includes(user?.role) : user?.role === requiredRole;
+    if (!allowed) {
+      const home = homeFor(user);
+      return <Navigate to={home && home !== location.pathname ? home : '/login'} replace />;
     }
   }
 

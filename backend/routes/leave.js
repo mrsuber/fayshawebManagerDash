@@ -207,147 +207,76 @@ router.get('/pending', async (req, res) => {
   }
 });
 
-// Approve leave request
-router.put('/:id/approve', async (req, res) => {
-  const client = await pool.getClient();
+const leaveError = (status, message) => Object.assign(new Error(message), { status });
 
+/**
+ * Approves or rejects a pending leave request: updates it, adjusts the leave balance on approval and
+ * notifies the employee. `userId` is the signed-in approver. Shared by these routes and HQ approvals.
+ */
+async function decideLeave(id, decision, userId, reason) {
+  if (!['approved', 'rejected'].includes(decision)) throw leaveError(400, 'Decision must be approved or rejected');
+  if (decision === 'rejected' && !reason) throw leaveError(400, 'A reason is required to reject leave');
+  const client = await pool.getClient();
   try {
     await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM leave_requests WHERE id = $1 FOR UPDATE', [id]);
+    if (!rows.length) throw leaveError(404, 'Leave request not found');
+    const leave = rows[0];
+    if (leave.status !== 'pending') throw leaveError(409, `This leave request is already ${leave.status}`);
 
-    const { id } = req.params;
-    const { approved_by } = req.body;
-
-    // Get leave request details
-    const leaveRequest = await client.query(
-      'SELECT * FROM leave_requests WHERE id = $1',
-      [id]
+    await client.query(
+      `UPDATE leave_requests SET status = $1, rejection_reason = $2, approved_by = $3, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $4`,
+      [decision, decision === 'rejected' ? reason : null, userId, id]
     );
 
-    if (leaveRequest.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'Leave request not found'
-      });
+    if (decision === 'approved') {
+      await client.query(`
+        UPDATE employee_leave_balance SET
+          used_days = used_days + $1,
+          remaining_days = remaining_days - $1
+        WHERE employee_id = $2 AND leave_type_id = $3 AND year = $4
+      `, [leave.number_of_days, leave.employee_id, leave.leave_type_id, new Date(leave.start_date).getFullYear()]);
     }
 
-    const leave = leaveRequest.rows[0];
-
-    // Update leave request status
+    const start = new Date(leave.start_date).toISOString().slice(0, 10);
+    const end = new Date(leave.end_date).toISOString().slice(0, 10);
     await client.query(`
-      UPDATE leave_requests SET
-        status = 'approved',
-        approved_by = $1,
-        approved_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [approved_by, id]);
-
-    // Update leave balance
-    const year = new Date().getFullYear();
-    await client.query(`
-      UPDATE employee_leave_balance SET
-        used_days = used_days + $1,
-        remaining_days = remaining_days - $1
-      WHERE employee_id = $2 AND leave_type_id = $3 AND year = $4
-    `, [leave.number_of_days, leave.employee_id, leave.leave_type_id, year]);
-
-    // Send notification to employee
-    await client.query(`
-      INSERT INTO employee_notifications (
-        employee_id, title, message, type, priority, sent_by
-      ) VALUES ($1, $2, $3, 'leave_approved', 'normal', $4)
+      INSERT INTO employee_notifications (employee_id, title, message, type, priority, sent_by)
+      VALUES ($1, $2, $3, $4, 'normal', $5)
     `, [
       leave.employee_id,
-      'Leave Request Approved',
-      `Your leave request from ${leave.start_date} to ${leave.end_date} has been approved.`,
-      approved_by
+      decision === 'approved' ? 'Leave Request Approved' : 'Leave Request Rejected',
+      decision === 'approved'
+        ? `Your leave request from ${start} to ${end} has been approved.`
+        : `Your leave request from ${start} to ${end} has been rejected. Reason: ${reason}`,
+      decision === 'approved' ? 'leave_approved' : 'leave_rejected',
+      userId
     ]);
 
     await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Leave request approved successfully'
-    });
+    return leave;
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error approving leave request:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to approve leave request',
-      error: error.message
-    });
+    throw error;
   } finally {
     client.release();
   }
-});
+}
 
-// Reject leave request
-router.put('/:id/reject', async (req, res) => {
-  const client = await pool.getClient();
-
+const decideRoute = (decision) => async (req, res) => {
   try {
-    await client.query('BEGIN');
-
-    const { id } = req.params;
-    const { rejection_reason, approved_by } = req.body;
-
-    // Get leave request details
-    const leaveRequest = await client.query(
-      'SELECT * FROM leave_requests WHERE id = $1',
-      [id]
-    );
-
-    if (leaveRequest.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'Leave request not found'
-      });
-    }
-
-    const leave = leaveRequest.rows[0];
-
-    // Update leave request status
-    await client.query(`
-      UPDATE leave_requests SET
-        status = 'rejected',
-        rejection_reason = $1,
-        approved_by = $2,
-        approved_at = CURRENT_TIMESTAMP
-      WHERE id = $3
-    `, [rejection_reason, approved_by, id]);
-
-    // Send notification to employee
-    await client.query(`
-      INSERT INTO employee_notifications (
-        employee_id, title, message, type, priority, sent_by
-      ) VALUES ($1, $2, $3, 'leave_rejected', 'normal', $4)
-    `, [
-      leave.employee_id,
-      'Leave Request Rejected',
-      `Your leave request from ${leave.start_date} to ${leave.end_date} has been rejected. Reason: ${rejection_reason}`,
-      approved_by
-    ]);
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Leave request rejected'
-    });
+    await decideLeave(req.params.id, decision, req.user.id, req.body.rejection_reason);
+    res.json({ success: true, message: decision === 'approved' ? 'Leave request approved successfully' : 'Leave request rejected' });
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error rejecting leave request:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to reject leave request',
-      error: error.message
-    });
-  } finally {
-    client.release();
+    console.error(`Error deciding leave request (${decision}):`, error);
+    res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Failed to update leave request', error: error.message });
   }
-});
+};
+
+// Approve / reject leave request (the approver is the signed-in user)
+router.put('/:id/approve', decideRoute('approved'));
+router.put('/:id/reject', decideRoute('rejected'));
 
 // Cancel leave request (employee)
 router.put('/:id/cancel', async (req, res) => {
@@ -523,3 +452,4 @@ router.get('/calendar', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.decideLeave = decideLeave;

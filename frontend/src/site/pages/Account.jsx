@@ -1,17 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { homeFor } from '../../admin/access';
 import { forgotPassword, resetPassword } from '../api';
 import { Monogram } from '../components/ui';
 import { useLang } from '../i18n';
-
-/** Roles that work in a dashboard, and where each one lands after signing in. */
-const ADMIN_ROLES = ['superadmin', 'content_manager', 'editor'];
-export function homeFor(role) {
-  if (role === 'manager') return '/manager';
-  if (ADMIN_ROLES.includes(role)) return '/admin';
-  return null;
-}
 
 function AccountCard({ title, lead, children }) {
   return (
@@ -47,7 +40,7 @@ export function Login() {
       navigate('/admin/change-password-required', { replace: true, state: { firstLogin: true } });
       return;
     }
-    const home = homeFor(user.role);
+    const home = homeFor(user);
     if (home) navigate(from && from !== '/login' && from !== '/admin/login' ? from : home, { replace: true });
   }, [isAuthenticated, user, navigate, from]);
 
@@ -60,7 +53,7 @@ export function Login() {
     if (!res.success) setError(res.error || t('common.error'));
   };
 
-  if (isAuthenticated && user && !homeFor(user.role) && !user.mustChangePassword) {
+  if (isAuthenticated && user && !homeFor(user) && !user.mustChangePassword) {
     return (
       <AccountCard title={`Welcome, ${user.name?.split(' ')[0] || 'guest'}`} lead="Your stays, digital key, wellness bookings and concierge live in the Faysha app. Sign in there with the same email.">
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
