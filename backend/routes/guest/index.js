@@ -7,6 +7,7 @@
  * through services/guestPush.js.
  */
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const { authenticateToken, checkPasswordChangeRequired } = require('../../middleware/auth');
 const { db, ah, httpError, isoDate, isoTime, emit, notify, addTimeline } = require('../manager/lib');
 
@@ -593,6 +594,52 @@ router.delete(
   '/push-token',
   ah(async (req, res) => {
     await db.query('UPDATE fcm_tokens SET is_active = false WHERE user_id = $1 AND token = $2', [req.user.id, req.body?.token || '']);
+    res.json({ ok: true });
+  }),
+);
+
+// ======================================================================
+// Estate tour — the 360° panoramas uploaded in HQ → Residences (apartment_media, media_type panorama_360)
+// ======================================================================
+router.get(
+  '/tour',
+  ah(async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT m.id, m.title, m.file_url, m.thumbnail_url, COALESCE(c.display_name, c2.display_name) AS residence
+         FROM apartment_media m
+         LEFT JOIN apartment_categories c ON c.id = m.category_id
+         LEFT JOIN apartments a ON a.id = m.apartment_id
+         LEFT JOIN apartment_categories c2 ON c2.id = a.category_id
+        WHERE m.media_type = 'panorama_360'
+        ORDER BY m.is_primary DESC, m.sort_order, m.id
+        LIMIT 30`,
+    );
+    res.json(rows.map((r) => ({ id: r.id, title: r.title || r.residence || 'Faysha', residence: r.residence, url: r.file_url, thumbnail: r.thumbnail_url || null })));
+  }),
+);
+
+// ======================================================================
+// Account deletion (required by the app stores). Stay records are kept for accounting, without the account.
+// ======================================================================
+/** POST { password } — closes the guest's account: anonymised, signed out everywhere, email free to sign up again. */
+router.post(
+  '/account/delete',
+  ah(async (req, res) => {
+    if (req.user.role !== 'guest') throw httpError(403, 'Staff accounts are closed by an administrator');
+    const { rows } = await db.query('SELECT password_hash FROM users WHERE id = $1 AND deleted_at IS NULL', [req.user.id]);
+    if (!rows.length) throw httpError(404, 'Account not found');
+    if (!(await bcrypt.compare(String(req.body?.password || ''), rows[0].password_hash))) throw httpError(400, 'That password is not correct');
+    const active = await db.query("SELECT 1 FROM bookings WHERE user_id = $1 AND status = 'checked_in' LIMIT 1", [req.user.id]);
+    if (active.rows.length) throw httpError(409, 'You are in residence right now — please close your account after check-out');
+    await db.query('UPDATE fcm_tokens SET is_active = false WHERE user_id = $1', [req.user.id]);
+    await db.query(
+      `UPDATE users SET email = 'deleted+' || id || '@deleted.fayshaa.com', username = 'deleted_' || id, full_name = 'Deleted guest',
+              phone = NULL, date_of_birth = NULL, nationality = NULL, emergency_contact = NULL, emergency_phone = NULL,
+              dietary_preferences = NULL, allergies = NULL, profile_image_url = NULL,
+              status = 'inactive', deleted_at = NOW(), updated_at = NOW()
+        WHERE id = $1`,
+      [req.user.id],
+    );
     res.json({ ok: true });
   }),
 );

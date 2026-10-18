@@ -183,14 +183,14 @@ router.post('/create-intent', async (req, res) => {
   }
 });
 
-// Request a mobile money payment (MTN Mobile Money / Orange Money) from the website.
+// Request a mobile money payment (MTN Mobile Money / Orange Money) from the website or the guest app.
 // No mobile money gateway is connected yet, so this records a pending payment with the guest's
 // number and their terms acceptance; staff confirm the booking once the money arrives
 // (POST /api/bookings/:id/confirm as staff, or the manager dashboard).
 const MOBILE_MONEY_PROVIDERS = ['mtn', 'orange'];
 router.post('/mobile-money', async (req, res) => {
   try {
-    const { booking_id, provider, phone, terms_accepted, terms_accepted_at } = req.body;
+    const { booking_id, provider, phone, terms_accepted, terms_accepted_at, source } = req.body;
 
     if (!MOBILE_MONEY_PROVIDERS.includes(provider)) {
       return res.status(400).json({ success: false, message: 'Choose MTN Mobile Money or Orange Money' });
@@ -215,7 +215,7 @@ router.post('/mobile-money', async (req, res) => {
       INSERT INTO payments (booking_id, payment_method, amount, currency, status, payment_metadata)
       VALUES ($1, 'mobile_money', $2, 'XAF', 'pending', $3)
       RETURNING id, booking_id, payment_method, amount, currency, status, created_at
-    `, [booking.id, booking.final_price, JSON.stringify({ provider, phone: String(phone).trim(), source: 'website' })]);
+    `, [booking.id, booking.final_price, JSON.stringify({ provider, phone: String(phone).trim(), source: source === 'app' ? 'app' : 'website' })]);
 
     await pool.query(
       'UPDATE bookings SET terms_accepted = TRUE, terms_accepted_at = $2 WHERE id = $1',
