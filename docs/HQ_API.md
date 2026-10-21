@@ -3,7 +3,7 @@
 Faysha HQ (`frontend/src/admin`, served at `/admin`) talks to `/api/admin/*` (`backend/routes/admin`).
 The client is `frontend/src/admin/api.js`.
 
-Database: `node migrations/run.js 021_create_hq.sql` (additive, safe to re-run).
+Database: `backend/db/schema.sql`, created by `node db/setup.js` (see docs/DEPLOY.md).
 
 ## Access
 

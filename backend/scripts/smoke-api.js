@@ -4,13 +4,13 @@
  *
  *   node scripts/smoke-api.js [base URL]        default http://localhost:5001/api
  *
- * Needs the demo data (node db/setup.js --reset --demo) and SMOKE_ADMIN_PASSWORD for admin@fayshaa.com.
+ * Needs the demo data (node db/setup.js --reset --demo) and ADMIN_PASSWORD for admin@fayshaa.com.
  */
 const BASE = process.argv[2] || 'http://localhost:5001/api';
 const DEMO_PASSWORD = 'Faysha2026!';
 
 const ACCOUNTS = {
-  superadmin: ['admin@fayshaa.com', process.env.SMOKE_ADMIN_PASSWORD],
+  superadmin: ['admin@fayshaa.com', process.env.ADMIN_PASSWORD],
   manager: ['manager@fayshaa.com', DEMO_PASSWORD],
   hr: ['hr@fayshaa.com', DEMO_PASSWORD],
   guest: ['claire.fontaine@example.com', DEMO_PASSWORD],

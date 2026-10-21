@@ -309,6 +309,7 @@ router.post('/activities', requireStaff, async (req, res) => {
   if (error) return res.status(400).json({ success: false, error });
   try {
     values.display_name = values.display_name || values.name;
+    values.requires_access_pin = values.type === 'journey'; // journeys open with a PIN at the door
     const cols = Object.keys(values);
     const result = await db.query(
       `INSERT INTO wellness_activities (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,

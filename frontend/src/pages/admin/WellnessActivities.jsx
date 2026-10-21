@@ -1,121 +1,133 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_URL } from '../../site/api';
+
+// The wellness catalogue the guest app books from: multi-stage journeys and single services.
+const CATEGORIES = [
+  { value: 'restore', label: 'Restore', icon: '🌿', color: 'blue' },
+  { value: 'recharge', label: 'Recharge', icon: '⚡', color: 'green' },
+  { value: 'reflect', label: 'Reflect', icon: '🌅', color: 'purple' },
+  { value: 'explore', label: 'Explore', icon: '🌍', color: 'orange' },
+  { value: 'spa', label: 'Spa', icon: '💆', color: 'pink' },
+  { value: 'fitness', label: 'Fitness', icon: '💪', color: 'green' },
+  { value: 'dining', label: 'Dining', icon: '🍽️', color: 'yellow' },
+  { value: 'other', label: 'Other', icon: '✨', color: 'gray' },
+];
+const categoryOf = (value) => CATEGORIES.find((c) => c.value === value) || CATEGORIES[CATEGORIES.length - 1];
+
+const EMPTY = {
+  type: 'service',
+  category: 'restore',
+  name: '',
+  description: '',
+  duration: 60,
+  max_capacity: 1,
+  base_price: 0,
+  image_url: '',
+  benefits: '',
+  requires_staff: false,
+  is_active: true,
+};
 
 const WellnessActivities = () => {
   const { token } = useAuth();
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingActivity, setEditingActivity] = useState(null);
-  const [filterMood, setFilterMood] = useState('all');
-  const [formData, setFormData] = useState({
-    mood_category: 'restore',
-    name: '',
-    description: '',
-    duration: '',
-    image_url: '',
-    features: []
-  });
+  const [filter, setFilter] = useState('all');
+  const [formData, setFormData] = useState(EMPTY);
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const moodCategories = [
-    { value: 'restore', label: 'Restore', icon: '🧘', color: 'blue' },
-    { value: 'recharge', label: 'Recharge', icon: '⚡', color: 'green' },
-    { value: 'reflect', label: 'Reflect', icon: '🌅', color: 'purple' },
-    { value: 'explore', label: 'Explore', icon: '🌍', color: 'orange' }
-  ];
-
-  useEffect(() => {
-    fetchActivities();
-  }, [filterMood]);
-
-  const fetchActivities = async () => {
-    try {
-      const url = filterMood === 'all'
-        ? '/api/wellness/activities'
-        : `/api/wellness/activities?mood=${filterMood}`;
-
-      const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
+  const request = useCallback(
+    async (path, options = {}) => {
+      const response = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
       });
-      const data = await response.json();
-      if (data.success) {
-        setActivities(data.activities);
-      }
-    } catch (error) {
-      console.error('Error fetching activities:', error);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) throw new Error(data.error || data.message || 'Something went wrong');
+      return data;
+    },
+    [token],
+  );
+
+  const fetchActivities = useCallback(async () => {
+    try {
+      setError('');
+      const data = await request(`/wellness/activities?all=true${filter === 'all' ? '' : `&category=${filter}`}`);
+      setActivities(data.activities);
+    } catch (e) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, request]);
+
+  useEffect(() => {
+    fetchActivities();
+  }, [fetchActivities]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaving(true);
+    setFormError('');
     try {
-      const url = editingActivity
-        ? `/api/wellness/activities/${editingActivity.id}`
-        : '/api/wellness/activities';
-
-      const method = editingActivity ? 'PUT' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        fetchActivities();
-        closeModal();
+      const body = {
+        ...formData,
+        duration: Number(formData.duration),
+        max_capacity: Number(formData.max_capacity),
+        base_price: Number(formData.base_price) || 0,
+        benefits: formData.benefits.split(',').map((b) => b.trim()).filter(Boolean),
+      };
+      if (editingActivity) {
+        delete body.type; // a journey's stages define it; the type stays as created
+        await request(`/wellness/activities/${editingActivity.id}`, { method: 'PUT', body: JSON.stringify(body) });
+      } else {
+        await request('/wellness/activities', { method: 'POST', body: JSON.stringify(body) });
       }
-    } catch (error) {
-      console.error('Error saving activity:', error);
+      closeModal();
+      fetchActivities();
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this activity?')) return;
-
+  const setActive = async (activity, isActive) => {
+    if (!isActive && !window.confirm(`Remove "${activity.name}" from the guest app? Existing bookings are kept.`)) return;
     try {
-      const response = await fetch(`/api/wellness/activities/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        fetchActivities();
-      }
-    } catch (error) {
-      console.error('Error deleting activity:', error);
+      if (isActive) await request(`/wellness/activities/${activity.id}`, { method: 'PUT', body: JSON.stringify({ is_active: true }) });
+      else await request(`/wellness/activities/${activity.id}`, { method: 'DELETE' });
+      fetchActivities();
+    } catch (e) {
+      setError(e.message);
     }
   };
 
   const openModal = (activity = null) => {
-    if (activity) {
-      setEditingActivity(activity);
-      setFormData({
-        mood_category: activity.mood_category,
-        name: activity.name,
-        description: activity.description || '',
-        duration: activity.duration || '',
-        image_url: activity.image_url || '',
-        features: activity.features || []
-      });
-    } else {
-      setEditingActivity(null);
-      setFormData({
-        mood_category: 'restore',
-        name: '',
-        description: '',
-        duration: '',
-        image_url: '',
-        features: []
-      });
-    }
+    setFormError('');
+    setEditingActivity(activity);
+    setFormData(
+      activity
+        ? {
+            type: activity.type,
+            category: activity.category,
+            name: activity.name,
+            description: activity.description || '',
+            duration: activity.duration,
+            max_capacity: activity.max_capacity || 1,
+            base_price: Number(activity.base_price) || 0,
+            image_url: activity.image_url || '',
+            benefits: (activity.benefits || []).join(', '),
+            requires_staff: Boolean(activity.requires_staff),
+            is_active: activity.is_active !== false,
+          }
+        : EMPTY,
+    );
     setShowModal(true);
   };
 
@@ -124,15 +136,10 @@ const WellnessActivities = () => {
     setEditingActivity(null);
   };
 
-  const getMoodColor = (mood) => {
-    const moodObj = moodCategories.find(m => m.value === mood);
-    return moodObj ? moodObj.color : 'gray';
-  };
-
-  const getMoodIcon = (mood) => {
-    const moodObj = moodCategories.find(m => m.value === mood);
-    return moodObj ? moodObj.icon : '📝';
-  };
+  const field = (name) => ({
+    value: formData[name],
+    onChange: (e) => setFormData({ ...formData, [name]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }),
+  });
 
   if (loading) {
     return (
@@ -144,253 +151,189 @@ const WellnessActivities = () => {
 
   return (
     <div className="p-6">
-      {/* Header */}
-      <div className="mb-6 flex justify-between items-center">
+      <div className="mb-6 flex justify-between items-center gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-heading text-gray-900">Wellness Activities</h1>
-          <p className="text-gray-600 mt-1">Manage mood-based wellness activities for guests</p>
+          <p className="text-gray-600 mt-1">Journeys and services guests can book in the Faysha app</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors font-semibold"
-        >
+        <button onClick={() => openModal()} className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors font-semibold">
           + Add Activity
         </button>
       </div>
 
-      {/* Mood Filter */}
-      <div className="mb-6 flex space-x-2">
+      {error && (
+        <div role="alert" className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3">
+          {error}
+        </div>
+      )}
+
+      <div className="mb-6 flex flex-wrap gap-2">
         <button
-          onClick={() => setFilterMood('all')}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            filterMood === 'all'
-              ? 'bg-gray-800 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
+          onClick={() => setFilter('all')}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${filter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
         >
-          All Activities
+          All
         </button>
-        {moodCategories.map(mood => (
+        {CATEGORIES.map((c) => (
           <button
-            key={mood.value}
-            onClick={() => setFilterMood(mood.value)}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterMood === mood.value
-                ? `bg-${mood.color}-600 text-white`
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            key={c.value}
+            onClick={() => setFilter(c.value)}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filter === c.value ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
           >
-            {mood.icon} {mood.label}
+            {c.icon} {c.label}
           </button>
         ))}
       </div>
 
-      {/* Activities Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {activities.map(activity => (
-          <div
-            key={activity.id}
-            className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200 hover:shadow-xl transition-shadow"
-          >
-            {/* Image */}
-            {activity.image_url && (
-              <div className="h-48 bg-gray-200">
-                <img
-                  src={activity.image_url}
-                  alt={activity.name}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-
-            {/* Content */}
-            <div className="p-6">
-              {/* Mood Badge */}
-              <div className="mb-3">
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-${getMoodColor(activity.mood_category)}-100 text-${getMoodColor(activity.mood_category)}-800`}>
-                  {getMoodIcon(activity.mood_category)} {activity.mood_category}
-                </span>
-              </div>
-
-              {/* Name & Duration */}
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                {activity.name}
-              </h3>
-              {activity.duration && (
-                <p className="text-sm text-gray-600 mb-3">⏱ {activity.duration}</p>
+        {activities.map((activity) => {
+          const cat = categoryOf(activity.category);
+          return (
+            <div key={activity.id} className={`bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200 ${activity.is_active ? '' : 'opacity-60'}`}>
+              {activity.image_url && (
+                <div className="h-40 bg-gray-200">
+                  <img src={activity.image_url} alt="" className="w-full h-full object-cover" />
+                </div>
               )}
-
-              {/* Description */}
-              {activity.description && (
-                <p className="text-gray-700 mb-4 line-clamp-2">
-                  {activity.description}
+              <div className="p-6">
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
+                    {cat.icon} {cat.label}
+                  </span>
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
+                    {activity.type === 'journey' ? `Journey · ${activity.total_stages || 0} stages` : 'Service'}
+                  </span>
+                  {!activity.is_active && <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">Not offered</span>}
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                  {activity.icon} {activity.display_name || activity.name}
+                </h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  ⏱ {activity.duration} min · 👥 up to {activity.max_capacity || 1} per session ·{' '}
+                  {Number(activity.base_price) > 0 ? `${Number(activity.base_price).toLocaleString()} XAF` : 'Included'}
                 </p>
-              )}
-
-              {/* Features */}
-              {activity.features && activity.features.length > 0 && (
-                <div className="mb-4">
-                  <div className="flex flex-wrap gap-2">
-                    {activity.features.map((feature, idx) => (
-                      <span
-                        key={idx}
-                        className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded"
-                      >
-                        {feature}
+                {activity.description && <p className="text-gray-700 mb-4 line-clamp-2">{activity.description}</p>}
+                {activity.benefits?.length > 0 && (
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {activity.benefits.map((b) => (
+                      <span key={b} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                        {b}
                       </span>
                     ))}
                   </div>
+                )}
+                <div className="flex gap-2 mt-4 pt-4 border-t">
+                  <button onClick={() => openModal(activity)} className="flex-1 bg-blue-50 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-100 font-medium">
+                    Edit
+                  </button>
+                  {activity.is_active ? (
+                    <button onClick={() => setActive(activity, false)} className="flex-1 bg-red-50 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 font-medium">
+                      Remove
+                    </button>
+                  ) : (
+                    <button onClick={() => setActive(activity, true)} className="flex-1 bg-green-50 text-green-700 px-4 py-2 rounded-lg hover:bg-green-100 font-medium">
+                      Offer again
+                    </button>
+                  )}
                 </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex space-x-2 mt-4 pt-4 border-t">
-                <button
-                  onClick={() => openModal(activity)}
-                  className="flex-1 bg-blue-50 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors font-medium"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(activity.id)}
-                  className="flex-1 bg-red-50 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 transition-colors font-medium"
-                >
-                  Delete
-                </button>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {activities.length === 0 && (
+      {activities.length === 0 && !error && (
         <div className="text-center py-12">
-          <p className="text-gray-500 text-lg">No activities found</p>
-          <button
-            onClick={() => openModal()}
-            className="mt-4 text-primary-600 hover:text-primary-700 font-semibold"
-          >
-            Create your first activity
+          <p className="text-gray-500 text-lg">No activities in this category yet</p>
+          <button onClick={() => openModal()} className="mt-4 text-primary-600 hover:text-primary-700 font-semibold">
+            Add the first one
           </button>
         </div>
       )}
 
-      {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" aria-labelledby="activity-title">
           <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-2xl font-heading text-gray-900">
-                {editingActivity ? 'Edit Activity' : 'Add New Activity'}
+              <h2 id="activity-title" className="text-2xl font-heading text-gray-900">
+                {editingActivity ? 'Edit Activity' : 'Add Activity'}
               </h2>
+              {editingActivity?.type === 'journey' && <p className="text-sm text-gray-600 mt-1">Journey stages are shown in the app in order; the duration is the whole journey.</p>}
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {/* Mood Category */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Mood Category
+              {formError && (
+                <div role="alert" className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3">
+                  {formError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-2">Category</span>
+                  <select {...field('category')} className="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                    {CATEGORIES.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.icon} {c.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
-                <select
-                  value={formData.mood_category}
-                  onChange={(e) => setFormData({ ...formData, mood_category: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  required
-                >
-                  {moodCategories.map(mood => (
-                    <option key={mood.value} value={mood.value}>
-                      {mood.icon} {mood.label}
-                    </option>
-                  ))}
-                </select>
+                {!editingActivity && (
+                  <label className="block">
+                    <span className="block text-sm font-medium text-gray-700 mb-2">Type</span>
+                    <select {...field('type')} className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                      <option value="service">Service (one session)</option>
+                      <option value="journey">Journey (several stages)</option>
+                    </select>
+                  </label>
+                )}
               </div>
-
-              {/* Name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Activity Name
+              <label className="block">
+                <span className="block text-sm font-medium text-gray-700 mb-2">Name</span>
+                <input type="text" {...field('name')} className="w-full px-4 py-2 border border-gray-300 rounded-lg" required />
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-2">Duration (minutes)</span>
+                  <input type="number" min="5" max="1440" step="5" {...field('duration')} className="w-full px-4 py-2 border border-gray-300 rounded-lg" required />
                 </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  required
-                />
-              </div>
-
-              {/* Duration */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Duration
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-2">Guests per session</span>
+                  <input type="number" min="1" {...field('max_capacity')} className="w-full px-4 py-2 border border-gray-300 rounded-lg" required />
                 </label>
-                <input
-                  type="text"
-                  value={formData.duration}
-                  onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
-                  placeholder="e.g., 60 min, Open 24/7, Daily schedule"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
+                <label className="block">
+                  <span className="block text-sm font-medium text-gray-700 mb-2">Price (XAF, 0 = included)</span>
+                  <input type="number" min="0" step="500" {...field('base_price')} className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
                 </label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={4}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
               </div>
-
-              {/* Image URL */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Image URL
+              <label className="block">
+                <span className="block text-sm font-medium text-gray-700 mb-2">Description</span>
+                <textarea {...field('description')} rows={3} className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+              </label>
+              <label className="block">
+                <span className="block text-sm font-medium text-gray-700 mb-2">Benefits (comma-separated)</span>
+                <input type="text" {...field('benefits')} placeholder="Deep relaxation, Better sleep" className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+              </label>
+              <label className="block">
+                <span className="block text-sm font-medium text-gray-700 mb-2">Image URL</span>
+                <input type="url" {...field('image_url')} placeholder="https://…" className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+              </label>
+              <div className="flex flex-wrap gap-6">
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={formData.requires_staff} onChange={field('requires_staff').onChange} />
+                  <span className="text-sm text-gray-700">Needs a therapist or instructor</span>
                 </label>
-                <input
-                  type="url"
-                  value={formData.image_url}
-                  onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                  placeholder="https://example.com/image.jpg"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-
-              {/* Features */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Features (comma-separated)
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={formData.is_active} onChange={field('is_active').onChange} />
+                  <span className="text-sm text-gray-700">Offered in the app</span>
                 </label>
-                <input
-                  type="text"
-                  value={formData.features.join(', ')}
-                  onChange={(e) => setFormData({
-                    ...formData,
-                    features: e.target.value.split(',').map(f => f.trim()).filter(f => f)
-                  })}
-                  placeholder="Spa, Sauna, Massage"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                />
               </div>
-
-              {/* Actions */}
-              <div className="flex space-x-4 pt-4">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="flex-1 bg-gray-200 text-gray-800 px-6 py-3 rounded-lg hover:bg-gray-300 transition-colors font-semibold"
-                >
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={closeModal} className="flex-1 bg-gray-200 text-gray-800 px-6 py-3 rounded-lg hover:bg-gray-300 font-semibold">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors font-semibold"
-                >
-                  {editingActivity ? 'Update' : 'Create'} Activity
+                <button type="submit" disabled={saving} className="flex-1 bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 font-semibold disabled:opacity-60">
+                  {saving ? 'Saving…' : editingActivity ? 'Save changes' : 'Create activity'}
                 </button>
               </div>
             </form>

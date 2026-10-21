@@ -1,5 +1,7 @@
+import { Link } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_URL } from '../../site/api';
 
 const WellnessMetrics = () => {
   const { token } = useAuth();
@@ -23,16 +25,16 @@ const WellnessMetrics = () => {
     try {
       // Fetch all data in parallel
       const [activitiesRes, zonesRes, bookingsRes, messagesRes] = await Promise.all([
-        fetch('/api/wellness/activities', {
+        fetch(`${API_URL}/wellness/activities`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch('/api/wellness/zones', {
+        fetch(`${API_URL}/wellness/zones`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch('/api/wellness/admin/bookings', {
+        fetch(`${API_URL}/wellness/admin/bookings`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch('/api/wellness/admin/concierge/messages', {
+        fetch(`${API_URL}/wellness/admin/concierge/messages`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);
@@ -69,11 +71,11 @@ const WellnessMetrics = () => {
             .slice(0, 5)
         : [];
 
-      // Count bookings by mood
+      // Count bookings by category
       if (activities.success && activities.activities) {
         activities.activities.forEach(act => {
           const count = activityBookingCount[act.id] || 0;
-          bookingsByMood[act.mood_category] = (bookingsByMood[act.mood_category] || 0) + count;
+          bookingsByMood[act.category] = (bookingsByMood[act.category] || 0) + count;
         });
       }
 
@@ -104,7 +106,11 @@ const WellnessMetrics = () => {
     restore: { bg: 'bg-blue-100', text: 'text-blue-800', icon: '🧘' },
     recharge: { bg: 'bg-green-100', text: 'text-green-800', icon: '⚡' },
     reflect: { bg: 'bg-purple-100', text: 'text-purple-800', icon: '🌅' },
-    explore: { bg: 'bg-orange-100', text: 'text-orange-800', icon: '🌍' }
+    explore: { bg: 'bg-orange-100', text: 'text-orange-800', icon: '🌍' },
+    spa: { bg: 'bg-pink-100', text: 'text-pink-800', icon: '💆' },
+    fitness: { bg: 'bg-green-100', text: 'text-green-800', icon: '💪' },
+    dining: { bg: 'bg-yellow-100', text: 'text-yellow-800', icon: '🍽️' },
+    other: { bg: 'bg-gray-100', text: 'text-gray-800', icon: '✨' }
   };
 
   if (loading) {
@@ -173,11 +179,11 @@ const WellnessMetrics = () => {
                       <div>
                         <div className="font-medium text-gray-900">{activity.name}</div>
                         <div className={`text-xs px-2 py-1 rounded inline-flex items-center mt-1 ${
-                          moodColors[activity.mood_category]?.bg || 'bg-gray-100'
+                          moodColors[activity.category]?.bg || 'bg-gray-100'
                         } ${
-                          moodColors[activity.mood_category]?.text || 'text-gray-800'
+                          moodColors[activity.category]?.text || 'text-gray-800'
                         }`}>
-                          {moodColors[activity.mood_category]?.icon} {activity.mood_category}
+                          {moodColors[activity.category]?.icon} {activity.category}
                         </div>
                       </div>
                     </div>
@@ -266,7 +272,7 @@ const WellnessMetrics = () => {
 
             {Object.keys(stats.bookingsByMood).length === 0 && (
               <div className="text-center text-gray-500 py-8">
-                No mood data available
+                No bookings yet
               </div>
             )}
           </div>
@@ -279,30 +285,30 @@ const WellnessMetrics = () => {
             <p className="text-sm text-orange-100 mt-1">Manage your wellness system</p>
           </div>
           <div className="p-6 space-y-3">
-            <a
-              href="/admin/wellness/activities"
+            <Link
+              to="/admin/wellness/activities"
               className="block w-full bg-blue-50 text-blue-700 px-4 py-3 rounded-lg hover:bg-blue-100 transition-colors font-medium text-center"
             >
               Manage Activities
-            </a>
-            <a
-              href="/admin/wellness/zones"
+            </Link>
+            <Link
+              to="/admin/wellness/zones"
               className="block w-full bg-green-50 text-green-700 px-4 py-3 rounded-lg hover:bg-green-100 transition-colors font-medium text-center"
             >
               Manage Zones
-            </a>
-            <a
-              href="/admin/wellness/bookings"
+            </Link>
+            <Link
+              to="/admin/wellness/bookings"
               className="block w-full bg-purple-50 text-purple-700 px-4 py-3 rounded-lg hover:bg-purple-100 transition-colors font-medium text-center"
             >
               View Bookings
-            </a>
-            <a
-              href="/admin/wellness/concierge"
+            </Link>
+            <Link
+              to="/admin/wellness/concierge"
               className="block w-full bg-orange-50 text-orange-700 px-4 py-3 rounded-lg hover:bg-orange-100 transition-colors font-medium text-center"
             >
               Concierge Messages
-            </a>
+            </Link>
           </div>
         </div>
       </div>

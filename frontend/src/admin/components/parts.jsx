@@ -177,7 +177,8 @@ export function DailyBars({ rows, value = (r) => r.total, label = (r) => r.day, 
   const ih = H - pad.t - pad.b;
   const slot = iw / Math.max(rows.length, 1);
   const bw = Math.max(2, Math.min(28, slot - 2));
-  const ticks = [0, 0.5, 1].map((f) => nice * f);
+  // With nothing yet (or tiny values) a half-way tick would just repeat a rounded label.
+  const ticks = (nice < 2 ? [0, 1] : [0, 0.5, 1]).map((f) => nice * f);
   const every = Math.ceil(rows.length / 8);
   const tip = hover != null ? rows[hover] : null;
 

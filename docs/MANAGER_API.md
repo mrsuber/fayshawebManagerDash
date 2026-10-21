@@ -5,7 +5,7 @@ The manager dashboard (`frontend/src/manager`, served at `/manager`) talks to `/
 Each dashboard API call lives in `frontend/src/manager/api/*.js`; with `REACT_APP_USE_MOCKS=true`
 (development only) they answer from the sample data in `frontend/src/manager/mocks` instead.
 
-Database: run `node migrations/run.js 020_create_manager_operations.sql` (idempotent, additive).
+Database: `backend/db/schema.sql`, created by `node db/setup.js` (see docs/DEPLOY.md).
 
 ## Conventions
 

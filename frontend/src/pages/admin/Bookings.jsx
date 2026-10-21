@@ -356,7 +356,7 @@ const Bookings = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBookings.map((booking) => (
-                  <tr key={booking.id} className="hover:bg-gray-50">
+                  <tr key={booking.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => openDetailModal(booking)}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">{booking.booking_number}</div>
@@ -404,7 +404,10 @@ const Bookings = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <button
-                        onClick={() => openDetailModal(booking)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetailModal(booking);
+                        }}
                         className="text-primary-600 hover:text-primary-900 font-medium"
                       >
                         View Details

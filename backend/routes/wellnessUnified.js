@@ -269,9 +269,11 @@ router.get('/activities/:id/availability', async (req, res) => {
       [req.user.id, dates.rows[0].day, dates.rows[dates.rows.length - 1].day]
     );
 
+    const now = (await db.query(`SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24:MI') AS now`, [PROPERTY_TZ])).rows[0].now;
     const availability = [];
     for (const { day } of dates.rows) {
       for (const slot of await slotsFor(db, activity, day)) {
+        const past = `${day} ${slot.start_time}` <= now;
         const clash = mine.rows.find((b) => b.day === day && hhmm(b.start_time) < slot.end_time && hhmm(b.end_time) > slot.start_time);
         availability.push({
           date: day,
@@ -280,7 +282,7 @@ router.get('/activities/:id/availability', async (req, res) => {
           label: slot.label,
           remaining: slot.remaining,
           capacity: slot.capacity,
-          is_available: slot.is_available && !clash,
+          is_available: slot.is_available && !clash && !past,
           conflicting_booking: clash ? clash.activity_name : null,
           duration: activity.duration,
         });

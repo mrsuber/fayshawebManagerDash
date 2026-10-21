@@ -63,25 +63,19 @@ app.use('/api/payments/webhook/stripe', express.raw({ type: 'application/json' }
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies with 50MB limit for image uploads
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies with 50MB limit
 
-// CORS configuration
+// CORS: browsers on these origins may call the API from another origin (the website itself is same-origin).
+// Add more with CORS_ORIGIN (comma-separated). Other origins get no CORS headers, so browsers block them.
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'https://fayshaa.com',
-  'http://fayshaa.com'
+  'https://www.fayshaa.com',
+  ...(process.env.CORS_ORIGIN || '').split(',').map((o) => o.trim()).filter(Boolean)
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, Postman)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.warn(`CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
+    callback(null, !origin || allowedOrigins.includes(origin));
   },
   credentials: true,
   exposedHeaders: ['Content-Disposition'],

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_URL } from '../../site/api';
 
 const WellnessBookings = () => {
   const { token } = useAuth();
@@ -8,10 +9,11 @@ const WellnessBookings = () => {
   const [filterStatus, setFilterStatus] = useState('all');
 
   const statusColors = {
-    pending: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300' },
-    confirmed: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300' },
-    completed: { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300' },
-    cancelled: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' }
+    upcoming: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', label: 'Upcoming' },
+    in_progress: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-300', label: 'In progress' },
+    completed: { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300', label: 'Completed' },
+    cancelled: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', label: 'Cancelled' },
+    no_show: { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-300', label: 'No-show' }
   };
 
   useEffect(() => {
@@ -20,7 +22,7 @@ const WellnessBookings = () => {
 
   const fetchBookings = async () => {
     try {
-      const response = await fetch('/api/wellness/admin/bookings', {
+      const response = await fetch(`${API_URL}/wellness/admin/bookings?limit=200`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -36,7 +38,7 @@ const WellnessBookings = () => {
 
   const updateBookingStatus = async (bookingId, newStatus) => {
     try {
-      const response = await fetch(`/api/wellness/bookings/${bookingId}`, {
+      const response = await fetch(`${API_URL}/wellness/admin/bookings/${bookingId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -48,6 +50,8 @@ const WellnessBookings = () => {
       const data = await response.json();
       if (data.success) {
         fetchBookings();
+      } else {
+        alert(data.error || 'Could not update the booking');
       }
     } catch (error) {
       console.error('Error updating booking:', error);
@@ -113,7 +117,7 @@ const WellnessBookings = () => {
                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
             }`}
           >
-            {status}
+            {statusColors[status].label}
           </button>
         ))}
       </div>
@@ -134,7 +138,7 @@ const WellnessBookings = () => {
                   Date & Time
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Guests
+                  Type
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -171,14 +175,14 @@ const WellnessBookings = () => {
                     <div className="text-sm text-gray-900">
                       {formatDate(booking.booking_date)}
                     </div>
-                    {booking.booking_time && (
+                    {booking.start_time && (
                       <div className="text-sm text-gray-500">
-                        {formatTime(booking.booking_time)}
+                        {formatTime(booking.start_time)} – {formatTime(booking.end_time)}
                       </div>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {booking.number_of_guests || 1}
+                    {booking.activity_type === 'journey' ? 'Journey' : 'Service'}{booking.room ? ` · ${booking.room}` : ''}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -186,32 +190,29 @@ const WellnessBookings = () => {
                     } ${
                       statusColors[booking.status]?.text || 'text-gray-800'
                     }`}>
-                      {booking.status}
+                      {statusColors[booking.status]?.label || booking.status}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <div className="flex space-x-2">
-                      {booking.status === 'pending' && (
+                      {booking.status === 'upcoming' && (
                         <>
-                          <button
-                            onClick={() => updateBookingStatus(booking.id, 'confirmed')}
-                            className="text-green-600 hover:text-green-900 font-medium"
-                          >
-                            Confirm
+                          <button onClick={() => updateBookingStatus(booking.id, 'in_progress')} className="text-green-600 hover:text-green-900 font-medium">
+                            Start
+                          </button>
+                          <button onClick={() => updateBookingStatus(booking.id, 'no_show')} className="text-gray-600 hover:text-gray-900 font-medium">
+                            No-show
                           </button>
                           <button
-                            onClick={() => updateBookingStatus(booking.id, 'cancelled')}
+                            onClick={() => window.confirm('Cancel this booking? The guest is notified.') && updateBookingStatus(booking.id, 'cancelled')}
                             className="text-red-600 hover:text-red-900 font-medium"
                           >
                             Cancel
                           </button>
                         </>
                       )}
-                      {booking.status === 'confirmed' && (
-                        <button
-                          onClick={() => updateBookingStatus(booking.id, 'completed')}
-                          className="text-blue-600 hover:text-blue-900 font-medium"
-                        >
+                      {booking.status === 'in_progress' && (
+                        <button onClick={() => updateBookingStatus(booking.id, 'completed')} className="text-blue-600 hover:text-blue-900 font-medium">
                           Complete
                         </button>
                       )}
@@ -228,38 +229,20 @@ const WellnessBookings = () => {
             <p className="text-gray-500 text-lg">
               {filterStatus === 'all'
                 ? 'No bookings found'
-                : `No ${filterStatus} bookings found`}
+                : `No ${statusColors[filterStatus].label.toLowerCase()} bookings`}
             </p>
           </div>
         )}
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-          <div className="text-2xl font-bold text-yellow-800">
-            {bookings.filter(b => b.status === 'pending').length}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
+        {Object.entries(statusColors).map(([status, c]) => (
+          <div key={status} className={`${c.bg} border ${c.border} rounded-lg p-6`}>
+            <div className={`text-2xl font-bold ${c.text}`}>{bookings.filter(b => b.status === status).length}</div>
+            <div className={`text-sm ${c.text} mt-1`}>{c.label}</div>
           </div>
-          <div className="text-sm text-yellow-600 mt-1">Pending</div>
-        </div>
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <div className="text-2xl font-bold text-green-800">
-            {bookings.filter(b => b.status === 'confirmed').length}
-          </div>
-          <div className="text-sm text-green-600 mt-1">Confirmed</div>
-        </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <div className="text-2xl font-bold text-blue-800">
-            {bookings.filter(b => b.status === 'completed').length}
-          </div>
-          <div className="text-sm text-blue-600 mt-1">Completed</div>
-        </div>
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-          <div className="text-2xl font-bold text-red-800">
-            {bookings.filter(b => b.status === 'cancelled').length}
-          </div>
-          <div className="text-sm text-red-600 mt-1">Cancelled</div>
-        </div>
+        ))}
       </div>
     </div>
   );

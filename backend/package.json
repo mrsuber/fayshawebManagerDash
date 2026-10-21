@@ -11,7 +11,8 @@
     "db:reset": "node db/setup.js --reset",
     "check:sql": "node scripts/check-sql.js",
     "smoke": "node scripts/smoke-api.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node test/e2e/run.js"
   },
   "keywords": [
     "nodejs",
