@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_URL } from '../../site/api';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
 const UserManagement = () => {
   const { token, hasPermission, user: currentUser } = useAuth();

@@ -159,53 +159,40 @@ router.get('/my-requests', async (req, res) => {
 });
 
 // Get pending leave requests (for managers/admin)
-router.get('/pending', async (req, res) => {
+// Leave requests across the team (HQ → HR → Leave). ?status=pending|approved|rejected|cancelled, ?department_id
+const listRequests = async (req, res) => {
   try {
-    const { department_id } = req.query;
-
-    let query = `
-      SELECT
-        lr.*,
-        lt.name as leave_type_name,
-        e.first_name,
-        e.last_name,
-        e.employee_number,
-        e.job_title,
-        d.name as department_name
-      FROM leave_requests lr
-      JOIN leave_types lt ON lr.leave_type_id = lt.id
-      JOIN employees e ON lr.employee_id = e.id
-      LEFT JOIN departments d ON e.department_id = d.id
-      WHERE lr.status = 'pending'
-    `;
-
+    const status = req.path === '/pending' ? 'pending' : req.query.status;
     const params = [];
-    let paramCount = 1;
-
-    if (department_id) {
-      query += ` AND e.department_id = $${paramCount}`;
-      params.push(department_id);
-      paramCount++;
+    const where = [];
+    if (status) {
+      params.push(status);
+      where.push(`lr.status = $${params.length}`);
     }
-
-    query += ` ORDER BY lr.requested_at ASC`;
-
-    const result = await pool.query(query, params);
-
-    res.json({
-      success: true,
-      requests: result.rows,
-      total: result.rows.length
-    });
+    if (req.query.department_id) {
+      params.push(req.query.department_id);
+      where.push(`e.department_id = $${params.length}`);
+    }
+    const result = await pool.query(
+      `SELECT lr.*, lt.name AS leave_type_name, e.first_name, e.last_name, e.employee_number, e.job_title,
+              d.name AS department_name, u.full_name AS approved_by_name
+         FROM leave_requests lr
+         JOIN leave_types lt ON lr.leave_type_id = lt.id
+         JOIN employees e ON lr.employee_id = e.id
+         LEFT JOIN departments d ON e.department_id = d.id
+         LEFT JOIN users u ON lr.approved_by = u.id
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY ${status === 'pending' ? 'lr.requested_at ASC' : 'lr.requested_at DESC'}`,
+      params
+    );
+    res.json({ success: true, requests: result.rows, total: result.rows.length });
   } catch (error) {
-    console.error('Error fetching pending leave requests:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch pending leave requests',
-      error: error.message
-    });
+    console.error('Error fetching leave requests:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch leave requests' });
   }
-});
+};
+router.get('/', listRequests);
+router.get('/pending', listRequests);
 
 const leaveError = (status, message) => Object.assign(new Error(message), { status });
 

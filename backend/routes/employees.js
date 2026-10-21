@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const pool = require('../config/database');
 const bcrypt = require('bcryptjs');
 
@@ -7,14 +8,23 @@ const bcrypt = require('bcryptjs');
 // EMPLOYEE MANAGEMENT ENDPOINTS
 // ============================================
 
+const EDITABLE = [
+  'first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'gender', 'address', 'job_title', 'employment_type', 'hire_date',
+  'department_id', 'category_id', 'requires_keycard', 'keycard_number', 'can_work_remotely', 'default_shift', 'salary_amount',
+  'salary_period', 'reports_to', 'status'
+];
+/** Form fields arrive as '' when left empty: store NULL instead. */
+const blank = (v) => (v === '' ? null : v);
+
 // Generate employee number
 const generateEmployeeNumber = async () => {
   const year = new Date().getFullYear();
   const result = await pool.query(
-    "SELECT COUNT(*) as count FROM employees WHERE EXTRACT(YEAR FROM created_at) = $1",
-    [year]
+    `SELECT COALESCE(MAX(substring(employee_number FROM '(\\d+)$')::int), 0) AS last
+       FROM employees WHERE employee_number LIKE $1`,
+    [`EMP-${year}-%`]
   );
-  const sequence = parseInt(result.rows[0].count) + 1;
+  const sequence = result.rows[0].last + 1;
   return `EMP-${year}-${String(sequence).padStart(4, '0')}`;
 };
 
@@ -25,34 +35,37 @@ router.post('/', async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    const body = Object.fromEntries(Object.entries(req.body || {}).map(([k, v]) => [k, blank(v)]));
     const {
       first_name, last_name, email, phone, date_of_birth, gender, address,
       job_title, employment_type, hire_date, department_id, category_id,
       requires_keycard, keycard_number, can_work_remotely, default_shift,
       salary_amount, salary_period, reports_to,
       create_user_account, password
-    } = req.body;
+    } = body;
 
     // Generate employee number
     const employee_number = await generateEmployeeNumber();
 
     let user_id = null;
 
-    // Create user account if requested
+    if (!first_name || !last_name || !email || !job_title || !employment_type || !hire_date) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'First name, last name, email, job title, employment type and hire date are required' });
+    }
+
+    // A sign-in for the employee: staff role, a one-time password they must change on first sign-in.
+    let temporaryPassword = null;
     if (create_user_account) {
-      const username = email.split('@')[0];
-      const password_hash = await bcrypt.hash(password || 'employee123', 10);
-
-      // Get employee role
-      const roleResult = await client.query("SELECT id FROM roles WHERE name = 'employee'");
-      const role_id = roleResult.rows[0]?.id;
-
+      temporaryPassword = password || crypto.randomBytes(9).toString('base64url');
+      const roleResult = await client.query("SELECT id FROM roles WHERE name = 'staff'");
       const userResult = await client.query(`
         INSERT INTO users (
-          email, username, password_hash, full_name, role_id, status
-        ) VALUES ($1, $2, $3, $4, $5, 'active')
+          email, username, password_hash, full_name, role_id, status, job_title,
+          is_password_temporary, must_change_password, email_verified, created_by
+        ) VALUES ($1, $1, $2, $3, $4, 'active', $5, true, true, true, $6)
         RETURNING id
-      `, [email, username, password_hash, `${first_name} ${last_name}`, role_id]);
+      `, [email.toLowerCase(), await bcrypt.hash(temporaryPassword, 10), `${first_name} ${last_name}`, roleResult.rows[0].id, job_title, req.user.id]);
 
       user_id = userResult.rows[0].id;
     }
@@ -95,13 +108,14 @@ router.post('/', async (req, res) => {
       success: true,
       message: 'Employee created successfully',
       employee,
-      credentials: create_user_account ? {
-        email,
-        password: password || 'employee123'
-      } : null
+      // Shown once to whoever created the account; it must be changed at first sign-in.
+      credentials: temporaryPassword ? { email, password: temporaryPassword } : null
     });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error.code === '23505') {
+      return res.status(409).json({ success: false, message: 'An employee or account with this email already exists' });
+    }
     console.error('Error creating employee:', error);
     res.status(500).json({
       success: false,
@@ -238,43 +252,19 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      first_name, last_name, email, phone, date_of_birth, gender, address,
-      job_title, employment_type, department_id, category_id,
-      requires_keycard, keycard_number, can_work_remotely, default_shift,
-      salary_amount, salary_period, reports_to, status
-    } = req.body;
+    // Only the fields sent are changed; blank form fields clear optional values.
+    const values = {};
+    for (const field of EDITABLE) if (req.body[field] !== undefined) values[field] = blank(req.body[field]);
+    for (const field of ['first_name', 'last_name', 'email', 'job_title', 'employment_type']) {
+      if (field in values && !values[field]) return res.status(400).json({ success: false, message: `${field.replace('_', ' ')} cannot be empty` });
+    }
+    const fields = Object.keys(values);
+    if (!fields.length) return res.status(400).json({ success: false, message: 'Nothing to update' });
 
-    const result = await pool.query(`
-      UPDATE employees SET
-        first_name = $1,
-        last_name = $2,
-        email = $3,
-        phone = $4,
-        date_of_birth = $5,
-        gender = $6,
-        address = $7,
-        job_title = $8,
-        employment_type = $9,
-        department_id = $10,
-        category_id = $11,
-        requires_keycard = $12,
-        keycard_number = $13,
-        can_work_remotely = $14,
-        default_shift = $15,
-        salary_amount = $16,
-        salary_period = $17,
-        reports_to = $18,
-        status = $19,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $20
-      RETURNING *
-    `, [
-      first_name, last_name, email, phone, date_of_birth, gender, address,
-      job_title, employment_type, department_id, category_id,
-      requires_keycard, keycard_number, can_work_remotely, default_shift,
-      salary_amount, salary_period, reports_to, status, id
-    ]);
+    const result = await pool.query(
+      `UPDATE employees SET ${fields.map((f, i) => `${f} = $${i + 1}`).join(', ')} WHERE id = $${fields.length + 1} RETURNING *`,
+      [...fields.map((f) => values[f]), id]
+    );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -289,6 +279,7 @@ router.put('/:id', async (req, res) => {
       employee: result.rows[0]
     });
   } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, message: 'Another employee already has that email or keycard' });
     console.error('Error updating employee:', error);
     res.status(500).json({
       success: false,

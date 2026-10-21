@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_URL } from '../../site/api';
+import managerConfig from '../../manager/config';
 
 // Component for rendering image attachment with error handling
 const ImageAttachment = ({ attachment, isUserMessage }) => {
@@ -166,7 +168,7 @@ const WellnessConcierge = () => {
     if (!token) return;
 
     try {
-      const response = await fetch('/api/wellness/admin/concierge/messages', {
+      const response = await fetch(`${API_URL}/wellness/admin/concierge/messages`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -195,7 +197,7 @@ const WellnessConcierge = () => {
   useEffect(() => {
     if (!token) return;
 
-    const socket = io(window.location.origin, {
+    const socket = io(managerConfig.socketUrl || window.location.origin, {
       auth: { token }, // the server only lets staff join the admin room
       transports: ['websocket'],
       reconnection: true,
@@ -315,7 +317,7 @@ const WellnessConcierge = () => {
         };
       }
 
-      const response = await fetch('/api/wellness/admin/concierge/messages', {
+      const response = await fetch(`${API_URL}/wellness/admin/concierge/messages`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_URL } from '../../site/api';
 
 const Payments = () => {
   const [payments, setPayments] = useState([]);
@@ -15,11 +16,6 @@ const Payments = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const API_URL = process.env.REACT_APP_API_URL || (
-    window.location.hostname !== 'localhost'
-      ? '/api'
-      : 'http://localhost:5001/api'
-  );
 
   useEffect(() => {
     fetchData();

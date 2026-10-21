@@ -11,7 +11,6 @@ import { addTimeline, getDb, mutate, nextId, notify } from '../mocks/db';
  * Field shapes are documented in docs/API.md.
  */
 export const RESOURCES = {
-  journeyEvents: '/journey/events',
   automations: '/journey/automations',
   housekeepingTasks: '/housekeeping/tasks',
   housekeepingStaff: '/housekeeping/staff',

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_URL } from '../../site/api';
 
 const DepositBoxManagement = () => {
   const [depositBoxes, setDepositBoxes] = useState([]);
@@ -15,11 +16,6 @@ const DepositBoxManagement = () => {
     notes: ''
   });
 
-  const API_URL = process.env.REACT_APP_API_URL || (
-    window.location.hostname !== 'localhost'
-      ? '/api'
-      : 'http://localhost:5001/api'
-  );
 
   useEffect(() => {
     fetchDepositBoxes();

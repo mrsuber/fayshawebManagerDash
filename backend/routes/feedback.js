@@ -305,36 +305,18 @@ router.put('/admin/:id/status', authenticateToken, requireRole('superadmin', 'ad
       });
     }
 
-    let updateQuery = `
+    const params = [status, adminNotes || null, Boolean(isFeatured), adminId, id];
+    const updateQuery = `
       UPDATE feedback
-      SET status = $1,
-          admin_notes = $2,
-          is_featured = $3,
-    `;
-
-    const params = [status, adminNotes || null, isFeatured || false];
-
-    // Set reviewed_by and reviewed_at if status is reviewed or higher
-    if (status === 'reviewed') {
-      params.push(adminId);
-      updateQuery += `reviewed_by = $${params.length}, reviewed_at = CURRENT_TIMESTAMP,`;
-    }
-
-    // Set approved_by and approved_at if status is approved
-    if (status === 'approved') {
-      params.push(adminId);
-      updateQuery += `
-        reviewed_by = COALESCE(reviewed_by, $${params.length}),
-        reviewed_at = COALESCE(reviewed_at, CURRENT_TIMESTAMP),
-        approved_by = $${params.length},
-        approved_at = CURRENT_TIMESTAMP,
-      `;
-    }
-
-    // Remove trailing comma and add WHERE clause
-    updateQuery = updateQuery.slice(0, -1);
-    params.push(id);
-    updateQuery += ` WHERE id = $${params.length} RETURNING *`;
+         SET status = $1::varchar,
+             admin_notes = COALESCE($2, admin_notes),
+             is_featured = $3,
+             reviewed_by = CASE WHEN $1::varchar IN ('reviewed', 'approved', 'rejected') THEN COALESCE(reviewed_by, $4) ELSE reviewed_by END,
+             reviewed_at = CASE WHEN $1::varchar IN ('reviewed', 'approved', 'rejected') THEN COALESCE(reviewed_at, CURRENT_TIMESTAMP) ELSE reviewed_at END,
+             approved_by = CASE WHEN $1::varchar = 'approved' THEN $4 ELSE NULL END,
+             approved_at = CASE WHEN $1::varchar = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END
+       WHERE id = $5
+       RETURNING *`;
 
     const result = await db.query(updateQuery, params);
 

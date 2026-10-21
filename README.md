@@ -23,6 +23,9 @@ frontend/          React 18 (Create React App), Tailwind, MUI
   src/pages/admin/ v1 administrator screens, shown inside HQ until each is rebuilt
   public/images/site/  website imagery
 backend/           Express + PostgreSQL API (/api), Socket.io, Stripe, Expo and Firebase push, email
+  db/              schema.sql (the whole database), setup.js (creates it and the base data; --demo for sample data)
+  scripts/         check-sql.js (every SQL statement against the schema), smoke-api.js (every read endpoint)
+  test/            unit tests; test/e2e/ end-to-end suites (booking flow, platform write paths)
 mobile/            the guest app (Expo SDK 57, React Native)
 docs/              MANAGER_API.md (FAY OS API), HQ_API.md (HQ API), GUEST_API.md (guest app API), SERVER_SETUP.md
 ```
@@ -46,8 +49,12 @@ new site pages, so the text you click is the text on the live site. Residence ph
 ## Run locally
 
 ```bash
+# Database (PostgreSQL 13+): an empty database and a user that owns it
+createdb fayshaa
+
 # API (port 5001)
 cd backend && npm install && cp .env.example .env   # fill in DB, JWT, Stripe, SMTP
+npm run db:demo        # schema + base data + sample residences, guests and stays (or db:setup for no samples)
 npm run dev
 
 # Website + dashboards (port 3000)
@@ -61,7 +68,19 @@ cd mobile && npm install && npx expo start
 To work on the website or the manager dashboard without a backend, set `REACT_APP_USE_MOCKS=true` in `frontend/.env`
 (development only). Both then run on built-in sample data.
 
-Tests: `cd frontend && npm run test:ci` (website, FAY OS and HQ) and `cd backend && npm test` (HQ access rules, audit, guest notifications). Production build: `npm run build`.
+`db:setup` prints the first super administrator's sign-in (`admin@fayshaa.com` unless `SEED_ADMIN_EMAIL` is set). The demo
+data adds a manager, an HR manager, a staff member and guests, all with the password `Faysha2026!`.
+`npm run db:reset -- --demo` starts over (refused when `NODE_ENV=production`).
+
+Tests:
+
+- `cd frontend && npm run test:ci` — website, FAY OS and HQ
+- `cd backend && npm test` — HQ access rules, audit, guest notifications
+- `cd backend && npm run check:sql` — every SQL statement in the backend prepared against the database
+- `cd backend && npm run test:e2e` — with the API running: every read endpoint, the booking flow and the write paths
+  across HQ, HR, FAY OS and the guest app. **It resets the database in `.env`** (refused in production).
+
+Production build: `npm run build`.
 
 ## Faysha HQ (`/admin`)
 
@@ -92,20 +111,22 @@ Day-to-day operations stay in FAY OS (`/manager`), which super administrators ca
   once the money arrives (manager dashboard, or `POST /api/bookings/:id/confirm` as staff), which sends the
   confirmation and the digital key. Connecting a provider (e.g. Campay, Notch Pay, MTN MoMo API) replaces that manual step.
 
+An unpaid booking holds its residence for 60 minutes (card) or 48 hours (mobile money awaiting confirmation), then
+it is cancelled and the dates are free again (`CARD_HOLD_MINUTES`, `MOBILE_MONEY_HOLD_HOURS`). Reservations made by staff
+in FAY OS don't expire.
+
 Terms acceptance (`terms_accepted`, `terms_accepted_at`) is stored with every booking, as in v1.
 
 ## Deploying (same server as v1)
 
-Step by step, with backups and rollback: [docs/DEPLOY.md](docs/DEPLOY.md).
+Step by step, with backups and rollback: [docs/DEPLOY.md](docs/DEPLOY.md). To have a local AI assistant do it: [docs/DEPLOY_WITH_AI.md](docs/DEPLOY_WITH_AI.md).
 
 
-1. Database: `cd backend && node migrations/run.js 020_create_manager_operations.sql` (FAY OS), `node migrations/run.js 021_create_hq.sql` (properties, the audit log, approvals and the HR
-   Manager role), then `node migrations/run.js 022_align_wellness_schema.sql` (brings old wellness tables up to the
-   unified wellness system the app and FAY OS use, and adds the standard activities if they are missing). Both are
-   additive and safe to re-run.
+1. Database: a new, empty PostgreSQL database built with `node db/setup.js` (schema, base data and the first super
+   administrator). The v1 database is not used; see [docs/DEPLOY.md](docs/DEPLOY.md).
 2. Backend: deploy `backend/` in place of v1's backend. Add the new variables from `backend/.env.example`:
    `CONTACT_EMAIL` (contact form recipient), `APP_URL`, `PROPERTY_WIFI_SSID` / `PROPERTY_WIFI_PASSWORD` (shown with the
-   digital key), and the Stripe and SMTP values if they are not set already.
+   digital key), and the Stripe and SMTP values if they are not set already. Raise `RATE_LIMIT_MAX_REQUESTS` if it is 100.
 3. Frontend: `cd frontend && REACT_APP_API_URL=/api npm run build`, then publish `build/` (as v1's `build-production.sh` does).
 4. Old v1 addresses (`/booking`, `/amenities`, `/apartments/:id`, `/terms-of-service`, `/privacy-policy`) redirect to the
    new pages, so links in emails that were already sent keep working.

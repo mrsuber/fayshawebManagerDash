@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_URL } from '../../site/api';
 
 const WellnessZones = () => {
   const { token } = useAuth();
@@ -22,7 +23,7 @@ const WellnessZones = () => {
 
   const fetchZones = async () => {
     try {
-      const response = await fetch('/api/wellness/zones', {
+      const response = await fetch(`${API_URL}/wellness/zones`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -40,8 +41,8 @@ const WellnessZones = () => {
     e.preventDefault();
     try {
       const url = editingZone
-        ? `/api/wellness/zones/${editingZone.id}`
-        : '/api/wellness/zones';
+        ? `${API_URL}/wellness/zones/${editingZone.id}`
+        : `${API_URL}/wellness/zones`;
 
       const method = editingZone ? 'PUT' : 'POST';
 
@@ -68,7 +69,7 @@ const WellnessZones = () => {
     if (!window.confirm('Are you sure you want to delete this zone?')) return;
 
     try {
-      const response = await fetch(`/api/wellness/zones/${id}`, {
+      const response = await fetch(`${API_URL}/wellness/zones/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

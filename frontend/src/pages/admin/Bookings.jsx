@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_URL } from '../../site/api';
 
 const Bookings = () => {
   const [bookings, setBookings] = useState([]);
@@ -11,11 +12,6 @@ const Bookings = () => {
   const [filterDateRange, setFilterDateRange] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const API_URL = process.env.REACT_APP_API_URL || (
-    window.location.hostname !== 'localhost'
-      ? '/api'
-      : 'http://localhost:5001/api'
-  );
 
   useEffect(() => {
     fetchData();
@@ -95,9 +91,9 @@ const Bookings = () => {
 
   const updateBookingStatus = async (bookingId, newStatus) => {
     try {
-      await axios.put(`${API_URL}/bookings/${bookingId}/status`, {
-        status: newStatus
-      });
+      // Confirming records the payment as received and sends the guest their digital key.
+      if (newStatus === 'confirmed') await axios.post(`${API_URL}/bookings/${bookingId}/confirm`, {});
+      else await axios.put(`${API_URL}/bookings/${bookingId}/status`, { status: newStatus });
       alert('Booking status updated successfully');
       fetchData();
       if (selectedBooking && selectedBooking.id === bookingId) {
@@ -360,7 +356,7 @@ const Bookings = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBookings.map((booking) => (
-                  <tr key={booking.id} className="hover:bg-gray-50">
+                  <tr key={booking.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => openDetailModal(booking)}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">{booking.booking_number}</div>
@@ -408,7 +404,10 @@ const Bookings = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <button
-                        onClick={() => openDetailModal(booking)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetailModal(booking);
+                        }}
                         className="text-primary-600 hover:text-primary-900 font-medium"
                       >
                         View Details

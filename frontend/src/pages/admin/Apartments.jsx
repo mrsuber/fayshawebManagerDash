@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import FileUploader from '../../components/FileUploader';
+import { API_URL } from '../../site/api';
 
 const Apartments = () => {
   const [apartments, setApartments] = useState([]);
@@ -25,11 +26,6 @@ const Apartments = () => {
     special_features: []
   });
 
-  const API_URL = process.env.REACT_APP_API_URL || (
-    window.location.hostname !== 'localhost'
-      ? '/api'
-      : 'http://localhost:5001/api'
-  );
 
   useEffect(() => {
     fetchData();

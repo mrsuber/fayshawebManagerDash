@@ -83,6 +83,22 @@ const Applications = () => {
     }
   };
 
+  // Application files are private: fetch with the signed-in user's token, then hand the file to the browser.
+  const downloadFile = async (applicationId, kind) => {
+    try {
+      const response = await api.get(`/jobs/applications/${applicationId}/files/${kind}`, { responseType: 'blob' });
+      const name = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(response.headers['content-disposition'] || '')?.[1];
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name ? decodeURIComponent(name) : `${kind}.pdf`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setError('Could not download the file');
+    }
+  };
+
   const handleViewApplication = (application) => {
     setSelectedApplication(application);
     setReviewNotes(application.review_notes || '');
@@ -316,8 +332,7 @@ const Applications = () => {
                       variant="outlined"
                       size="small"
                       startIcon={<DownloadIcon />}
-                      href={`${api.defaults.baseURL}/${selectedApplication.cv_file_path}`}
-                      target="_blank"
+                      onClick={() => downloadFile(selectedApplication.id, 'cv')}
                     >
                       Download CV
                     </Button>
@@ -327,8 +342,7 @@ const Applications = () => {
                       variant="outlined"
                       size="small"
                       startIcon={<DownloadIcon />}
-                      href={`${api.defaults.baseURL}/${selectedApplication.cover_letter_file_path}`}
-                      target="_blank"
+                      onClick={() => downloadFile(selectedApplication.id, 'cover_letter')}
                     >
                       Download Cover Letter
                     </Button>

@@ -1,449 +1,180 @@
+/**
+ * Wellness availability (HQ → Wellness → Availability): the time slots staff open per activity and day.
+ * Guests book them through /api/wellness-unified; a day with no slots offers the standard times
+ * (services/wellnessSlots.js). Booked counts are always computed from wellness_bookings.
+ */
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/database');
-const { authenticateToken, requireRole, STAFF_ROLES } = require('../middleware/auth');
+const db = require('../config/database');
+const { requireStaff } = require('../middleware/auth');
+const { endOf, LIVE } = require('../services/wellnessSlots');
 
-const requireAdmin = requireRole(...STAFF_ROLES);
+router.use(requireStaff);
 
-// ============================================
-// WELLNESS JOURNEY AVAILABILITY MANAGEMENT
-// ============================================
+const SLOT_SELECT = `
+  SELECT s.id, s.activity_id, to_char(s.available_date, 'YYYY-MM-DD') AS available_date,
+         to_char(s.start_time, 'HH24:MI') AS start_time, to_char(s.end_time, 'HH24:MI') AS end_time,
+         s.max_capacity, s.is_available, s.notes, s.custom_price,
+         a.name AS activity_name, a.category AS activity_category, a.type AS activity_type,
+         COALESCE(b.n, 0)::int AS current_bookings,
+         GREATEST(s.max_capacity - COALESCE(b.n, 0), 0)::int AS available_slots
+    FROM wellness_availability s
+    JOIN wellness_activities a ON a.id = s.activity_id
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS n FROM wellness_bookings wb
+       WHERE wb.activity_id = s.activity_id AND wb.booking_date = s.available_date
+         AND wb.start_time = s.start_time AND wb.status = ANY($1)
+    ) b ON true`;
 
-/**
- * Get all availability slots with filters
- * Query params: journey_id, date_from, date_to, is_available
- */
-router.get('/', authenticateToken, requireAdmin, async (req, res) => {
+const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+const isTime = (v) => /^\d{2}:\d{2}/.test(String(v || ''));
+
+/** GET / — slots, filtered by activity_id, date_from, date_to, is_available */
+router.get('/', async (req, res) => {
   try {
-    const { journey_id, date_from, date_to, is_available } = req.query;
-
-    let query = `
-      SELECT
-        a.*,
-        j.name as journey_name,
-        j.category as journey_category,
-        (a.max_capacity - a.current_bookings) as available_slots
-      FROM wellness_journey_availability a
-      JOIN wellness_journeys j ON a.journey_id = j.id
-      WHERE 1=1
-    `;
-
-    const params = [];
-    let paramCount = 1;
-
-    if (journey_id) {
-      query += ` AND a.journey_id = $${paramCount}`;
-      params.push(journey_id);
-      paramCount++;
-    }
-
-    if (date_from) {
-      query += ` AND a.available_date >= $${paramCount}`;
-      params.push(date_from);
-      paramCount++;
-    }
-
-    if (date_to) {
-      query += ` AND a.available_date <= $${paramCount}`;
-      params.push(date_to);
-      paramCount++;
-    }
-
-    if (is_available !== undefined) {
-      query += ` AND a.is_available = $${paramCount}`;
-      params.push(is_available === 'true');
-      paramCount++;
-    }
-
-    query += ` ORDER BY a.available_date ASC, a.start_time ASC`;
-
-    const result = await pool.query(query, params);
-
-    res.json({
-      success: true,
-      availability: result.rows,
-      count: result.rows.length
-    });
+    const { activity_id, date_from, date_to, is_available } = req.query;
+    const params = [LIVE];
+    const where = [];
+    if (activity_id) { params.push(activity_id); where.push(`s.activity_id = $${params.length}`); }
+    if (isDate(date_from)) { params.push(date_from); where.push(`s.available_date >= $${params.length}`); }
+    if (isDate(date_to)) { params.push(date_to); where.push(`s.available_date <= $${params.length}`); }
+    if (is_available !== undefined) { params.push(is_available === 'true'); where.push(`s.is_available = $${params.length}`); }
+    const result = await db.query(
+      `${SLOT_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY s.available_date, s.start_time, a.name`,
+      params
+    );
+    res.json({ success: true, availability: result.rows, count: result.rows.length });
   } catch (error) {
     console.error('Error fetching availability:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch availability slots'
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch availability slots' });
   }
 });
 
-/**
- * Get single availability slot
- */
-router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
+/** GET /stats/overview — totals across all slots from today on */
+router.get('/stats/overview', async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const result = await pool.query(`
-      SELECT
-        a.*,
-        j.name as journey_name,
-        j.category as journey_category
-      FROM wellness_journey_availability a
-      JOIN wellness_journeys j ON a.journey_id = j.id
-      WHERE a.id = $1
-    `, [id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Availability slot not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      availability: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error fetching availability slot:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch availability slot'
-    });
-  }
-});
-
-/**
- * Create new availability slot(s)
- * Can create single slot or bulk create for multiple dates
- */
-router.post('/', authenticateToken, requireAdmin, async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    const {
-      journey_id,
-      start_date,
-      end_date, // Optional - for bulk creation
-      start_time,
-      end_time,
-      max_capacity = 3,
-      notes = null,
-      days_of_week = null // Optional - array like [1,2,3,4,5] for Mon-Fri
-    } = req.body;
-
-    if (!journey_id || !start_date || !start_time || !end_time) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: journey_id, start_date, start_time, end_time'
-      });
-    }
-
-    // Verify journey exists
-    const journeyCheck = await client.query(
-      'SELECT id FROM wellness_journeys WHERE id = $1',
-      [journey_id]
+    const result = await db.query(
+      `WITH slots AS (${SLOT_SELECT} WHERE s.available_date >= CURRENT_DATE)
+       SELECT COUNT(*)::int AS total_slots,
+              COUNT(*) FILTER (WHERE is_available AND available_slots > 0)::int AS available_slots,
+              COUNT(*) FILTER (WHERE available_slots = 0)::int AS fully_booked_slots,
+              COUNT(*) FILTER (WHERE NOT is_available)::int AS disabled_slots,
+              COALESCE(SUM(max_capacity), 0)::int AS total_capacity,
+              COALESCE(SUM(current_bookings), 0)::int AS total_bookings,
+              COUNT(DISTINCT activity_id)::int AS activities_with_availability,
+              COUNT(DISTINCT available_date)::int AS dates_with_availability
+         FROM slots`,
+      [LIVE]
     );
-
-    if (journeyCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        error: 'Wellness journey not found'
-      });
-    }
-
-    const created = [];
-
-    // If end_date is provided, create slots for date range
-    if (end_date) {
-      const start = new Date(start_date);
-      const end = new Date(end_date);
-
-      for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-        // If days_of_week filter is provided, check if current day matches
-        if (days_of_week && !days_of_week.includes(date.getDay())) {
-          continue;
-        }
-
-        const dateStr = date.toISOString().split('T')[0];
-
-        const result = await client.query(`
-          INSERT INTO wellness_journey_availability
-          (journey_id, available_date, start_time, end_time, max_capacity, current_bookings, is_available, notes)
-          VALUES ($1, $2, $3, $4, $5, 0, true, $6)
-          ON CONFLICT (journey_id, available_date, start_time) DO NOTHING
-          RETURNING *
-        `, [journey_id, dateStr, start_time, end_time, max_capacity, notes]);
-
-        if (result.rows.length > 0) {
-          created.push(result.rows[0]);
-        }
-      }
-    } else {
-      // Create single slot
-      const result = await client.query(`
-        INSERT INTO wellness_journey_availability
-        (journey_id, available_date, start_time, end_time, max_capacity, current_bookings, is_available, notes)
-        VALUES ($1, $2, $3, $4, $5, 0, true, $6)
-        RETURNING *
-      `, [journey_id, start_date, start_time, end_time, max_capacity, notes]);
-
-      created.push(result.rows[0]);
-    }
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: `Created ${created.length} availability slot(s)`,
-      availability: created,
-      count: created.length
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error creating availability:', error);
-
-    if (error.code === '23505') { // Unique violation
-      res.status(409).json({
-        success: false,
-        error: 'Availability slot already exists for this journey, date, and time'
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to create availability slot'
-      });
-    }
-  } finally {
-    client.release();
-  }
-});
-
-/**
- * Update availability slot
- */
-router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      available_date,
-      start_time,
-      end_time,
-      max_capacity,
-      is_available,
-      notes
-    } = req.body;
-
-    // Build update query dynamically
-    const updates = [];
-    const values = [];
-    let paramCount = 1;
-
-    if (available_date !== undefined) {
-      updates.push(`available_date = $${paramCount}`);
-      values.push(available_date);
-      paramCount++;
-    }
-    if (start_time !== undefined) {
-      updates.push(`start_time = $${paramCount}`);
-      values.push(start_time);
-      paramCount++;
-    }
-    if (end_time !== undefined) {
-      updates.push(`end_time = $${paramCount}`);
-      values.push(end_time);
-      paramCount++;
-    }
-    if (max_capacity !== undefined) {
-      updates.push(`max_capacity = $${paramCount}`);
-      values.push(max_capacity);
-      paramCount++;
-    }
-    if (is_available !== undefined) {
-      updates.push(`is_available = $${paramCount}`);
-      values.push(is_available);
-      paramCount++;
-    }
-    if (notes !== undefined) {
-      updates.push(`notes = $${paramCount}`);
-      values.push(notes);
-      paramCount++;
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'No fields to update'
-      });
-    }
-
-    values.push(id);
-    const query = `
-      UPDATE wellness_journey_availability
-      SET ${updates.join(', ')}
-      WHERE id = $${paramCount}
-      RETURNING *
-    `;
-
-    const result = await pool.query(query, values);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Availability slot not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      availability: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error updating availability:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update availability slot'
-    });
-  }
-});
-
-/**
- * Delete availability slot
- */
-router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Check if there are any bookings for this slot
-    const bookingCheck = await pool.query(`
-      SELECT COUNT(*) FROM wellness_journey_bookings
-      WHERE journey_id = (SELECT journey_id FROM wellness_journey_availability WHERE id = $1)
-        AND booking_date = (SELECT available_date FROM wellness_journey_availability WHERE id = $1)
-        AND start_time = (SELECT start_time FROM wellness_journey_availability WHERE id = $1)
-        AND status IN ('upcoming', 'in_progress')
-    `, [id]);
-
-    if (parseInt(bookingCheck.rows[0].count) > 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Cannot delete availability slot with active bookings'
-      });
-    }
-
-    const result = await pool.query(
-      'DELETE FROM wellness_journey_availability WHERE id = $1 RETURNING *',
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Availability slot not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Availability slot deleted successfully'
-    });
-  } catch (error) {
-    console.error('Error deleting availability:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete availability slot'
-    });
-  }
-});
-
-/**
- * Bulk delete availability slots
- */
-router.post('/bulk-delete', authenticateToken, requireAdmin, async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    const { ids } = req.body;
-
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'No IDs provided'
-      });
-    }
-
-    // Check for active bookings
-    const bookingCheck = await client.query(`
-      SELECT COUNT(*) FROM wellness_journey_bookings wb
-      JOIN wellness_journey_availability wa ON
-        wb.journey_id = wa.journey_id AND
-        wb.booking_date = wa.available_date AND
-        wb.start_time = wa.start_time
-      WHERE wa.id = ANY($1)
-        AND wb.status IN ('upcoming', 'in_progress')
-    `, [ids]);
-
-    if (parseInt(bookingCheck.rows[0].count) > 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        error: 'Cannot delete availability slots with active bookings'
-      });
-    }
-
-    const result = await client.query(
-      'DELETE FROM wellness_journey_availability WHERE id = ANY($1) RETURNING id',
-      [ids]
-    );
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: `Deleted ${result.rows.length} availability slot(s)`,
-      deleted_count: result.rows.length
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error bulk deleting availability:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete availability slots'
-    });
-  } finally {
-    client.release();
-  }
-});
-
-/**
- * Get availability statistics
- */
-router.get('/stats/overview', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const stats = await pool.query(`
-      SELECT
-        COUNT(*) as total_slots,
-        COUNT(*) FILTER (WHERE is_available = true AND (max_capacity - current_bookings) > 0) as available_slots,
-        COUNT(*) FILTER (WHERE current_bookings >= max_capacity) as fully_booked_slots,
-        COUNT(*) FILTER (WHERE is_available = false) as disabled_slots,
-        SUM(max_capacity) as total_capacity,
-        SUM(current_bookings) as total_bookings,
-        COUNT(DISTINCT journey_id) as journeys_with_availability,
-        COUNT(DISTINCT available_date) as dates_with_availability
-      FROM wellness_journey_availability
-    `);
-
-    res.json({
-      success: true,
-      stats: stats.rows[0]
-    });
+    res.json({ success: true, stats: result.rows[0] });
   } catch (error) {
     console.error('Error fetching availability stats:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch availability statistics'
+    res.status(500).json({ success: false, error: 'Failed to fetch availability statistics' });
+  }
+});
+
+/** GET /:id */
+router.get('/:id', async (req, res) => {
+  try {
+    const result = await db.query(`${SLOT_SELECT} WHERE s.id = $2`, [LIVE, req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ success: false, error: 'Availability slot not found' });
+    res.json({ success: true, availability: result.rows[0] });
+  } catch (error) {
+    console.error('Error fetching availability slot:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch availability slot' });
+  }
+});
+
+/**
+ * POST / — open one slot, or the same slot on every day from start_date to end_date
+ * (optionally only on days_of_week, 0 = Sunday). end_time defaults to start + the activity's duration.
+ */
+router.post('/', async (req, res) => {
+  const { activity_id, start_date, end_date, start_time, max_capacity, notes, days_of_week } = req.body;
+  if (!activity_id || !isDate(start_date) || !isTime(start_time)) {
+    return res.status(400).json({ success: false, error: 'Activity, start date and start time are required' });
+  }
+  if (end_date && (!isDate(end_date) || end_date < start_date)) {
+    return res.status(400).json({ success: false, error: 'The end date must be on or after the start date' });
+  }
+  try {
+    const activity = (await db.query('SELECT id, duration, max_capacity FROM wellness_activities WHERE id = $1', [activity_id])).rows[0];
+    if (!activity) return res.status(404).json({ success: false, error: 'Activity not found' });
+
+    const end = isTime(req.body.end_time) ? req.body.end_time.slice(0, 5) : endOf(start_time, activity.duration);
+    if (!end || end <= start_time.slice(0, 5)) return res.status(400).json({ success: false, error: 'The slot must end after it starts, on the same day' });
+    const capacity = parseInt(max_capacity, 10) || activity.max_capacity || 1;
+    if (capacity < 1) return res.status(400).json({ success: false, error: 'Capacity must be at least 1' });
+
+    const days = Array.isArray(days_of_week) && days_of_week.length ? days_of_week.map(Number) : null;
+    const result = await db.query(
+      `INSERT INTO wellness_availability (activity_id, available_date, start_time, end_time, max_capacity, notes)
+       SELECT $1, d::date, $2, $3, $4, $5
+         FROM generate_series($6::date, $7::date, '1 day') d
+        WHERE $8::int[] IS NULL OR EXTRACT(DOW FROM d)::int = ANY($8::int[])
+       ON CONFLICT (activity_id, available_date, start_time) DO NOTHING
+       RETURNING id`,
+      [activity.id, start_time.slice(0, 5), end, capacity, notes || null, start_date, end_date || start_date, days]
+    );
+    const count = result.rows.length;
+    res.status(201).json({
+      success: true,
+      count,
+      message: count ? `Opened ${count} slot${count === 1 ? '' : 's'}` : 'Those slots were already open',
     });
+  } catch (error) {
+    console.error('Error creating availability:', error);
+    res.status(500).json({ success: false, error: 'Failed to create availability slot' });
+  }
+});
+
+/** PUT /:id — change times, capacity, notes or open/close a slot. Capacity cannot drop below its bookings. */
+router.put('/:id', async (req, res) => {
+  try {
+    const slot = (await db.query(`${SLOT_SELECT} WHERE s.id = $2`, [LIVE, req.params.id])).rows[0];
+    if (!slot) return res.status(404).json({ success: false, error: 'Availability slot not found' });
+
+    const { start_time, end_time, max_capacity, is_available, notes } = req.body;
+    if (slot.current_bookings > 0 && ((start_time && start_time.slice(0, 5) !== slot.start_time) || (end_time && end_time.slice(0, 5) !== slot.end_time))) {
+      return res.status(400).json({ success: false, error: 'This slot has bookings, so its times cannot change. Close it instead.' });
+    }
+    const capacity = max_capacity !== undefined ? parseInt(max_capacity, 10) : slot.max_capacity;
+    if (!(capacity >= 1)) return res.status(400).json({ success: false, error: 'Capacity must be at least 1' });
+    if (capacity < slot.current_bookings) {
+      return res.status(400).json({ success: false, error: `${slot.current_bookings} guests are booked in this slot; capacity cannot be lower` });
+    }
+    const start = isTime(start_time) ? start_time.slice(0, 5) : slot.start_time;
+    const end = isTime(end_time) ? end_time.slice(0, 5) : slot.end_time;
+    if (end <= start) return res.status(400).json({ success: false, error: 'The slot must end after it starts' });
+
+    await db.query(
+      `UPDATE wellness_availability SET start_time = $1, end_time = $2, max_capacity = $3,
+              is_available = COALESCE($4, is_available), notes = COALESCE($5, notes)
+        WHERE id = $6`,
+      [start, end, capacity, typeof is_available === 'boolean' ? is_available : null, notes ?? null, slot.id]
+    );
+    const updated = (await db.query(`${SLOT_SELECT} WHERE s.id = $2`, [LIVE, slot.id])).rows[0];
+    res.json({ success: true, message: 'Availability updated', availability: updated });
+  } catch (error) {
+    if (error.code === '23505') return res.status(409).json({ success: false, error: 'There is already a slot at that time' });
+    console.error('Error updating availability:', error);
+    res.status(500).json({ success: false, error: 'Failed to update availability slot' });
+  }
+});
+
+/** DELETE /:id — only a slot nobody has booked */
+router.delete('/:id', async (req, res) => {
+  try {
+    const slot = (await db.query(`${SLOT_SELECT} WHERE s.id = $2`, [LIVE, req.params.id])).rows[0];
+    if (!slot) return res.status(404).json({ success: false, error: 'Availability slot not found' });
+    if (slot.current_bookings > 0) {
+      return res.status(400).json({ success: false, error: 'This slot has bookings. Close it instead, or cancel the bookings first.' });
+    }
+    await db.query('DELETE FROM wellness_availability WHERE id = $1', [slot.id]);
+    res.json({ success: true, message: 'Slot deleted' });
+  } catch (error) {
+    console.error('Error deleting availability:', error);
+    res.status(500).json({ success: false, error: 'Failed to delete availability slot' });
   }
 });
 

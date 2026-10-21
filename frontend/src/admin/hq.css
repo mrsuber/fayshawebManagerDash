@@ -351,6 +351,10 @@ body.fayhq .hq-legacy .bg-yellow-100,
 body.fayhq .hq-legacy .bg-orange-100 { background-color: rgba(232, 184, 74, 0.14) !important; }
 body.fayhq .hq-legacy .bg-purple-50,
 body.fayhq .hq-legacy .bg-purple-100 { background-color: rgba(155, 123, 240, 0.14) !important; }
+body.fayhq .hq-legacy .bg-pink-50,
+body.fayhq .hq-legacy .bg-pink-100 { background-color: rgba(232, 108, 160, 0.14) !important; }
+body.fayhq .hq-legacy .text-pink-700,
+body.fayhq .hq-legacy .text-pink-800 { color: #f29bc0 !important; }
 body.fayhq .hq-legacy .text-red-600,
 body.fayhq .hq-legacy .text-red-700,
 body.fayhq .hq-legacy .text-red-800 { color: var(--red-soft) !important; }
@@ -394,6 +398,22 @@ body.fayhq .hq-legacy .font-heading { font-family: var(--serif); font-weight: 60
 body.fayhq .hq-legacy .bg-black.bg-opacity-50 { background-color: rgba(3, 4, 6, 0.78) !important; }
 body.fayhq .hq-legacy .bg-gradient-to-r,
 body.fayhq .hq-legacy .bg-gradient-to-br { background-image: none !important; background-color: var(--surface-2) !important; }
+
+/* Availability calendar (react-big-calendar) on the dark ground */
+body.fayhq .hq-legacy .rbc-calendar { color: var(--text); }
+body.fayhq .hq-legacy .rbc-month-view,
+body.fayhq .hq-legacy .rbc-time-view,
+body.fayhq .hq-legacy .rbc-agenda-view table.rbc-agenda-table,
+body.fayhq .hq-legacy .rbc-header,
+body.fayhq .hq-legacy .rbc-month-row + .rbc-month-row,
+body.fayhq .hq-legacy .rbc-day-bg + .rbc-day-bg { border-color: var(--border-strong) !important; }
+body.fayhq .hq-legacy .rbc-off-range-bg { background: var(--surface-2); }
+body.fayhq .hq-legacy .rbc-off-range { color: var(--faint); }
+body.fayhq .hq-legacy .rbc-today { background: rgba(232, 184, 74, 0.08); }
+body.fayhq .hq-legacy .rbc-toolbar button { color: var(--text); border-color: var(--border-strong); background: transparent; }
+body.fayhq .hq-legacy .rbc-toolbar button:hover,
+body.fayhq .hq-legacy .rbc-toolbar button:focus { background: var(--surface-3); color: var(--text); }
+body.fayhq .hq-legacy .rbc-toolbar button.rbc-active { background: var(--gold); color: var(--on-gold); box-shadow: none; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 960px) {

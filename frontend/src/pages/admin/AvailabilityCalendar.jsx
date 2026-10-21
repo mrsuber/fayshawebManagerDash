@@ -3,8 +3,8 @@ import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import axios from 'axios';
+import { API_URL } from '../../site/api';
 
-const API_URL = process.env.REACT_APP_API_URL;
 const localizer = momentLocalizer(moment);
 
 const AvailabilityCalendar = () => {
@@ -53,8 +53,8 @@ const AvailabilityCalendar = () => {
         const events = response.data.bookings.map(booking => ({
           id: booking.id,
           title: `${booking.unit_number} - ${booking.guest_name}`,
-          start: new Date(booking.check_in_date),
-          end: new Date(booking.check_out_date),
+          start: moment(booking.check_in_date).toDate(),
+          end: moment(booking.check_out_date).toDate(),
           resource: booking,
           allDay: true
         }));

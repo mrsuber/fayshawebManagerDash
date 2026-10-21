@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const emailService = require('../services/email.service');
 const { notifyGuest } = require('../services/guestPush');
 const keyGenerator = require('../utils/keyGenerator');
+const { releaseExpiredHolds, HOLD_EXPIRED } = require('../services/bookingHolds');
 const QRCode = require('qrcode');
 const { authenticateToken, requireStaff, userFromRequest, STAFF_ROLES } = require('../middleware/auth');
 
@@ -43,39 +44,48 @@ const generateAccessCode = () => {
   return String(Math.floor(100000 + Math.random() * 900000));
 };
 
-// Check apartment availability
-// NOTE: Pass 'client' parameter to use within a transaction for race condition protection
+// Is a residence free from check-in to check-out (check-out day exclusive)? Expired unpaid holds are released first.
+// Pass `client` inside a transaction to lock the conflicting rows.
 const checkAvailability = async (apartmentId, checkIn, checkOut, excludeBookingId = null, client = null) => {
-  let query = `
-    SELECT id
-    FROM bookings
-    WHERE apartment_id = $1
-      AND status IN ('confirmed', 'checked_in', 'pending')
-      AND (
-        (check_in_date <= $2 AND check_out_date > $2) OR
-        (check_in_date < $3 AND check_out_date >= $3) OR
-        (check_in_date >= $2 AND check_out_date <= $3)
-      )
-  `;
+  const executor = client || pool;
+  await releaseExpiredHolds(executor);
+
+  const apartment = await executor.query(
+    `SELECT a.is_active AND c.is_active AND a.status NOT IN ('maintenance', 'unavailable') AS bookable
+       FROM apartments a JOIN apartment_categories c ON c.id = a.category_id WHERE a.id = $1`,
+    [apartmentId]
+  );
+  if (!apartment.rows[0]?.bookable) return false;
 
   const params = [apartmentId, checkIn, checkOut];
-
+  let query = `
+    SELECT id FROM bookings
+     WHERE apartment_id = $1
+       AND status IN ('confirmed', 'checked_in', 'pending')
+       AND check_in_date < $3::date AND check_out_date > $2::date`;
   if (excludeBookingId) {
-    query += ' AND id != $4';
     params.push(excludeBookingId);
+    query += ' AND id <> $4';
   }
-
-  // Add FOR UPDATE to lock rows during transaction (prevents race conditions)
-  // Note: We select actual rows (id) instead of COUNT(*) so FOR UPDATE is allowed
-  if (client) {
-    query += ' FOR UPDATE';
-  }
-
-  // Use transaction client if provided, otherwise use pool
-  const executor = client || pool;
+  if (client) query += ' FOR UPDATE';
   const result = await executor.query(query, params);
-  // Return true if no conflicting bookings found (available)
   return result.rows.length === 0;
+};
+
+/** Validates a stay's dates: YYYY-MM-DD, check-in today or later (property time), check-out after check-in. */
+const stayError = async (checkIn, checkOut) => {
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(String(checkIn || '')) || !iso.test(String(checkOut || ''))) return 'Dates must be in the form YYYY-MM-DD';
+  const { rows } = await pool.query(
+    `SELECT $1::date < (NOW() AT TIME ZONE $3)::date AS past, $2::date <= $1::date AS reversed, $2::date - $1::date AS nights`,
+    [checkIn, checkOut, process.env.PROPERTY_TZ || 'Africa/Douala']
+  ).catch(() => ({ rows: [{ invalid: true }] }));
+  const r = rows[0];
+  if (r.invalid) return 'Those dates are not valid';
+  if (r.past) return 'Check-in cannot be in the past';
+  if (r.reversed) return 'Check-out must be after check-in';
+  if (r.nights > 365) return 'Stays are limited to one year';
+  return null;
 };
 
 // Calculate price for booking
@@ -137,11 +147,11 @@ const generateTempPassword = () => {
 };
 
 // Create user account for guest
-const createGuestAccount = async (guestData) => {
+const createGuestAccount = async (guestData, pool = db) => {
   try {
     // Check if user already exists (including soft-deleted users)
     const existingUser = await pool.query(
-      'SELECT id, username, deleted_at FROM users WHERE email = $1',
+      'SELECT id, username, deleted_at FROM users WHERE lower(email) = lower($1)',
       [guestData.email]
     );
 
@@ -310,6 +320,9 @@ router.get('/availability', async (req, res) => {
         message: 'Missing start_date or end_date query parameters'
       });
     }
+    const invalidDates = await stayError(start_date, end_date);
+    if (invalidDates) return res.status(400).json({ success: false, message: invalidDates });
+    await releaseExpiredHolds();
 
     // Get all active apartments with their category information and primary image
     const apartmentsResult = await pool.query(`
@@ -387,6 +400,38 @@ router.get('/availability', async (req, res) => {
 });
 
 // Get single booking
+// Stays overlapping a date range, for the HQ availability calendar (?start_date, end_date, apartment_id)
+router.get('/calendar', requireStaff, async (req, res) => {
+  try {
+    const { start_date, end_date, apartment_id } = req.query;
+    const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    if (!isDate(start_date) || !isDate(end_date)) {
+      return res.status(400).json({ success: false, message: 'start_date and end_date (YYYY-MM-DD) are required' });
+    }
+    const params = [start_date, end_date];
+    let where = `b.check_in_date < $2::date AND b.check_out_date > $1::date AND b.status <> 'cancelled'`;
+    if (apartment_id) {
+      params.push(apartment_id);
+      where += ` AND b.apartment_id = $3`;
+    }
+    const result = await pool.query(
+      `SELECT b.id, b.booking_number, b.guest_name, b.guest_email, b.number_of_guests, b.final_price, b.status,
+              to_char(b.check_in_date, 'YYYY-MM-DD') AS check_in_date, to_char(b.check_out_date, 'YYYY-MM-DD') AS check_out_date,
+              a.id AS apartment_id, a.unit_number, a.floor, a.building, c.display_name AS category_name
+         FROM bookings b
+         JOIN apartments a ON a.id = b.apartment_id
+         JOIN apartment_categories c ON c.id = a.category_id
+        WHERE ${where}
+        ORDER BY b.check_in_date, a.unit_number`,
+      params
+    );
+    res.json({ success: true, bookings: result.rows });
+  } catch (error) {
+    console.error('Error fetching calendar:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch the calendar' });
+  }
+});
+
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -478,6 +523,8 @@ router.post('/check-availability', async (req, res) => {
         message: 'Missing required fields'
       });
     }
+    const invalidDates = await stayError(check_in_date, check_out_date);
+    if (invalidDates) return res.status(400).json({ success: false, available: false, message: invalidDates });
 
     const isAvailable = await checkAvailability(apartment_id, check_in_date, check_out_date);
 
@@ -506,215 +553,124 @@ router.post('/check-availability', async (req, res) => {
   }
 });
 
-// Create booking
+// Create booking: a pending stay that holds the residence until it is paid (services/bookingHolds.js).
 router.post('/', async (req, res) => {
-  const client = await pool.connect();
+  const {
+    apartment_id, guest_name, guest_phone, guest_id_number, check_in_date, check_out_date, special_requests
+  } = req.body;
+  const guest_email = String(req.body.guest_email || '').trim().toLowerCase();
+  const number_of_guests = parseInt(req.body.number_of_guests, 10) || 1;
 
+  if (!apartment_id || !String(guest_name || '').trim() || !guest_email || !String(guest_phone || '').trim() || !check_in_date || !check_out_date) {
+    return res.status(400).json({ success: false, message: 'Please give the residence, dates, your name, email and phone' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guest_email)) {
+    return res.status(400).json({ success: false, message: 'Please enter a valid email address' });
+  }
+  const invalidDates = await stayError(check_in_date, check_out_date);
+  if (invalidDates) return res.status(400).json({ success: false, message: invalidDates });
+
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const {
-      apartment_id,
-      guest_name,
-      guest_email,
-      guest_phone,
-      guest_id_number,
-      check_in_date,
-      check_out_date,
-      number_of_guests,
-      special_requests
-    } = req.body;
-
-    // Validate required fields
-    if (!apartment_id || !guest_name || !guest_email || !guest_phone || !check_in_date || !check_out_date) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields'
-      });
-    }
-
-    // Check availability WITHIN THE TRANSACTION (with row locking to prevent race conditions)
-    const isAvailable = await checkAvailability(apartment_id, check_in_date, check_out_date, null, client);
-    if (!isAvailable) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        message: 'Apartment is not available for the selected dates'
-      });
-    }
-
-    // Double-check: Lock the apartment record to prevent concurrent bookings
-    await client.query(
-      'SELECT id FROM apartments WHERE id = $1 FOR UPDATE',
+    // Lock the residence so two guests cannot book the same nights at once.
+    const apartment = await client.query(
+      `SELECT a.id, c.max_guests FROM apartments a JOIN apartment_categories c ON c.id = a.category_id WHERE a.id = $1 FOR UPDATE OF a`,
       [apartment_id]
     );
-
-    // Calculate pricing
-    const pricing = await calculatePrice(apartment_id, check_in_date, check_out_date);
-
-    // Generate booking number
-    const bookingNumber = await generateBookingNumber();
-
-    // Generate access code
-    const accessCode = generateAccessCode();
-
-    // Create guest account
-    const accountInfo = await createGuestAccount({
-      name: guest_name,
-      email: guest_email,
-      phone: guest_phone
-    });
-
-    if (!accountInfo) {
+    if (!apartment.rows[0]) {
       await client.query('ROLLBACK');
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to create user account'
-      });
+      return res.status(404).json({ success: false, message: 'Residence not found' });
+    }
+    if (number_of_guests < 1 || number_of_guests > apartment.rows[0].max_guests) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: `This residence sleeps up to ${apartment.rows[0].max_guests} guests` });
     }
 
-    // Create booking
+    if (!(await checkAvailability(apartment_id, check_in_date, check_out_date, null, client))) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, message: 'This residence is not available for the selected dates' });
+    }
+
+    const pricing = await calculatePrice(apartment_id, check_in_date, check_out_date);
+    const bookingNumber = await generateBookingNumber();
+    const accessCode = generateAccessCode();
+
+    // The guest's account (an existing one is reused), in the same transaction.
+    const accountInfo = await createGuestAccount({ name: String(guest_name).trim(), email: guest_email, phone: String(guest_phone).trim() }, client);
+    if (!accountInfo) throw new Error('Could not create the guest account');
+
     const bookingResult = await client.query(`
       INSERT INTO bookings (
-        booking_number, apartment_id, user_id,
-        guest_name, guest_email, guest_phone, guest_id_number,
-        check_in_date, check_out_date, number_of_guests,
-        price_per_night, number_of_nights, total_price, discount_amount, final_price,
-        status, special_requests, access_code
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        booking_number, apartment_id, user_id, guest_name, guest_email, guest_phone, guest_id_number,
+        check_in_date, check_out_date, number_of_guests, price_per_night, number_of_nights, total_price, discount_amount, final_price,
+        status, special_requests, access_code, temporary_password
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending', $16, $17, $18)
       RETURNING *
     `, [
-      bookingNumber,
-      apartment_id,
-      accountInfo.userId,
-      guest_name,
-      guest_email,
-      guest_phone,
-      guest_id_number,
-      check_in_date,
-      check_out_date,
-      number_of_guests || 1,
-      pricing.price_per_night,
-      pricing.number_of_nights,
-      pricing.total_price,
-      pricing.discount_amount,
-      pricing.final_price,
-      'pending', // Status pending until payment
-      special_requests,
-      accessCode
+      bookingNumber, apartment_id, accountInfo.userId, String(guest_name).trim(), guest_email, String(guest_phone).trim(), guest_id_number || null,
+      check_in_date, check_out_date, number_of_guests, pricing.price_per_night, pricing.number_of_nights, pricing.total_price,
+      pricing.discount_amount, pricing.final_price, special_requests || null, accessCode,
+      // A new account's first password is emailed with the confirmation once paid, then cleared.
+      accountInfo.isNewAccount ? accountInfo.temporaryPassword : null
     ]);
 
     await client.query('COMMIT');
 
-    // Prepare response
-    const response = {
+    // This endpoint is public: the response never carries sign-in details or the access code.
+    const { temporary_password, access_code, ...booking } = bookingResult.rows[0];
+    res.status(201).json({
       success: true,
       message: 'Booking created successfully',
-      booking: bookingResult.rows[0],
-      accessCode: accessCode
-    };
-
-    console.log('✅ Booking created with ID:', bookingResult.rows[0].id);
-    console.log('✅ Booking number:', bookingResult.rows[0].booking_number);
-
-    // A new account's temporary password is kept with the booking and sent in the confirmation email once paid.
-    // It is never returned here: this endpoint is public, so the response must not carry sign-in details.
-    // (An existing account that still has a temporary password gets a fresh one emailed at confirmation.)
-    let passwordToStore = null;
-    if (accountInfo.isNewAccount) {
-      passwordToStore = accountInfo.temporaryPassword;
-      response.accountCreated = true;
-    }
-
-    // Store temporary password in booking AFTER commit to avoid transaction abort
-    if (passwordToStore) {
-      try {
-        await pool.query(`
-          UPDATE bookings
-          SET temporary_password = $1
-          WHERE id = $2
-        `, [passwordToStore, bookingResult.rows[0].id]);
-      } catch (updateError) {
-        // Ignore error if column doesn't exist yet (migration pending)
-        console.log('⚠️ Could not store temporary password (migration may be pending):', updateError.message);
-      }
-    }
-
-    // Note: Comprehensive email with all details (booking, access codes, QR code, credentials)
-    // will be sent at payment confirmation when digital keys are generated
-
-    res.json(response);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error creating booking:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create booking',
-      error: error.message
+      booking,
+      accountCreated: accountInfo.isNewAccount || undefined
     });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (error.code === '23P01') {
+      return res.status(409).json({ success: false, message: 'This residence was just booked for those dates. Please choose another.' });
+    }
+    console.error('Error creating booking:', error);
+    res.status(500).json({ success: false, message: 'Failed to create booking' });
   } finally {
     client.release();
   }
 });
 
-// Update booking status
+// Move a stay along: check in, check out or cancel. (Confirming goes through POST /:id/confirm, which also
+// records the payment and releases the digital key.)
+const STATUS_MOVES = {
+  checked_in: { from: ['confirmed'], stamp: 'checked_in_at' },
+  checked_out: { from: ['checked_in'], stamp: 'checked_out_at' },
+  cancelled: { from: ['pending', 'confirmed'], stamp: 'cancelled_at' },
+};
 router.put('/:id/status', requireStaff, async (req, res) => {
   try {
-    const { id } = req.params;
     const { status, cancellation_reason } = req.body;
-
-    const validStatuses = ['pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid status'
-      });
-    }
-
-    let query = 'UPDATE bookings SET status = $1';
-    const params = [status, id];
-    let paramCount = 2;
-
-    // Handle status-specific updates
     if (status === 'confirmed') {
-      query += ', confirmed_at = CURRENT_TIMESTAMP';
-    } else if (status === 'checked_in') {
-      query += ', checked_in_at = CURRENT_TIMESTAMP';
-    } else if (status === 'checked_out') {
-      query += ', checked_out_at = CURRENT_TIMESTAMP';
-    } else if (status === 'cancelled') {
-      query += ', cancelled_at = CURRENT_TIMESTAMP';
-      if (cancellation_reason) {
-        paramCount++;
-        query += `, cancellation_reason = $${paramCount}`;
-        params.splice(2, 0, cancellation_reason);
-      }
+      return res.status(400).json({ success: false, message: 'Use Confirm booking, which records the payment and sends the digital key' });
+    }
+    const move = STATUS_MOVES[status];
+    if (!move) return res.status(400).json({ success: false, message: 'Invalid status' });
+
+    const current = await pool.query('SELECT status FROM bookings WHERE id = $1', [req.params.id]);
+    if (!current.rows[0]) return res.status(404).json({ success: false, message: 'Booking not found' });
+    if (!move.from.includes(current.rows[0].status)) {
+      return res.status(409).json({ success: false, message: `A ${current.rows[0].status.replace('_', ' ')} booking cannot be ${status.replace('_', ' ')}` });
     }
 
-    query += ` WHERE id = $${paramCount + 1} RETURNING *`;
-
-    const result = await pool.query(query, params);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Booking status updated',
-      booking: result.rows[0]
-    });
+    const result = await pool.query(
+      `UPDATE bookings SET status = $1::booking_status, ${move.stamp} = CURRENT_TIMESTAMP,
+              cancellation_reason = CASE WHEN $1::booking_status = 'cancelled' THEN COALESCE($3, cancellation_reason) ELSE cancellation_reason END
+        WHERE id = $2 RETURNING *`,
+      [status, req.params.id, cancellation_reason || null]
+    );
+    const { temporary_password, ...booking } = result.rows[0];
+    res.json({ success: true, message: 'Booking status updated', booking });
   } catch (error) {
     console.error('Error updating booking status:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update booking status',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to update booking status' });
   }
 });
 
@@ -748,13 +704,20 @@ router.post('/:id/confirm', async (req, res) => {
     const booking = bookingResult.rows[0];
 
     // Confirming releases the door, gate and locker codes, so it needs proof of payment:
-    // a succeeded Stripe PaymentIntent for this booking, or a signed-in staff member.
+    // a succeeded Stripe PaymentIntent for this booking, or a signed-in staff member (money received).
     const staff = await userFromRequest(req);
     const isStaff = staff && STAFF_ROLES.includes(staff.role);
-    if (!isStaff) {
-      if (booking.status !== 'pending') {
+    // A card payment can succeed just after its hold expired; the stay is reinstated if the nights are still free.
+    const lateCardPayment = !isStaff && booking.status === 'cancelled' && booking.cancellation_reason === HOLD_EXPIRED && payment_intent_id;
+
+    if (booking.status !== 'pending' && !lateCardPayment) {
+      if (['confirmed', 'checked_in', 'checked_out'].includes(booking.status)) {
         return res.json({ success: true, message: 'Booking already confirmed', booking: { id: booking.id, booking_number: booking.booking_number, status: booking.status } });
       }
+      return res.status(409).json({ success: false, message: `This booking is ${booking.status} and cannot be confirmed` });
+    }
+
+    if (!isStaff) {
       if (!payment_intent_id || !process.env.STRIPE_SECRET_KEY) {
         return res.status(402).json({ success: false, message: 'Payment is required to confirm this booking' });
       }
@@ -770,27 +733,59 @@ router.post('/:id/confirm', async (req, res) => {
       }
     }
 
-    // Update payment status to completed
-    if (payment_intent_id) {
-      await pool.query(
-        `UPDATE payments
-         SET status = 'completed', paid_at = CURRENT_TIMESTAMP
-         WHERE stripe_payment_intent_id = $1`,
-        [payment_intent_id]
+    // Confirm, keeping the terms acceptance already on record (staff confirmations send none).
+    let updatedBooking;
+    try {
+      updatedBooking = await pool.query(
+        `UPDATE bookings
+            SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP, cancelled_at = NULL, cancellation_reason = NULL,
+                terms_accepted = terms_accepted OR COALESCE($2, FALSE),
+                terms_accepted_at = COALESCE(terms_accepted_at, $3::timestamp)
+          WHERE id = $1 AND status IN ('pending', 'cancelled')
+          RETURNING *`,
+        [id, terms_accepted === true, terms_accepted ? terms_accepted_at || new Date().toISOString() : null]
       );
+    } catch (e) {
+      if (e.code !== '23P01') throw e;
+      // The nights were taken while the card payment was pending: refund it.
+      try {
+        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        await stripe.refunds.create({ payment_intent: payment_intent_id });
+        await pool.query(`UPDATE payments SET status = 'refunded', refunded_at = CURRENT_TIMESTAMP, refund_amount = amount, refund_reason = $2 WHERE stripe_payment_intent_id = $1`, [payment_intent_id, 'Dates no longer available']);
+      } catch (refundError) {
+        console.error('Automatic refund failed — refund manually:', payment_intent_id, refundError.message);
+      }
+      return res.status(409).json({ success: false, message: 'Sorry, those dates were booked by someone else while your payment was processing. Your payment is being refunded.' });
     }
 
-    // Update booking status to confirmed and store T&C acceptance
-    const updatedBooking = await pool.query(
-      `UPDATE bookings
-       SET status = 'confirmed',
-           confirmed_at = CURRENT_TIMESTAMP,
-           terms_accepted = COALESCE($2, FALSE),
-           terms_accepted_at = $3
-       WHERE id = $1
-       RETURNING *`,
-      [id, terms_accepted, terms_accepted_at]
-    );
+    if (!updatedBooking.rows[0]) {
+      // Confirmed by a request that arrived at the same moment.
+      return res.json({ success: true, message: 'Booking already confirmed', booking: { id: booking.id, booking_number: booking.booking_number, status: 'confirmed' } });
+    }
+
+    // Record the money: the card payment, or (staff confirming) the mobile money / cash payment awaiting confirmation.
+    if (payment_intent_id) {
+      await pool.query(
+        `UPDATE payments SET status = 'completed', paid_at = CURRENT_TIMESTAMP, error_message = NULL WHERE stripe_payment_intent_id = $1 AND booking_id = $2`,
+        [payment_intent_id, booking.id]
+      );
+    } else if (isStaff) {
+      const pendingPayment = await pool.query(
+        `UPDATE payments SET status = 'completed', paid_at = CURRENT_TIMESTAMP,
+                payment_metadata = payment_metadata || jsonb_build_object('confirmed_by', $2::int)
+          WHERE id = (SELECT id FROM payments WHERE booking_id = $1 AND status = 'pending' AND payment_method <> 'stripe' ORDER BY created_at DESC LIMIT 1)
+          RETURNING id`,
+        [booking.id, staff.id]
+      );
+      if (!pendingPayment.rows[0] && ['cash', 'bank_transfer', 'card_terminal', 'mobile_money'].includes(req.body.payment_method)) {
+        // Paid at the desk with nothing recorded yet (cash, bank transfer, card terminal).
+        await pool.query(
+          `INSERT INTO payments (booking_id, payment_method, amount, status, paid_at, transaction_reference, payment_metadata)
+           VALUES ($1, $2, $3, 'completed', CURRENT_TIMESTAMP, $4, jsonb_build_object('confirmed_by', $5::int))`,
+          [booking.id, req.body.payment_method, booking.final_price, req.body.reference || null, staff.id]
+        );
+      }
+    }
 
     // Generate digital keys automatically after confirmation
     try {
@@ -960,10 +955,11 @@ router.post('/:id/confirm', async (req, res) => {
       });
     }
 
+    const { temporary_password: _password, ...confirmed } = updatedBooking.rows[0];
     res.json({
       success: true,
       message: 'Booking confirmed successfully',
-      booking: updatedBooking.rows[0]
+      booking: confirmed
     });
   } catch (error) {
     console.error('Error confirming booking:', error);
@@ -1244,47 +1240,31 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
       status: booking.status === 'checked_in' ? 'active' : 'upcoming'
     }));
 
-    // Get all active wellness journey bookings with digital keys
-    // Wrapped in try-catch to prevent breaking apartment keys if wellness schema is different
-    let wellnessJourneys = [];
-    try {
-      const wellnessBookings = await pool.query(`
-        SELECT
-          wjb.id as booking_id,
-          wjb.journey_pin,
-          wjb.qr_code,
-          wjb.booking_date,
-          wjb.start_time,
-          wjb.status,
-          wj.name as journey_name,
-          wj.total_duration,
-          wj.description
-        FROM wellness_journey_bookings wjb
-        JOIN wellness_journeys wj ON wjb.journey_id = wj.id
-        WHERE wjb.user_id = $1
-          AND wjb.status IN ('upcoming', 'confirmed', 'in_progress')
-          AND wjb.booking_date >= CURRENT_DATE
-          AND wjb.journey_pin IS NOT NULL
-        ORDER BY wjb.booking_date ASC, wjb.start_time ASC
-      `, [user_id]);
+    // Wellness journeys booked for the stay open with their own PIN.
+    const wellnessBookings = await pool.query(`
+      SELECT wb.id AS booking_id, wb.activity_pin, wb.qr_code, to_char(wb.booking_date, 'YYYY-MM-DD') AS booking_date,
+             to_char(wb.start_time, 'HH24:MI') AS start_time, wb.total_duration, wb.activity_name, a.description,
+             wb.booking_date = CURRENT_DATE AS is_today
+        FROM wellness_bookings wb
+        LEFT JOIN wellness_activities a ON a.id = wb.activity_id
+       WHERE wb.user_id = $1
+         AND wb.status IN ('upcoming', 'in_progress')
+         AND wb.booking_date >= CURRENT_DATE
+         AND wb.activity_pin IS NOT NULL
+       ORDER BY wb.booking_date, wb.start_time
+    `, [user_id]);
 
-      // Format wellness journey keys
-      wellnessJourneys = wellnessBookings.rows.map(booking => ({
-        bookingId: booking.booking_id,
-        journeyName: booking.journey_name,
-        journeyPIN: booking.journey_pin,
-        qrCode: booking.qr_code,
-        date: booking.booking_date,
-        time: booking.start_time,
-        duration: `${booking.total_duration} minutes`,
-        description: booking.description,
-        status: booking.booking_date === new Date().toISOString().split('T')[0] ? 'today' : 'upcoming'
-      }));
-    } catch (wellnessError) {
-      console.error('Wellness journey query error (non-critical, apartment keys still work):', wellnessError.message);
-      // Return empty array for wellness journeys - apartment keys will still work
-      wellnessJourneys = [];
-    }
+    const wellnessJourneys = wellnessBookings.rows.map(booking => ({
+      bookingId: booking.booking_id,
+      journeyName: booking.activity_name,
+      journeyPIN: booking.activity_pin,
+      qrCode: booking.qr_code,
+      date: booking.booking_date,
+      time: booking.start_time,
+      duration: `${booking.total_duration} minutes`,
+      description: booking.description,
+      status: booking.is_today ? 'today' : 'upcoming'
+    }));
 
     res.json({
       success: true,

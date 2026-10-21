@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_URL } from '../../site/api';
 
 const WellnessAvailability = () => {
   const { token } = useAuth();
   const [availability, setAvailability] = useState([]);
-  const [journeys, setJourneys] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingSlot, setEditingSlot] = useState(null);
-  const [filterJourney, setFilterJourney] = useState('all');
+  const [filterActivity, setFilterActivity] = useState('all');
   const [stats, setStats] = useState(null);
   const [formData, setFormData] = useState({
-    journey_id: '',
+    activity_id: '',
     start_date: '',
     end_date: '',
     start_time: '09:00',
@@ -21,13 +22,14 @@ const WellnessAvailability = () => {
     notes: ''
   });
 
-  const timeSlots = [
-    { value: '09:00', label: '9:00 AM' },
-    { value: '11:00', label: '11:00 AM' },
-    { value: '14:00', label: '2:00 PM' },
-    { value: '16:00', label: '4:00 PM' },
-    { value: '18:00', label: '6:00 PM' },
-  ];
+  // Start times every 30 minutes, 6:00 AM to 9:30 PM
+  const timeSlots = Array.from({ length: 32 }, (_, i) => {
+    const h = 6 + Math.floor(i / 2);
+    const m = i % 2 ? '30' : '00';
+    return { value: `${String(h).padStart(2, '0')}:${m}`, label: `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}` };
+  });
+
+  const authHeaders = { Authorization: `Bearer ${token}` };
 
   const daysOfWeek = [
     { value: 0, label: 'Sun' },
@@ -40,34 +42,32 @@ const WellnessAvailability = () => {
   ];
 
   useEffect(() => {
-    fetchJourneys();
+    fetchActivities();
     fetchStats();
   }, []);
 
   useEffect(() => {
     fetchAvailability();
-  }, [filterJourney]);
+  }, [filterActivity]);
 
-  const fetchJourneys = async () => {
+  const fetchActivities = async () => {
     try {
-      const response = await fetch('/api/wellness-journeys', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await fetch(`${API_URL}/wellness/activities`, { headers: authHeaders });
       const data = await response.json();
       if (data.success) {
-        setJourneys(data.journeys || []);
+        setActivities(data.activities || []);
       }
     } catch (error) {
-      console.error('Error fetching journeys:', error);
+      console.error('Error fetching activities:', error);
     }
   };
 
   const fetchAvailability = async () => {
     try {
       setLoading(true);
-      const url = filterJourney === 'all'
-        ? '/api/wellness-availability'
-        : `/api/wellness-availability?journey_id=${filterJourney}`;
+      const url = filterActivity === 'all'
+        ? `${API_URL}/wellness-availability`
+        : `${API_URL}/wellness-availability?activity_id=${filterActivity}`;
 
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -85,7 +85,7 @@ const WellnessAvailability = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/wellness-availability/stats/overview', {
+      const response = await fetch(`${API_URL}/wellness-availability/stats/overview`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -101,16 +101,13 @@ const WellnessAvailability = () => {
     e.preventDefault();
     try {
       const url = editingSlot
-        ? `/api/wellness-availability/${editingSlot.id}`
-        : '/api/wellness-availability';
+        ? `${API_URL}/wellness-availability/${editingSlot.id}`
+        : `${API_URL}/wellness-availability`;
 
       const method = editingSlot ? 'PUT' : 'POST';
 
-      // Calculate end time based on 90-minute duration
-      const [startHours, startMinutes] = formData.start_time.split(':').map(Number);
-      const endDate = new Date(2000, 0, 1, startHours, startMinutes);
-      endDate.setMinutes(endDate.getMinutes() + 90);
-      const endTime = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
+      // A slot lasts as long as the activity
+      const endTime = endOf(formData.start_time, durationOf(editingSlot ? editingSlot.activity_id : formData.activity_id));
 
       const payload = {
         ...formData,
@@ -120,7 +117,7 @@ const WellnessAvailability = () => {
 
       // If editing, only send changed fields
       if (editingSlot) {
-        delete payload.journey_id;
+        delete payload.activity_id;
         delete payload.start_date;
         delete payload.end_date;
         delete payload.days_of_week;
@@ -137,7 +134,7 @@ const WellnessAvailability = () => {
 
       const data = await response.json();
       if (data.success) {
-        alert(editingSlot ? 'Availability updated successfully!' : `Created ${data.count} availability slot(s)!`);
+        alert(editingSlot ? 'Availability updated' : data.message);
         fetchAvailability();
         fetchStats();
         closeModal();
@@ -154,7 +151,7 @@ const WellnessAvailability = () => {
     if (!window.confirm('Are you sure you want to delete this availability slot?')) return;
 
     try {
-      const response = await fetch(`/api/wellness-availability/${id}`, {
+      const response = await fetch(`${API_URL}/wellness-availability/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -174,7 +171,7 @@ const WellnessAvailability = () => {
 
   const handleToggleAvailability = async (slot) => {
     try {
-      const response = await fetch(`/api/wellness-availability/${slot.id}`, {
+      const response = await fetch(`${API_URL}/wellness-availability/${slot.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -189,6 +186,8 @@ const WellnessAvailability = () => {
       if (data.success) {
         fetchAvailability();
         fetchStats();
+      } else {
+        alert(data.error || 'Could not change the slot');
       }
     } catch (error) {
       console.error('Error toggling availability:', error);
@@ -199,7 +198,7 @@ const WellnessAvailability = () => {
     if (slot) {
       setEditingSlot(slot);
       setFormData({
-        journey_id: slot.journey_id,
+        activity_id: slot.activity_id,
         start_date: slot.available_date,
         end_date: '',
         start_time: slot.start_time.substring(0, 5),
@@ -212,12 +211,12 @@ const WellnessAvailability = () => {
       setEditingSlot(null);
       const today = new Date().toISOString().split('T')[0];
       setFormData({
-        journey_id: journeys.length > 0 ? journeys[0].id : '',
+        activity_id: activities.length > 0 ? activities[0].id : '',
         start_date: today,
         end_date: '',
         start_time: '09:00',
-        end_time: '10:30',
-        max_capacity: 3,
+        end_time: '',
+        max_capacity: activities[0]?.max_capacity || 1,
         days_of_week: [],
         notes: ''
       });
@@ -239,22 +238,35 @@ const WellnessAvailability = () => {
     }));
   };
 
+  const durationOf = (activityId) => activities.find((a) => String(a.id) === String(activityId))?.duration || 60;
+  const endOf = (start, minutes) => {
+    const [h, m] = start.split(':').map(Number);
+    const end = Math.min(h * 60 + m + Number(minutes), 23 * 60 + 59);
+    return `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`;
+  };
+
   const getCategoryColor = (category) => {
     const colors = {
       restore: 'blue',
       recharge: 'green',
       reflect: 'purple',
-      explore: 'orange'
+      explore: 'orange',
+      spa: 'pink',
+      fitness: 'green',
+      dining: 'yellow'
     };
     return colors[category] || 'gray';
   };
 
   const getCategoryIcon = (category) => {
     const icons = {
-      restore: '🧘',
+      restore: '🌿',
       recharge: '⚡',
       reflect: '🌅',
-      explore: '🌍'
+      explore: '🌍',
+      spa: '💆',
+      fitness: '💪',
+      dining: '🍽️'
     };
     return icons[category] || '✨';
   };
@@ -298,8 +310,8 @@ const WellnessAvailability = () => {
     <div className="p-6">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-heading text-gray-900">Wellness Journey Availability</h1>
-        <p className="text-gray-600 mt-1">Manage time slots for wellness journey bookings</p>
+        <h1 className="text-3xl font-heading text-gray-900">Wellness Availability</h1>
+        <p className="text-gray-600 mt-1">Open time slots for an activity. On days without slots, guests can book the standard times (9, 10, 11 AM, 2, 3, 4 and 6 PM).</p>
       </div>
 
       {/* Stats Cards */}
@@ -328,31 +340,21 @@ const WellnessAvailability = () => {
 
       {/* Filters and Actions */}
       <div className="mb-6 flex justify-between items-center flex-wrap gap-4">
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setFilterJourney('all')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterJourney === 'all'
-                ? 'bg-gray-800 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+        <label className="flex items-center gap-3">
+          <span className="text-sm font-medium text-gray-700">Activity</span>
+          <select
+            value={filterActivity}
+            onChange={(e) => setFilterActivity(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg"
           >
-            All Journeys
-          </button>
-          {journeys.map(journey => (
-            <button
-              key={journey.id}
-              onClick={() => setFilterJourney(journey.id.toString())}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                filterJourney === journey.id.toString()
-                  ? `bg-${getCategoryColor(journey.category)}-600 text-white`
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              {getCategoryIcon(journey.category)} {journey.name}
-            </button>
-          ))}
-        </div>
+            <option value="all">All activities</option>
+            {activities.map(activity => (
+              <option key={activity.id} value={activity.id}>
+                {getCategoryIcon(activity.category)} {activity.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           onClick={() => openModal()}
           className="bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors font-semibold"
@@ -384,10 +386,10 @@ const WellnessAvailability = () => {
                         : 'border-gray-300 bg-gray-100 opacity-60'
                     }`}
                   >
-                    {/* Journey Badge */}
+                    {/* Activity */}
                     <div className="mb-3">
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-${getCategoryColor(slot.journey_category)}-100 text-${getCategoryColor(slot.journey_category)}-800`}>
-                        {getCategoryIcon(slot.journey_category)} {slot.journey_name}
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-${getCategoryColor(slot.activity_category)}-100 text-${getCategoryColor(slot.activity_category)}-800`}>
+                        {getCategoryIcon(slot.activity_category)} {slot.activity_name}
                       </span>
                     </div>
 
@@ -498,22 +500,26 @@ const WellnessAvailability = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {/* Journey Selection (only for new slots) */}
+              {/* Activity (only for new slots) */}
               {!editingSlot && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Wellness Journey *
+                    Activity *
                   </label>
                   <select
-                    value={formData.journey_id}
-                    onChange={(e) => setFormData({ ...formData, journey_id: e.target.value })}
+                    value={formData.activity_id}
+                    onChange={(e) => {
+                      // A new slot takes the activity's own capacity; it can be changed below.
+                      const chosen = activities.find((a) => String(a.id) === e.target.value);
+                      setFormData({ ...formData, activity_id: e.target.value, max_capacity: chosen?.max_capacity || formData.max_capacity });
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                     required
                   >
-                    <option value="">Select a journey</option>
-                    {journeys.map(journey => (
-                      <option key={journey.id} value={journey.id}>
-                        {getCategoryIcon(journey.category)} {journey.name}
+                    <option value="">Select an activity</option>
+                    {activities.map(activity => (
+                      <option key={activity.id} value={activity.id}>
+                        {getCategoryIcon(activity.category)} {activity.name}
                       </option>
                     ))}
                   </select>
@@ -579,7 +585,7 @@ const WellnessAvailability = () => {
               {/* Time Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Start Time * (Duration: 90 minutes)
+                  Start Time * (the slot lasts {durationOf(editingSlot ? editingSlot.activity_id : formData.activity_id)} minutes)
                 </label>
                 <select
                   value={formData.start_time}
@@ -603,7 +609,6 @@ const WellnessAvailability = () => {
                 <input
                   type="number"
                   min="1"
-                  max="10"
                   value={formData.max_capacity}
                   onChange={(e) => setFormData({ ...formData, max_capacity: parseInt(e.target.value) })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
