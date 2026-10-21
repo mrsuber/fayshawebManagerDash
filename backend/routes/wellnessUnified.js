@@ -7,8 +7,12 @@
 
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const db = require('../config/database');
 const { authenticateToken, checkPasswordChangeRequired } = require('../middleware/auth');
+const { slotsFor, hhmm, toMinutes, toTime } = require('../services/wellnessSlots');
+
+const PROPERTY_TZ = process.env.PROPERTY_TZ || 'Africa/Douala';
 
 // All routes require authentication
 router.use(authenticateToken);
@@ -121,280 +125,172 @@ router.get('/activities/:id', async (req, res) => {
 
 /**
  * POST /api/wellness-unified/book
- * Book any wellness activity
+ * Book any wellness activity during the guest's stay, in a slot with space left.
  */
 router.post('/book', async (req, res) => {
+  const userId = req.user.id;
+  const { activity_id, booking_date, start_time, special_requests } = req.body;
+
+  if (!activity_id || !/^\d{4}-\d{2}-\d{2}$/.test(String(booking_date || '')) || !/^\d{2}:\d{2}/.test(String(start_time || ''))) {
+    return res.status(400).json({ success: false, error: 'Activity, booking date (YYYY-MM-DD) and start time (HH:MM) are required' });
+  }
+  const start = hhmm(start_time);
+
   const client = await db.pool.connect();
-
   try {
-    const userId = req.user.id;
-    const { activity_id, booking_date, start_time, special_requests } = req.body;
-
-    if (!activity_id || !booking_date || !start_time) {
-      return res.status(400).json({
-        success: false,
-        error: 'Activity ID, booking date, and start time are required'
-      });
-    }
-
     await client.query('BEGIN');
 
-    // Get activity
-    const activityResult = await client.query(`
-      SELECT * FROM wellness_activities
-      WHERE id = $1 AND is_active = true
-    `, [activity_id]);
-
-    if (activityResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        error: 'Activity not found'
-      });
-    }
-
+    // Locking the activity row serialises bookings for it, so two guests cannot take the last place.
+    const activityResult = await client.query('SELECT * FROM wellness_activities WHERE id = $1 AND is_active = true FOR UPDATE', [activity_id]);
     const activity = activityResult.rows[0];
-
-    // Calculate end time
-    const [startHour, startMinute] = start_time.split(':');
-    const endTimeDate = new Date();
-    endTimeDate.setHours(parseInt(startHour), parseInt(startMinute) + activity.duration);
-    const end_time = `${String(endTimeDate.getHours()).padStart(2, '0')}:${String(endTimeDate.getMinutes()).padStart(2, '0')}`;
-
-    // Find active apartment booking
-    const apartmentResult = await client.query(`
-      SELECT id, check_in_date, check_out_date FROM bookings
-      WHERE user_id = $1
-        AND status IN ('confirmed', 'checked_in')
-        AND check_in_date <= $2
-        AND check_out_date > $2
-      ORDER BY check_in_date DESC
-      LIMIT 1
-    `, [userId, booking_date]);
-
-    if (apartmentResult.rows.length === 0) {
-      // Check if user has ANY apartment booking
-      const anyBookingResult = await client.query(`
-        SELECT check_in_date, check_out_date, status FROM bookings
-        WHERE user_id = $1
-          AND status IN ('confirmed', 'checked_in')
-        ORDER BY check_in_date DESC
-        LIMIT 1
-      `, [userId]);
-
+    if (!activity) {
       await client.query('ROLLBACK');
-
-      if (anyBookingResult.rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'You must have an active apartment booking to book wellness activities'
-        });
-      } else {
-        const booking = anyBookingResult.rows[0];
-        const checkIn = new Date(booking.check_in_date).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        });
-        const checkOut = new Date(booking.check_out_date).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        });
-
-        return res.status(400).json({
-          success: false,
-          error: `You can only book wellness activities during your apartment stay (${checkIn} - ${checkOut}). Please select a date within this range.`
-        });
-      }
+      return res.status(404).json({ success: false, error: 'Activity not found' });
     }
 
-    const apartmentBookingId = apartmentResult.rows[0].id;
+    const today = await client.query(`SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24:MI') AS now`, [PROPERTY_TZ]);
+    if (`${booking_date} ${start}` <= today.rows[0].now) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'Please choose a time in the future' });
+    }
 
-    // Check conflicts
-    const conflictCheck = await client.query(`
-      SELECT id, activity_name FROM wellness_bookings
-      WHERE user_id = $1
-        AND booking_date = $2
-        AND status IN ('upcoming', 'in_progress')
-        AND (
-          (start_time <= $3 AND end_time > $3)
-          OR (start_time < $4 AND end_time >= $4)
-          OR (start_time >= $3 AND end_time <= $4)
-        )
-    `, [userId, booking_date, start_time, end_time]);
-
-    if (conflictCheck.rows.length > 0) {
+    const stay = await client.query(
+      `SELECT id FROM bookings
+        WHERE user_id = $1 AND status IN ('confirmed', 'checked_in') AND check_in_date <= $2 AND check_out_date > $2
+        ORDER BY check_in_date DESC LIMIT 1`,
+      [userId, booking_date]
+    );
+    if (!stay.rows[0]) {
+      const any = await client.query(
+        `SELECT to_char(check_in_date, 'Mon DD, YYYY') AS check_in, to_char(check_out_date, 'Mon DD, YYYY') AS check_out
+           FROM bookings WHERE user_id = $1 AND status IN ('confirmed', 'checked_in') AND check_out_date >= CURRENT_DATE
+          ORDER BY check_in_date LIMIT 1`,
+        [userId]
+      );
       await client.query('ROLLBACK');
       return res.status(400).json({
         success: false,
-        error: `Conflicting booking: ${conflictCheck.rows[0].activity_name}`
+        error: any.rows[0]
+          ? `You can book wellness activities during your stay (${any.rows[0].check_in} – ${any.rows[0].check_out}). Please choose a date in that range.`
+          : 'You need a confirmed stay to book wellness activities',
       });
     }
 
-    // Generate PIN if needed (only for journeys)
-    let activity_pin = null;
-    let qr_code = null;
+    const slot = (await slotsFor(client, activity, booking_date)).find((s) => s.start_time === start);
+    if (!slot) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'That time is not offered for this activity. Please choose one of the available times.' });
+    }
+    if (!slot.is_available) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, error: slot.open ? 'That time is fully booked. Please choose another time.' : 'That time is closed. Please choose another time.' });
+    }
+    const end = slot.end_time;
 
-    if (activity.requires_access_pin) {
-      activity_pin = Math.floor(1000 + Math.random() * 9000).toString();
-      qr_code = `FAYSHAA-WELLNESS-${activity_id}-${userId}-${Date.now()}`;
+    const clash = await client.query(
+      `SELECT activity_name FROM wellness_bookings
+        WHERE user_id = $1 AND booking_date = $2 AND status IN ('upcoming', 'in_progress')
+          AND start_time < $4 AND end_time > $3
+        LIMIT 1`,
+      [userId, booking_date, start, end]
+    );
+    if (clash.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, error: `You already have ${clash.rows[0].activity_name} at that time` });
     }
 
-    // Create booking
-    const bookingResult = await client.query(`
-      INSERT INTO wellness_bookings (
-        apartment_booking_id, user_id, activity_id, activity_name, activity_type,
-        booking_date, start_time, end_time, total_duration,
-        activity_pin, qr_code, keys_generated_at, special_requests
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                ${activity.requires_access_pin ? 'CURRENT_TIMESTAMP' : 'NULL'}, $12)
-      RETURNING *
-    `, [apartmentBookingId, userId, activity_id, activity.name, activity.type,
-        booking_date, start_time, end_time, activity.duration,
-        activity_pin, qr_code, special_requests]);
+    // Journeys open with a PIN at the door.
+    const pin = activity.requires_access_pin ? String(crypto.randomInt(1000, 10000)) : null;
+    const qr = pin ? `FAYSHAA-WELLNESS-${activity.id}-${userId}-${Date.now()}` : null;
 
+    const bookingResult = await client.query(
+      `INSERT INTO wellness_bookings (
+         apartment_booking_id, user_id, activity_id, activity_name, activity_type,
+         booking_date, start_time, end_time, total_duration, activity_pin, qr_code, keys_generated_at, special_requests, amount_paid
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $10::varchar IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END, $12, 0)
+       RETURNING *`,
+      [stay.rows[0].id, userId, activity.id, activity.display_name || activity.name, activity.type, booking_date, start, end,
+        activity.duration, pin, qr, special_requests || null]
+    );
     const booking = bookingResult.rows[0];
 
-    // If journey, create stages
     if (activity.has_stages) {
-      const stagesResult = await client.query(`
-        SELECT * FROM wellness_activity_stages
-        WHERE activity_id = $1
-        ORDER BY stage_number ASC
-      `, [activity_id]);
-
-      let currentTime = new Date(`2000-01-01 ${start_time}`);
-
-      for (const stage of stagesResult.rows) {
-        const stageStartTime = `${String(currentTime.getHours()).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')}`;
-        currentTime.setMinutes(currentTime.getMinutes() + stage.duration);
-        const stageEndTime = `${String(currentTime.getHours()).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')}`;
-
-        await client.query(`
-          INSERT INTO wellness_booking_stages (
-            booking_id, stage_id, stage_number, stage_name,
-            scheduled_start, scheduled_end
-          ) VALUES ($1, $2, $3, $4, $5, $6)
-        `, [booking.id, stage.id, stage.stage_number, stage.name, stageStartTime, stageEndTime]);
+      const stages = await client.query('SELECT * FROM wellness_activity_stages WHERE activity_id = $1 ORDER BY stage_number', [activity.id]);
+      let at = toMinutes(start);
+      for (const stage of stages.rows) {
+        await client.query(
+          `INSERT INTO wellness_booking_stages (booking_id, stage_id, stage_number, stage_name, scheduled_start, scheduled_end)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [booking.id, stage.id, stage.stage_number, stage.name, toTime(at), toTime(Math.min(at + stage.duration, 24 * 60 - 1))]
+        );
+        at += stage.duration;
       }
+    }
+
+    // A priced activity is added to the guest's bill for the stay.
+    if (Number(activity.base_price) > 0) {
+      await client.query(
+        `INSERT INTO folio_charges (guest_id, booking_id, description, category, amount, source_type, source_id)
+         VALUES ($1, $2, $3, 'Wellness', $4, 'wellness_booking', $5)`,
+        [userId, stay.rows[0].id, `${activity.display_name || activity.name} — ${booking_date} ${start}`, activity.base_price, booking.id]
+      );
     }
 
     await client.query('COMMIT');
-
-    res.status(201).json({
-      success: true,
-      message: 'Booking created successfully',
-      booking
-    });
-
+    res.status(201).json({ success: true, message: 'Booking created successfully', booking });
   } catch (error) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Book error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create booking'
-    });
+    res.status(500).json({ success: false, error: 'Failed to create booking' });
   } finally {
     client.release();
   }
 });
 
 /**
- * GET /api/wellness-unified/activities/:id/availability
- * Get availability for an activity with conflict detection
+ * GET /api/wellness-unified/activities/:id/availability?date=YYYY-MM-DD&days=7
+ * Bookable times per day, with places left and the guest's own clashes.
  */
 router.get('/activities/:id/availability', async (req, res) => {
   try {
-    const activityId = parseInt(req.params.id);
-    const userId = req.user.id;
-    const { date, days = 7 } = req.query;
-
-    // Get activity details
-    const activityResult = await db.query(`
-      SELECT * FROM wellness_activities
-      WHERE id = $1 AND is_active = true
-    `, [activityId]);
-
-    if (activityResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Activity not found'
-      });
-    }
-
+    const activityResult = await db.query('SELECT * FROM wellness_activities WHERE id = $1 AND is_active = true', [req.params.id]);
     const activity = activityResult.rows[0];
+    if (!activity) return res.status(404).json({ success: false, error: 'Activity not found' });
 
-    // Generate date range
-    const startDate = date ? new Date(date) : new Date();
-    const availabilitySlots = [];
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 31);
+    const first = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? req.query.date : null;
+    const dates = await db.query(
+      `SELECT to_char(d, 'YYYY-MM-DD') AS day FROM generate_series(COALESCE($1::date, (NOW() AT TIME ZONE $2)::date), COALESCE($1::date, (NOW() AT TIME ZONE $2)::date) + ($3::int - 1), '1 day') d`,
+      [first, PROPERTY_TZ, days]
+    );
+    const mine = await db.query(
+      `SELECT activity_name, to_char(booking_date, 'YYYY-MM-DD') AS day, start_time, end_time FROM wellness_bookings
+        WHERE user_id = $1 AND status IN ('upcoming', 'in_progress') AND booking_date BETWEEN $2::date AND $3::date`,
+      [req.user.id, dates.rows[0].day, dates.rows[dates.rows.length - 1].day]
+    );
 
-    // Standard time slots (can be customized per activity)
-    const timeSlots = [
-      { start: '09:00', label: '9:00 AM' },
-      { start: '10:00', label: '10:00 AM' },
-      { start: '11:00', label: '11:00 AM' },
-      { start: '14:00', label: '2:00 PM' },
-      { start: '15:00', label: '3:00 PM' },
-      { start: '16:00', label: '4:00 PM' },
-      { start: '18:00', label: '6:00 PM' },
-    ];
-
-    // Generate slots for each day
-    for (let i = 0; i < parseInt(days); i++) {
-      const currentDate = new Date(startDate);
-      currentDate.setDate(currentDate.getDate() + i);
-      const dateString = currentDate.toISOString().split('T')[0];
-
-      for (const slot of timeSlots) {
-        // Calculate end time
-        const [startHour, startMinute] = slot.start.split(':');
-        const endTimeDate = new Date();
-        endTimeDate.setHours(parseInt(startHour), parseInt(startMinute) + activity.duration);
-        const endTime = `${String(endTimeDate.getHours()).padStart(2, '0')}:${String(endTimeDate.getMinutes()).padStart(2, '0')}`;
-
-        // Check for conflicts for this user
-        const conflictResult = await db.query(`
-          SELECT activity_name FROM wellness_bookings
-          WHERE user_id = $1
-            AND booking_date = $2
-            AND status IN ('upcoming', 'in_progress')
-            AND (
-              (start_time <= $3 AND end_time > $3)
-              OR (start_time < $4 AND end_time >= $4)
-              OR (start_time >= $3 AND end_time <= $4)
-            )
-          LIMIT 1
-        `, [userId, dateString, slot.start, endTime]);
-
-        const hasConflict = conflictResult.rows.length > 0;
-        const conflictingActivity = hasConflict ? conflictResult.rows[0].activity_name : null;
-
-        availabilitySlots.push({
-          date: dateString,
-          start_time: slot.start,
-          end_time: endTime,
+    const availability = [];
+    for (const { day } of dates.rows) {
+      for (const slot of await slotsFor(db, activity, day)) {
+        const clash = mine.rows.find((b) => b.day === day && hhmm(b.start_time) < slot.end_time && hhmm(b.end_time) > slot.start_time);
+        availability.push({
+          date: day,
+          start_time: slot.start_time,
+          end_time: slot.end_time,
           label: slot.label,
-          is_available: !hasConflict,
-          conflicting_booking: conflictingActivity,
-          duration: activity.duration
+          remaining: slot.remaining,
+          capacity: slot.capacity,
+          is_available: slot.is_available && !clash,
+          conflicting_booking: clash ? clash.activity_name : null,
+          duration: activity.duration,
         });
       }
     }
 
-    res.json({
-      success: true,
-      activity_id: activityId,
-      activity_name: activity.name,
-      availability: availabilitySlots
-    });
-
+    res.json({ success: true, activity_id: activity.id, activity_name: activity.name, availability });
   } catch (error) {
     console.error('Get availability error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch availability'
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch availability' });
   }
 });
 
@@ -449,56 +345,28 @@ router.get('/my-bookings', async (req, res) => {
 
 /**
  * PATCH /api/wellness-unified/bookings/:id/cancel
- * Cancel a booking
+ * Cancel one of the guest's upcoming bookings.
  */
 router.patch('/bookings/:id/cancel', async (req, res) => {
   try {
-    const bookingId = parseInt(req.params.id);
-    const userId = req.user.id;
-    const { cancellation_reason } = req.body;
-
-    const bookingCheck = await db.query(`
-      SELECT * FROM wellness_bookings
-      WHERE id = $1 AND user_id = $2
-    `, [bookingId, userId]);
-
-    if (bookingCheck.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Booking not found'
-      });
+    const result = await db.query(
+      `UPDATE wellness_bookings
+          SET status = 'cancelled', cancellation_reason = $1, cancelled_at = CURRENT_TIMESTAMP
+        WHERE id = $2 AND user_id = $3 AND status = 'upcoming'
+        RETURNING *`,
+      [req.body.cancellation_reason || null, req.params.id, req.user.id]
+    );
+    if (!result.rows[0]) {
+      const exists = await db.query('SELECT status FROM wellness_bookings WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+      if (!exists.rows[0]) return res.status(404).json({ success: false, error: 'Booking not found' });
+      return res.status(400).json({ success: false, error: `This booking is ${exists.rows[0].status.replace('_', ' ')} and can no longer be cancelled` });
     }
-
-    const booking = bookingCheck.rows[0];
-
-    if (booking.status === 'cancelled') {
-      return res.status(400).json({
-        success: false,
-        error: 'Booking already cancelled'
-      });
-    }
-
-    const result = await db.query(`
-      UPDATE wellness_bookings
-      SET
-        status = 'cancelled',
-        cancellation_reason = $1,
-        cancelled_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING *
-    `, [cancellation_reason, bookingId]);
-
-    res.json({
-      success: true,
-      message: 'Booking cancelled successfully',
-      booking: result.rows[0]
-    });
+    // The charge for a priced activity comes off the bill.
+    await db.query(`DELETE FROM folio_charges WHERE source_type = 'wellness_booking' AND source_id = $1`, [result.rows[0].id]);
+    res.json({ success: true, message: 'Booking cancelled successfully', booking: result.rows[0] });
   } catch (error) {
     console.error('Cancel booking error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to cancel booking'
-    });
+    res.status(500).json({ success: false, error: 'Failed to cancel booking' });
   }
 });
 

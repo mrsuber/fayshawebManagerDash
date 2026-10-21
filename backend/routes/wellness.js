@@ -221,319 +221,171 @@ router.post('/metrics', authenticateToken, async (req, res) => {
 });
 
 // ============================================
-// WELLNESS ACTIVITIES
+// WELLNESS ACTIVITIES (one catalogue: journeys and services; the app books them via /api/wellness-unified)
 // ============================================
 
-// Get all activities or filter by mood category
+const CATEGORIES = ['restore', 'recharge', 'reflect', 'explore', 'fitness', 'spa', 'dining', 'other'];
+
+/** Validated activity fields from a request body; `partial` for updates. Returns { values } or { error }. */
+function activityInput(body, partial = false) {
+  const v = {};
+  const has = (k) => body[k] !== undefined;
+  if (!partial || has('name')) {
+    if (!String(body.name || '').trim()) return { error: 'Name is required' };
+    v.name = String(body.name).trim();
+  }
+  if (!partial || has('category')) {
+    if (!CATEGORIES.includes(body.category)) return { error: `Category must be one of: ${CATEGORIES.join(', ')}` };
+    v.category = body.category;
+  }
+  if (has('type')) {
+    if (!['journey', 'service'].includes(body.type)) return { error: 'Type must be journey or service' };
+    v.type = body.type;
+  }
+  if (!partial || has('duration')) {
+    const d = parseInt(body.duration, 10);
+    if (!Number.isInteger(d) || d < 5 || d > 24 * 60) return { error: 'Duration must be between 5 and 1440 minutes' };
+    v.duration = d;
+  }
+  if (has('max_capacity')) {
+    const c = parseInt(body.max_capacity, 10);
+    if (!Number.isInteger(c) || c < 1) return { error: 'Capacity must be at least 1' };
+    v.max_capacity = c;
+  }
+  if (has('base_price')) {
+    const p = Number(body.base_price);
+    if (!Number.isFinite(p) || p < 0) return { error: 'Price cannot be negative' };
+    v.base_price = p;
+  }
+  for (const k of ['display_name', 'description', 'icon', 'image_url']) if (has(k)) v[k] = body[k] ? String(body[k]) : null;
+  for (const k of ['requires_staff', 'is_active']) if (has(k)) v[k] = Boolean(body[k]);
+  if (has('benefits')) v.benefits = (Array.isArray(body.benefits) ? body.benefits : String(body.benefits).split(',')).map((b) => String(b).trim()).filter(Boolean);
+  if (has('display_order')) v.display_order = parseInt(body.display_order, 10) || 0;
+  return { values: v };
+}
+
+// List the catalogue. Staff can include inactive activities with ?all=true.
 router.get('/activities', authenticateToken, async (req, res) => {
   try {
-    const { mood } = req.query;
-
-    let query = `
-      SELECT * FROM wellness_activities
-      WHERE is_active = true
-    `;
+    const category = req.query.category || req.query.mood;
+    const conditions = [];
     const params = [];
-
-    if (mood) {
-      query += ` AND mood_category = $1`;
-      params.push(mood);
+    const staff = ['superadmin', 'manager'].includes(req.user.role);
+    if (!(staff && req.query.all === 'true')) conditions.push('is_active = true');
+    if (category) {
+      params.push(category);
+      conditions.push(`category = $${params.length}`);
     }
-
-    query += ` ORDER BY mood_category, id`;
-
-    const result = await db.query(query, params);
-
-    res.json({
-      success: true,
-      activities: result.rows
-    });
+    if (req.query.type) {
+      params.push(req.query.type);
+      conditions.push(`type = $${params.length}`);
+    }
+    const result = await db.query(
+      `SELECT * FROM wellness_activities ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+        ORDER BY type DESC, category, display_order, name`,
+      params
+    );
+    res.json({ success: true, activities: result.rows });
   } catch (error) {
     console.error('Error fetching activities:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch activities'
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch activities' });
   }
 });
 
-// Get single activity by ID
 router.get('/activities/:id', authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const result = await db.query(
-      'SELECT * FROM wellness_activities WHERE id = $1 AND is_active = true',
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Activity not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      activity: result.rows[0]
-    });
+    const result = await db.query('SELECT * FROM wellness_activities WHERE id = $1', [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ success: false, error: 'Activity not found' });
+    const stages = await db.query('SELECT * FROM wellness_activity_stages WHERE activity_id = $1 ORDER BY stage_number', [req.params.id]);
+    res.json({ success: true, activity: { ...result.rows[0], stages: stages.rows } });
   } catch (error) {
     console.error('Error fetching activity:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch activity'
-    });
+    res.status(500).json({ success: false, error: 'Failed to fetch activity' });
   }
 });
 
-// Create new activity (admin only)
 router.post('/activities', requireStaff, async (req, res) => {
+  const { values, error } = activityInput(req.body);
+  if (error) return res.status(400).json({ success: false, error });
   try {
-    const { mood_category, name, description, duration, image_url, features } = req.body;
-
-    if (!mood_category || !name) {
-      return res.status(400).json({
-        success: false,
-        error: 'Mood category and name are required'
-      });
-    }
-
-    const query = `
-      INSERT INTO wellness_activities (
-        mood_category, name, description, duration, image_url, features
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `;
-
-    const result = await db.query(query, [
-      mood_category,
-      name,
-      description || null,
-      duration || null,
-      image_url || null,
-      JSON.stringify(features || [])
-    ]);
-
-    res.json({
-      success: true,
-      message: 'Activity created successfully',
-      activity: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error creating activity:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create activity'
-    });
+    values.display_name = values.display_name || values.name;
+    const cols = Object.keys(values);
+    const result = await db.query(
+      `INSERT INTO wellness_activities (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
+      cols.map((c) => values[c])
+    );
+    res.status(201).json({ success: true, message: 'Activity created', activity: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ success: false, error: 'An activity with this name already exists in this category' });
+    console.error('Error creating activity:', err);
+    res.status(500).json({ success: false, error: 'Failed to create activity' });
   }
 });
 
-// Update activity (admin only)
 router.put('/activities/:id', requireStaff, async (req, res) => {
+  const { values, error } = activityInput(req.body, true);
+  if (error) return res.status(400).json({ success: false, error });
+  const cols = Object.keys(values);
+  if (!cols.length) return res.status(400).json({ success: false, error: 'Nothing to update' });
   try {
-    const { id } = req.params;
-    const { mood_category, name, description, duration, image_url, features } = req.body;
-
-    const query = `
-      UPDATE wellness_activities
-      SET
-        mood_category = COALESCE($1, mood_category),
-        name = COALESCE($2, name),
-        description = COALESCE($3, description),
-        duration = COALESCE($4, duration),
-        image_url = COALESCE($5, image_url),
-        features = COALESCE($6, features),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $7 AND is_active = true
-      RETURNING *
-    `;
-
-    const result = await db.query(query, [
-      mood_category,
-      name,
-      description,
-      duration,
-      image_url,
-      features ? JSON.stringify(features) : null,
-      id
-    ]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Activity not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Activity updated successfully',
-      activity: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error updating activity:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update activity'
-    });
+    const result = await db.query(
+      `UPDATE wellness_activities SET ${cols.map((c, i) => `${c} = $${i + 1}`).join(', ')} WHERE id = $${cols.length + 1} RETURNING *`,
+      [...cols.map((c) => values[c]), req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ success: false, error: 'Activity not found' });
+    res.json({ success: true, message: 'Activity updated', activity: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ success: false, error: 'An activity with this name already exists in this category' });
+    console.error('Error updating activity:', err);
+    res.status(500).json({ success: false, error: 'Failed to update activity' });
   }
 });
 
-// Delete activity (soft delete by setting is_active = false)
+// Retire an activity (kept for the bookings that reference it)
 router.delete('/activities/:id', requireStaff, async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const result = await db.query(
-      `UPDATE wellness_activities
-       SET is_active = false, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1
-       RETURNING id, name`,
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Activity not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Activity deleted successfully'
-    });
+    const result = await db.query('UPDATE wellness_activities SET is_active = false WHERE id = $1 RETURNING id', [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ success: false, error: 'Activity not found' });
+    res.json({ success: true, message: 'Activity removed from the catalogue' });
   } catch (error) {
     console.error('Error deleting activity:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete activity'
-    });
+    res.status(500).json({ success: false, error: 'Failed to delete activity' });
   }
 });
 
 // ============================================
-// WELLNESS BOOKINGS
+// WELLNESS BOOKINGS — guests book through /api/wellness-unified; staff move a booking through its states
+// here (HQ → Wellness → Bookings).
 // ============================================
+const BOOKING_MOVES = {
+  upcoming: ['in_progress', 'completed', 'cancelled', 'no_show'],
+  in_progress: ['completed', 'cancelled'],
+};
 
-// Get user's bookings
-router.get('/bookings', authenticateToken, async (req, res) => {
+router.patch('/admin/bookings/:id', requireStaff, async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { status } = req.query;
-
-    let query = `
-      SELECT wb.*, wa.name as activity_name, wa.image_url
-      FROM wellness_bookings wb
-      LEFT JOIN wellness_activities wa ON wb.activity_id = wa.id
-      WHERE wb.user_id = $1
-    `;
-    const params = [userId];
-
-    if (status) {
-      query += ` AND wb.status = $2`;
-      params.push(status);
+    const { status, reason } = req.body;
+    const current = await db.query('SELECT id, status, user_id, activity_name FROM wellness_bookings WHERE id = $1', [req.params.id]);
+    const booking = current.rows[0];
+    if (!booking) return res.status(404).json({ success: false, error: 'Booking not found' });
+    if (!(BOOKING_MOVES[booking.status] || []).includes(status)) {
+      return res.status(400).json({ success: false, error: `A ${booking.status.replace('_', ' ')} booking cannot become ${String(status).replace('_', ' ')}` });
     }
-
-    query += ` ORDER BY wb.booking_date DESC, wb.booking_time DESC`;
-
-    const result = await db.query(query, params);
-
-    res.json({
-      success: true,
-      bookings: result.rows
-    });
-  } catch (error) {
-    console.error('Error fetching bookings:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch bookings'
-    });
-  }
-});
-
-// Create a new booking
-router.post('/bookings', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { activity_id, activity_name, booking_date, booking_time, notes } = req.body;
-
-    if (!activity_name || !booking_date) {
-      return res.status(400).json({
-        success: false,
-        error: 'Activity name and booking date are required'
-      });
+    const result = await db.query(
+      `UPDATE wellness_bookings
+          SET status = $1::varchar,
+              cancelled_at = CASE WHEN $1::varchar = 'cancelled' THEN CURRENT_TIMESTAMP ELSE cancelled_at END,
+              cancellation_reason = CASE WHEN $1::varchar = 'cancelled' THEN $2 ELSE cancellation_reason END
+        WHERE id = $3 RETURNING *`,
+      [status, reason || null, booking.id]
+    );
+    if (status === 'cancelled' && booking.user_id) {
+      notifyGuest(req.app, booking.user_id, { title: 'Wellness booking cancelled', body: `${booking.activity_name} was cancelled by the team.`, event: 'wellness:update' });
     }
-
-    const query = `
-      INSERT INTO wellness_bookings (
-        user_id, activity_id, activity_name, booking_date, booking_time, notes
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-    `;
-
-    const result = await db.query(query, [
-      userId,
-      activity_id || null,
-      activity_name,
-      booking_date,
-      booking_time || null,
-      notes || null
-    ]);
-
-    res.json({
-      success: true,
-      message: 'Booking created successfully',
-      booking: result.rows[0]
-    });
+    res.json({ success: true, booking: result.rows[0] });
   } catch (error) {
-    console.error('Error creating booking:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create booking'
-    });
-  }
-});
-
-// Update booking status
-router.patch('/bookings/:id', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { id } = req.params;
-    const { status, notes } = req.body;
-
-    const query = `
-      UPDATE wellness_bookings
-      SET status = COALESCE($1, status),
-          notes = COALESCE($2, notes),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3 AND user_id = $4
-      RETURNING *
-    `;
-
-    const result = await db.query(query, [status, notes, id, userId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Booking not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Booking updated successfully',
-      booking: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error updating booking:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update booking'
-    });
+    console.error('Error updating wellness booking:', error);
+    res.status(500).json({ success: false, error: 'Failed to update booking' });
   }
 });
 
@@ -674,18 +526,23 @@ router.post('/concierge/upload', authenticateToken, async (req, res) => {
     const uploadDir = path.join(__dirname, '..', 'uploads', 'chat');
     await fs.mkdir(uploadDir, { recursive: true });
 
-    // Save file
-    const filePath = path.join(uploadDir, fileName);
-    await fs.writeFile(filePath, buffer);
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'File size exceeds 10MB limit' });
+    }
 
-    const publicUrl = `/uploads/chat/${fileName}`;
+    // The stored name is ours: the client's name only contributes a safe extension.
+    const extension = (path.extname(String(fileName)).replace(/[^a-zA-Z0-9.]/g, '') || '.bin').slice(0, 10);
+    const storedName = `${userId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${extension}`;
+    await fs.writeFile(path.join(uploadDir, storedName), buffer);
+
+    const publicUrl = `/uploads/chat/${storedName}`;
     const cdnUrl = `https://fayshaa.com${publicUrl}`;
 
     res.json({
       success: true,
       url: publicUrl,
       cdnUrl,
-      fileName,
+      fileName: storedName,
       size: buffer.length
     });
   } catch (error) {
@@ -1100,7 +957,7 @@ router.get('/admin/bookings', requireStaff, async (req, res) => {
       query += ` AND wb.status = $${params.length}`;
     }
 
-    query += ` ORDER BY wb.booking_date DESC, wb.booking_time DESC`;
+    query += ` ORDER BY wb.booking_date DESC, wb.start_time DESC`;
     query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
 
@@ -1271,457 +1128,6 @@ router.post('/admin/concierge/messages', staffOrConciergeBot, async (req, res) =
       success: false,
       error: 'Failed to send message'
     });
-  }
-});
-
-// ============================================
-// WELLNESS JOURNEYS (Restore, Recharge, Reflect)
-// ============================================
-
-// Get journey templates
-router.get('/journey-templates', authenticateToken, async (req, res) => {
-  try {
-    const result = await db.query(
-      'SELECT * FROM journey_templates ORDER BY id'
-    );
-
-    res.json({
-      success: true,
-      templates: result.rows
-    });
-  } catch (error) {
-    console.error('Error fetching journey templates:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch journey templates'
-    });
-  }
-});
-
-// Create new journey booking
-router.post('/journeys', authenticateToken, async (req, res) => {
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const userId = req.user.id;
-    const { journey_type, booking_date, booking_time, stages } = req.body;
-
-    if (!journey_type || !booking_date || !stages) {
-      return res.status(400).json({
-        success: false,
-        error: 'Journey type, booking date, and stages are required'
-      });
-    }
-
-    // Generate unique journey PIN
-    const pinResult = await client.query('SELECT generate_journey_pin()');
-    const journeyPin = pinResult.rows[0].generate_journey_pin;
-
-    // Create journey booking
-    const query = `
-      INSERT INTO wellness_bookings (
-        user_id, activity_name, booking_date, booking_time,
-        journey_type, journey_stages, current_stage, journey_pin, status
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, 1, $7, 'pending')
-      RETURNING *
-    `;
-
-    const result = await client.query(query, [
-      userId,
-      `${journey_type.charAt(0).toUpperCase() + journey_type.slice(1)} Journey`,
-      booking_date,
-      booking_time || '10:00',
-      journey_type,
-      JSON.stringify(stages),
-      journeyPin
-    ]);
-
-    await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Journey booking created successfully',
-      booking: result.rows[0],
-      pin: journeyPin
-    });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error creating journey:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create journey booking'
-    });
-  } finally {
-    client.release();
-  }
-});
-
-// Get active journey for user
-router.get('/journeys/active', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    const query = `
-      SELECT * FROM wellness_bookings
-      WHERE user_id = $1
-        AND journey_type IS NOT NULL
-        AND status IN ('pending', 'confirmed', 'in_progress')
-        AND booking_date >= CURRENT_DATE
-      ORDER BY booking_date ASC, booking_time ASC
-      LIMIT 1
-    `;
-
-    const result = await db.query(query, [userId]);
-
-    if (result.rows.length === 0) {
-      return res.json({
-        success: true,
-        hasActiveJourney: false,
-        journey: null
-      });
-    }
-
-    const journey = result.rows[0];
-
-    // Get stage tracking history
-    const stagesResult = await db.query(
-      `SELECT * FROM journey_stage_tracking
-       WHERE booking_id = $1
-       ORDER BY stage_number ASC`,
-      [journey.id]
-    );
-
-    res.json({
-      success: true,
-      hasActiveJourney: true,
-      journey: {
-        ...journey,
-        stageHistory: stagesResult.rows
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching active journey:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch active journey'
-    });
-  }
-});
-
-// Get journey by ID
-router.get('/journeys/:id', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { id } = req.params;
-
-    const result = await db.query(
-      'SELECT * FROM wellness_bookings WHERE id = $1 AND user_id = $2',
-      [id, userId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Journey not found'
-      });
-    }
-
-    const journey = result.rows[0];
-
-    // Get stage tracking history
-    const stagesResult = await db.query(
-      `SELECT * FROM journey_stage_tracking
-       WHERE booking_id = $1
-       ORDER BY stage_number ASC`,
-      [id]
-    );
-
-    res.json({
-      success: true,
-      journey: {
-        ...journey,
-        stageHistory: stagesResult.rows
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching journey:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch journey'
-    });
-  }
-});
-
-// Start journey (verify PIN)
-router.post('/journeys/:id/start', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { id } = req.params;
-    const { pin } = req.body;
-
-    if (!pin) {
-      return res.status(400).json({
-        success: false,
-        error: 'PIN is required'
-      });
-    }
-
-    // Verify PIN and get journey
-    const result = await db.query(
-      `SELECT * FROM wellness_bookings
-       WHERE id = $1 AND user_id = $2 AND journey_pin = $3`,
-      [id, userId, pin]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid PIN or journey not found'
-      });
-    }
-
-    // Update journey status and set start time
-    await db.query(
-      `UPDATE wellness_bookings
-       SET status = 'in_progress', journey_started_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [id]
-    );
-
-    res.json({
-      success: true,
-      message: 'Journey started successfully'
-    });
-  } catch (error) {
-    console.error('Error starting journey:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to start journey'
-    });
-  }
-});
-
-// Enter journey stage
-router.post('/journeys/:id/stage/:stageNumber/enter', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { id, stageNumber } = req.params;
-    const { pin } = req.body;
-
-    if (!pin) {
-      return res.status(400).json({
-        success: false,
-        error: 'PIN is required'
-      });
-    }
-
-    // Verify PIN and get journey
-    const journeyResult = await db.query(
-      `SELECT * FROM wellness_bookings
-       WHERE id = $1 AND user_id = $2 AND journey_pin = $3`,
-      [id, userId, pin]
-    );
-
-    if (journeyResult.rows.length === 0) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid PIN or journey not found'
-      });
-    }
-
-    const journey = journeyResult.rows[0];
-    const stages = journey.journey_stages;
-    const stage = stages.find(s => s.stage === parseInt(stageNumber));
-
-    if (!stage) {
-      return res.status(404).json({
-        success: false,
-        error: 'Stage not found'
-      });
-    }
-
-    // Check if already entered
-    const existingEntry = await db.query(
-      `SELECT * FROM journey_stage_tracking
-       WHERE booking_id = $1 AND stage_number = $2 AND exited_at IS NULL`,
-      [id, stageNumber]
-    );
-
-    if (existingEntry.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Already in this stage'
-      });
-    }
-
-    // Record stage entry
-    await db.query(
-      `INSERT INTO journey_stage_tracking (booking_id, stage_number, stage_name, entered_at)
-       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-      [id, stageNumber, stage.name]
-    );
-
-    res.json({
-      success: true,
-      message: `Entered ${stage.name}`,
-      stage: stage
-    });
-  } catch (error) {
-    console.error('Error entering stage:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to enter stage'
-    });
-  }
-});
-
-// Exit journey stage (with auto-points award on completion)
-router.post('/journeys/:id/stage/:stageNumber/exit', authenticateToken, async (req, res) => {
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const userId = req.user.id;
-    const { id, stageNumber } = req.params;
-
-    // Get journey
-    const journeyResult = await client.query(
-      `SELECT * FROM wellness_bookings WHERE id = $1 AND user_id = $2`,
-      [id, userId]
-    );
-
-    if (journeyResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        error: 'Journey not found'
-      });
-    }
-
-    const journey = journeyResult.rows[0];
-    const stages = journey.journey_stages;
-    const totalStages = stages.length;
-
-    // Get current stage entry
-    const stageResult = await client.query(
-      `SELECT * FROM journey_stage_tracking
-       WHERE booking_id = $1 AND stage_number = $2 AND exited_at IS NULL
-       ORDER BY entered_at DESC LIMIT 1`,
-      [id, stageNumber]
-    );
-
-    if (stageResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        error: 'Not currently in this stage'
-      });
-    }
-
-    const stageEntry = stageResult.rows[0];
-    const enteredAt = new Date(stageEntry.entered_at);
-    const exitedAt = new Date();
-    const durationMinutes = Math.round((exitedAt - enteredAt) / (1000 * 60));
-
-    // Update stage tracking with exit time
-    await client.query(
-      `UPDATE journey_stage_tracking
-       SET exited_at = CURRENT_TIMESTAMP, duration_minutes = $1
-       WHERE id = $2`,
-      [durationMinutes, stageEntry.id]
-    );
-
-    // Check if this is the final stage
-    const isLastStage = parseInt(stageNumber) === totalStages;
-    let journeyCompleted = false;
-    let pointsAwarded = 0;
-
-    if (isLastStage) {
-      // Mark journey as completed
-      await client.query(
-        `UPDATE wellness_bookings
-         SET status = 'completed', journey_completed_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [id]
-      );
-
-      journeyCompleted = true;
-
-      // AUTO-AWARD POINTS FOR JOURNEY COMPLETION
-      const pointsMap = {
-        'restore': 150,
-        'recharge': 175,
-        'reflect': 125
-      };
-      pointsAwarded = pointsMap[journey.journey_type] || 100;
-
-      // Ensure user_rewards record exists
-      await client.query(
-        `INSERT INTO user_rewards (user_id, total_points, lifetime_points)
-         VALUES ($1, 0, 0)
-         ON CONFLICT (user_id) DO NOTHING`,
-        [userId]
-      );
-
-      // Award points
-      await client.query(
-        `UPDATE user_rewards
-         SET total_points = total_points + $1,
-             lifetime_points = lifetime_points + $1
-         WHERE user_id = $2`,
-        [pointsAwarded, userId]
-      );
-
-      // Record transaction
-      await client.query(
-        `INSERT INTO rewards_transactions
-         (user_id, points_change, transaction_type, description, reference_type, reference_id)
-         VALUES ($1, $2, 'journey_completed', $3, 'wellness_booking', $4)`,
-        [
-          userId,
-          pointsAwarded,
-          `Completed ${journey.journey_type.charAt(0).toUpperCase() + journey.journey_type.slice(1)} Journey`,
-          id
-        ]
-      );
-    } else {
-      // Update current stage to next stage
-      await client.query(
-        `UPDATE wellness_bookings
-         SET current_stage = $1
-         WHERE id = $2`,
-        [parseInt(stageNumber) + 1, id]
-      );
-    }
-
-    await client.query('COMMIT');
-
-    const response = {
-      success: true,
-      message: `Exited stage ${stageNumber}`,
-      duration_minutes: durationMinutes,
-      journeyCompleted
-    };
-
-    if (journeyCompleted) {
-      response.pointsAwarded = pointsAwarded;
-      response.message = `Journey completed! You earned ${pointsAwarded} points!`;
-    } else {
-      response.nextStage = parseInt(stageNumber) + 1;
-    }
-
-    res.json(response);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error exiting stage:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to exit stage'
-    });
-  } finally {
-    client.release();
   }
 });
 

@@ -359,140 +359,23 @@ router.delete('/:id/permanent', async (req, res) => {
 
     console.log(`[PERMANENT DELETE] Superadmin ${req.user.email} is permanently deleting user ${targetUser.email} (ID: ${userId})`);
 
-    // Start transaction
+    // The schema's foreign keys remove what belongs to the person (tokens, chat, wellness, notes, sign-ins)
+    // and keep shared records (audit, approvals, reviews) with the reference cleared. Stays go too.
     await client.query('BEGIN');
-
-    // Delete from all related tables in the correct order (respecting foreign keys)
-    // Tables are deleted in order from most dependent to least dependent
-
-    // Delete wellness data (both OLD journey system and NEW unified system)
-    console.log('[PERMANENT DELETE] Step 1: Deleting OLD journey booking stages...');
-    const oldJourneyStages = await client.query('DELETE FROM wellness_journey_booking_stages WHERE booking_id IN (SELECT id FROM wellness_journey_bookings WHERE user_id = $1) RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${oldJourneyStages.rowCount} old journey booking stages`);
-
-    console.log('[PERMANENT DELETE] Step 2: Deleting OLD journey bookings...');
-    const journeyBookings = await client.query('DELETE FROM wellness_journey_bookings WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${journeyBookings.rowCount} old journey bookings`);
-
-    console.log('[PERMANENT DELETE] Step 3: Deleting NEW unified booking stages...');
-    const newBookingStages = await client.query('DELETE FROM wellness_booking_stages WHERE booking_id IN (SELECT id FROM wellness_bookings WHERE user_id = $1) RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${newBookingStages.rowCount} new unified booking stages`);
-
-    console.log('[PERMANENT DELETE] Step 4: Deleting NEW unified wellness bookings...');
-    const wellnessBookings = await client.query('DELETE FROM wellness_bookings WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${wellnessBookings.rowCount} new unified wellness bookings`);
-
-    console.log('[PERMANENT DELETE] Step 5: Deleting wellness metrics...');
-    const wellnessMetrics = await client.query('DELETE FROM wellness_metrics WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${wellnessMetrics.rowCount} wellness metrics`);
-
-    console.log('[PERMANENT DELETE] Step 6: Deleting apartment bookings...');
-    const bookings = await client.query('DELETE FROM bookings WHERE user_id = $1 RETURNING id, booking_number', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${bookings.rowCount} apartment bookings`);
-
-    console.log('[PERMANENT DELETE] Step 7: Deleting concierge messages...');
-    const messages = await client.query('DELETE FROM concierge_messages WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${messages.rowCount} concierge messages`);
-
-    console.log('[PERMANENT DELETE] Step 8: Deleting deposit box history...');
-    const depositBox = await client.query('DELETE FROM deposit_box_history WHERE user_id = $1 OR collected_by_user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${depositBox.rowCount} deposit box history records`);
-
-    console.log('[PERMANENT DELETE] Step 9: Deleting smart home controls...');
-    const smartHome = await client.query('DELETE FROM smart_home_controls WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${smartHome.rowCount} smart home control records`);
-
-    console.log('[PERMANENT DELETE] Step 10: Deleting rewards redemptions...');
-    const redemptions = await client.query('DELETE FROM rewards_redemptions WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${redemptions.rowCount} rewards redemptions`);
-
-    console.log('[PERMANENT DELETE] Step 11: Deleting rewards transactions...');
-    const rewardsTransactions = await client.query('DELETE FROM rewards_transactions WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${rewardsTransactions.rowCount} rewards transactions`);
-
-    console.log('[PERMANENT DELETE] Step 12: Deleting user rewards...');
-    const userRewards = await client.query('DELETE FROM user_rewards WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${userRewards.rowCount} user rewards`);
-
-    console.log('[PERMANENT DELETE] Step 13: Deleting FCM tokens...');
-    const fcmTokens = await client.query('DELETE FROM fcm_tokens WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${fcmTokens.rowCount} FCM tokens`);
-
-    console.log('[PERMANENT DELETE] Step 14: Deleting login history...');
-    const loginHistory = await client.query('DELETE FROM login_history WHERE user_id = $1 RETURNING id', [userId]);
-    console.log(`[PERMANENT DELETE] Deleted ${loginHistory.rowCount} login history records`);
-
-    console.log('[PERMANENT DELETE] Step 15: Updating feedback records (removing user references)...');
-    await client.query('UPDATE feedback SET reviewed_by = NULL WHERE reviewed_by = $1', [userId]);
-    await client.query('UPDATE feedback SET approved_by = NULL WHERE approved_by = $1', [userId]);
-    console.log('[PERMANENT DELETE] Updated feedback records');
-
-    console.log('[PERMANENT DELETE] Step 16: Updating availability overrides (removing user references)...');
-    await client.query('UPDATE availability_overrides SET created_by = NULL WHERE created_by = $1', [userId]);
-    console.log('[PERMANENT DELETE] Updated availability overrides');
-
-    console.log('[PERMANENT DELETE] Step 17: Updating users table (removing created_by references)...');
-    await client.query('UPDATE users SET created_by = NULL WHERE created_by = $1', [userId]);
-    console.log('[PERMANENT DELETE] Updated users created_by references');
-
-    console.log('[PERMANENT DELETE] Step 18: DELETING USER ACCOUNT...');
-    const deletedUser = await client.query(`
-      DELETE FROM users
-      WHERE id = $1
-      RETURNING id, email, username, full_name, role_id
-    `, [userId]);
-    console.log(`[PERMANENT DELETE] User account deleted: ${targetUser.email}`);
-
-    // Commit transaction
+    const wellness = await client.query('DELETE FROM wellness_bookings WHERE user_id = $1', [userId]);
+    const stays = await client.query('DELETE FROM bookings WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM users WHERE id = $1', [userId]);
     await client.query('COMMIT');
 
-    // Prepare summary
-    const summary = {
-      user: {
-        id: deletedUser.rows[0].id,
-        email: targetUser.email,
-        username: targetUser.username,
-        full_name: targetUser.full_name
-      },
-      deleted_records: {
-        old_journey_booking_stages: oldJourneyStages.rowCount,
-        old_journey_bookings: journeyBookings.rowCount,
-        new_unified_booking_stages: newBookingStages.rowCount,
-        new_unified_wellness_bookings: wellnessBookings.rowCount,
-        wellness_metrics: wellnessMetrics.rowCount,
-        apartment_bookings: bookings.rowCount,
-        concierge_messages: messages.rowCount,
-        deposit_box_history: depositBox.rowCount,
-        smart_home_controls: smartHome.rowCount,
-        rewards_redemptions: redemptions.rowCount,
-        rewards_transactions: rewardsTransactions.rowCount,
-        user_rewards: userRewards.rowCount,
-        fcm_tokens: fcmTokens.rowCount,
-        login_history: loginHistory.rowCount
-      },
-      total_records_deleted:
-        oldJourneyStages.rowCount +
-        journeyBookings.rowCount +
-        newBookingStages.rowCount +
-        wellnessBookings.rowCount +
-        wellnessMetrics.rowCount +
-        bookings.rowCount +
-        messages.rowCount +
-        depositBox.rowCount +
-        smartHome.rowCount +
-        redemptions.rowCount +
-        rewardsTransactions.rowCount +
-        userRewards.rowCount +
-        fcmTokens.rowCount +
-        loginHistory.rowCount + 1 // +1 for user account
-    };
-
-    console.log(`[PERMANENT DELETE] SUCCESS! Total ${summary.total_records_deleted} records permanently deleted for user ${targetUser.email}`);
+    console.log(`[PERMANENT DELETE] ${req.user.email} deleted ${targetUser.email} (${stays.rowCount} stays, ${wellness.rowCount} wellness bookings)`);
 
     res.json({
       success: true,
       message: `User ${targetUser.email} and all associated data have been permanently deleted from the system`,
-      summary: summary
+      summary: {
+        user: { id: userId, email: targetUser.email, username: targetUser.username, full_name: targetUser.full_name },
+        deleted_records: { apartment_bookings: stays.rowCount, wellness_bookings: wellness.rowCount }
+      }
     });
 
   } catch (error) {

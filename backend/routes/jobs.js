@@ -7,15 +7,18 @@ const { requireAreaByMethod } = require('../middleware/hq');
 const hrStaff = requireAreaByMethod('hr');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 
-// Configure multer for file uploads (CV and cover letters)
+// CVs and cover letters are personal documents: they are kept outside the public uploads folder and only
+// HR can download them (GET /applications/:id/files/:kind).
+const APPLICATIONS_DIR = path.join(__dirname, '..', 'storage', 'applications');
+fs.mkdirSync(APPLICATIONS_DIR, { recursive: true });
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/applications/');
-  },
+  destination: (req, file, cb) => cb(null, APPLICATIONS_DIR),
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, `${file.fieldname}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}${path.extname(file.originalname).toLowerCase()}`);
   }
 });
 
@@ -23,17 +26,20 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /pdf|doc|docx/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only PDF, DOC, and DOCX files are allowed'));
-    }
+    const extname = /\.(pdf|doc|docx)$/.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = /pdf|msword|officedocument/.test(file.mimetype);
+    if (mimetype && extname) return cb(null, true);
+    cb(Object.assign(new Error('Only PDF, DOC and DOCX files are allowed'), { status: 400 }));
   }
 });
+
+/** Runs the upload and turns its errors (wrong type, too large) into a 400. */
+const applicationFiles = (req, res, next) =>
+  upload.fields([{ name: 'cv', maxCount: 1 }, { name: 'cover_letter_file', maxCount: 1 }])(req, res, (err) => {
+    if (!err) return next();
+    const message = err.code === 'LIMIT_FILE_SIZE' ? 'Files must be 10 MB or smaller' : err.message;
+    res.status(400).json({ success: false, message });
+  });
 
 // ============================================
 // JOB POSTINGS ENDPOINTS
@@ -269,10 +275,7 @@ router.delete('/:id', hrStaff, async (req, res) => {
 // ============================================
 
 // Submit job application
-router.post('/:id/apply', upload.fields([
-  { name: 'cv', maxCount: 1 },
-  { name: 'cover_letter_file', maxCount: 1 }
-]), async (req, res) => {
+router.post('/:id/apply', applicationFiles, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -306,8 +309,12 @@ router.post('/:id/apply', upload.fields([
       });
     }
 
-    const cvPath = req.files['cv'] ? req.files['cv'][0].path : null;
-    const coverLetterPath = req.files['cover_letter_file'] ? req.files['cover_letter_file'][0].path : null;
+    const files = req.files || {};
+    const cvPath = files.cv ? files.cv[0].filename : null;
+    const coverLetterPath = files.cover_letter_file ? files.cover_letter_file[0].filename : null;
+    if (!first_name || !last_name || !email || !phone) {
+      return res.status(400).json({ success: false, message: 'Please give your name, email and phone' });
+    }
 
     if (!cvPath) {
       return res.status(400).json({
@@ -528,6 +535,21 @@ router.get('/meta/categories', async (req, res) => {
       message: 'Failed to fetch categories',
       error: error.message
     });
+  }
+});
+
+// Download an applicant's CV or cover letter (HR only)
+router.get('/applications/:id/files/:kind', hrStaff, async (req, res) => {
+  try {
+    const column = { cv: 'cv_file_path', cover_letter: 'cover_letter_file_path' }[req.params.kind];
+    if (!column) return res.status(404).json({ success: false, message: 'Unknown file' });
+    const { rows } = await pool.query(`SELECT first_name, last_name, ${column} AS file FROM job_applications WHERE id = $1`, [req.params.id]);
+    const file = rows[0]?.file && path.join(APPLICATIONS_DIR, path.basename(rows[0].file));
+    if (!file || !fs.existsSync(file)) return res.status(404).json({ success: false, message: 'File not found' });
+    res.download(file, `${rows[0].first_name} ${rows[0].last_name} - ${req.params.kind === 'cv' ? 'CV' : 'Cover letter'}${path.extname(file)}`);
+  } catch (error) {
+    console.error('Error downloading application file:', error);
+    res.status(500).json({ success: false, message: 'Could not download the file' });
   }
 });
 

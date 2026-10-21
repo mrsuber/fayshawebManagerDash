@@ -22,9 +22,8 @@ const bookingRoutes = require('./routes/bookings');
 const paymentRoutes = require('./routes/payments');
 const feedbackRoutes = require('./routes/feedback');
 const wellnessRoutes = require('./routes/wellness');
-const wellnessJourneysRoutes = require('./routes/wellnessJourneys');
 const wellnessAvailabilityRoutes = require('./routes/wellnessAvailability');
-const wellnessUnifiedRoutes = require('./routes/wellnessUnified'); // NEW: Unified wellness booking system
+const wellnessUnifiedRoutes = require('./routes/wellnessUnified'); // guest app wellness bookings
 const depositBoxRoutes = require('./routes/depositBox');
 
 // HR (admin → HR pages) and public careers listing
@@ -85,18 +84,29 @@ const corsOptions = {
     }
   },
   credentials: true,
+  exposedHeaders: ['Content-Disposition'],
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
 
-// Rate limiting
+// Rate limiting. Sign-in and password endpoints are limited tightly (guessing passwords); the rest of the API
+// gets a ceiling that a busy dashboard session stays well under.
+const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000;
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later',
-  // The manager dashboard is authenticated and loads many resources per screen.
-  skip: (req) => req.originalUrl.startsWith('/api/manager/')
+  windowMs,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 3000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests from this IP, please try again later' }
 });
+const authLimiter = rateLimit({
+  windowMs,
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX) || 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many attempts. Please wait a few minutes and try again.' }
+});
+app.use(['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password', '/api/auth/reset-password'], authLimiter);
 app.use('/api/', limiter);
 
 // Audit trail: every change made by a signed-in user is recorded (HQ → Audit log)
@@ -112,9 +122,8 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/wellness', wellnessRoutes);
-app.use('/api/wellness-journeys', wellnessJourneysRoutes); // OLD: Will be deprecated
 app.use('/api/wellness-availability', wellnessAvailabilityRoutes);
-app.use('/api/wellness-unified', wellnessUnifiedRoutes); // NEW: Unified wellness booking system
+app.use('/api/wellness-unified', wellnessUnifiedRoutes); // guest app wellness bookings
 app.use('/api/deposit-box', depositBoxRoutes);
 app.use('/api/contact', contactRoutes); // public contact form (website)
 app.use('/api/jobs', jobsRoutes); // listing and applications are public (Careers page); management is staff-only
@@ -132,7 +141,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/guest', guestRoutes);
 
 // Serve uploaded files
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(require('path').join(__dirname, 'uploads')));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -220,6 +229,9 @@ const server = app.listen(PORT, () => {
   console.log('=====================================');
   console.log('');
 });
+
+// Unpaid booking holds expire so abandoned checkouts don't block residences (services/bookingHolds.js).
+require('./services/bookingHolds').startHoldSweeper();
 
 // Setup Socket.IO for real-time chat
 const { Server } = require('socket.io');

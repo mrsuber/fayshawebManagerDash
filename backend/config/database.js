@@ -33,8 +33,9 @@ const query = async (text, params) => {
   const start = Date.now();
   try {
     const res = await pool.query(text, params);
-    const duration = Date.now() - start;
-    console.log(`Query executed in ${duration}ms:`, { text, rows: res.rowCount });
+    if (process.env.DB_LOG_QUERIES === 'true') {
+      console.log(`Query executed in ${Date.now() - start}ms:`, { text, rows: res.rowCount });
+    }
     return res;
   } catch (error) {
     console.error('Database query error:', error);

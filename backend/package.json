@@ -1,12 +1,16 @@
 {
   "name": "fayshaa-backend",
   "version": "1.0.0",
-  "description": "FayshaaWeb Backend API",
+  "description": "Faysha platform API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "migrate": "node migrations/run.js",
+    "db:setup": "node db/setup.js",
+    "db:demo": "node db/setup.js --demo",
+    "db:reset": "node db/setup.js --reset",
+    "check:sql": "node scripts/check-sql.js",
+    "smoke": "node scripts/smoke-api.js",
     "test": "node --test test/*.test.js"
   },
   "keywords": [

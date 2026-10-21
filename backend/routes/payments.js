@@ -97,48 +97,36 @@ router.get('/:id', requireStaff, async (req, res) => {
   }
 });
 
-// Create payment intent (Stripe)
+// Create payment intent (Stripe). A retry after a failed card reuses the booking's open intent.
 router.post('/create-intent', async (req, res) => {
   try {
     const { booking_id } = req.body;
-
-    console.log('📝 Payment intent requested for booking ID:', booking_id);
-    console.log('📝 Booking ID type:', typeof booking_id);
-
-    // Get booking details
-    const bookingResult = await pool.query(
-      'SELECT * FROM bookings WHERE id = $1',
-      [booking_id]
-    );
-
-    console.log('📝 Query result: found', bookingResult.rows.length, 'booking(s)');
-
-    if (bookingResult.rows.length === 0) {
-      // Log recent bookings to help debug
-      const recentBookings = await pool.query(
-        'SELECT id, booking_number, guest_email, created_at FROM bookings ORDER BY created_at DESC LIMIT 5'
-      );
-      console.log('📝 Recent bookings:', recentBookings.rows.map(b => `ID: ${b.id}, Number: ${b.booking_number}`).join(', '));
-
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
+    const bookingResult = await pool.query('SELECT * FROM bookings WHERE id = $1', [booking_id]);
     const booking = bookingResult.rows[0];
-
-    // Check if Stripe is configured
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+    if (booking.status !== 'pending') {
+      return res.status(409).json({ success: false, message: booking.status === 'cancelled' ? 'This booking has expired. Please book again.' : 'This booking is already paid' });
+    }
     if (!process.env.STRIPE_SECRET_KEY) {
-      return res.status(500).json({
-        success: false,
-        message: 'Stripe not configured. Please add STRIPE_SECRET_KEY to environment variables.'
-      });
+      return res.status(503).json({ success: false, message: 'Card payments are not available right now. Please choose mobile money.' });
     }
 
-    // Create Stripe PaymentIntent
+    const open = await pool.query(
+      `SELECT * FROM payments WHERE booking_id = $1 AND payment_method = 'stripe' AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
+      [booking.id]
+    );
+    if (open.rows[0]) {
+      const intent = await stripe.paymentIntents.retrieve(open.rows[0].stripe_payment_intent_id);
+      if (!['succeeded', 'canceled'].includes(intent.status) && Number(intent.amount) === Math.round(Number(booking.final_price))) {
+        return res.json({ success: true, payment: open.rows[0], client_secret: intent.client_secret, publishable_key: process.env.STRIPE_PUBLISHABLE_KEY });
+      }
+    }
+
+    // XAF is a zero-decimal currency in Stripe: the amount is in francs.
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(booking.final_price), // Amount in XAF (no decimal conversion needed)
+      amount: Math.round(Number(booking.final_price)),
       currency: 'xaf',
       metadata: {
         booking_id: booking.id,
@@ -147,25 +135,14 @@ router.post('/create-intent', async (req, res) => {
         guest_name: booking.guest_name
       },
       receipt_email: booking.guest_email,
-      description: `Booking ${booking.booking_number} - Check-in: ${booking.check_in_date}`
+      description: `Booking ${booking.booking_number}`
     });
 
-    // Save payment record
     const paymentResult = await pool.query(`
-      INSERT INTO payments (
-        booking_id, payment_method, amount, currency, status,
-        stripe_payment_intent_id, payment_metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO payments (booking_id, payment_method, amount, currency, status, stripe_payment_intent_id)
+      VALUES ($1, 'stripe', $2, 'XAF', 'pending', $3)
       RETURNING *
-    `, [
-      booking_id,
-      'stripe',
-      booking.final_price,
-      'XAF',
-      'pending',
-      paymentIntent.id,
-      JSON.stringify({ client_secret: paymentIntent.client_secret })
-    ]);
+    `, [booking.id, booking.final_price, paymentIntent.id]);
 
     res.json({
       success: true,
@@ -175,11 +152,7 @@ router.post('/create-intent', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating payment intent:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create payment intent',
-      error: error.message
-    });
+    res.status(502).json({ success: false, message: 'Could not start the card payment. Please try again.' });
   }
 });
 
@@ -211,11 +184,19 @@ router.post('/mobile-money', async (req, res) => {
       return res.status(409).json({ success: false, message: 'This booking is no longer awaiting payment' });
     }
 
-    const paymentResult = await pool.query(`
+    // One mobile money request per booking: asking again updates the number or provider.
+    const details = JSON.stringify({ provider, phone: String(phone).trim(), source: source === 'app' ? 'app' : 'website' });
+    const existing = await pool.query(
+      `UPDATE payments SET payment_metadata = $2, amount = $3
+        WHERE id = (SELECT id FROM payments WHERE booking_id = $1 AND payment_method = 'mobile_money' AND status = 'pending' LIMIT 1)
+        RETURNING id, booking_id, payment_method, amount, currency, status, created_at`,
+      [booking.id, details, booking.final_price]
+    );
+    const paymentResult = existing.rows[0] ? existing : await pool.query(`
       INSERT INTO payments (booking_id, payment_method, amount, currency, status, payment_metadata)
       VALUES ($1, 'mobile_money', $2, 'XAF', 'pending', $3)
       RETURNING id, booking_id, payment_method, amount, currency, status, created_at
-    `, [booking.id, booking.final_price, JSON.stringify({ provider, phone: String(phone).trim(), source: source === 'app' ? 'app' : 'website' })]);
+    `, [booking.id, booking.final_price, details]);
 
     await pool.query(
       'UPDATE bookings SET terms_accepted = TRUE, terms_accepted_at = $2 WHERE id = $1',

@@ -168,7 +168,7 @@ const Employees = () => {
         salary_period: 'monthly',
         reports_to: '',
         create_user_account: true,
-        password: 'employee123'
+        password: ''
       });
     }
     setOpenDialog(true);
@@ -666,7 +666,7 @@ const Employees = () => {
                       type="password"
                       value={formData.password}
                       onChange={handleChange}
-                      helperText="Leave empty for default password: employee123"
+                      helperText="Leave empty to generate a one-time password. It is shown once and must be changed at first sign-in."
                     />
                   </Grid>
                 )}

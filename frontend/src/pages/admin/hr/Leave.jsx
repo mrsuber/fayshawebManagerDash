@@ -46,10 +46,7 @@ const Leave = () => {
   const fetchLeaveRequests = async () => {
     try {
       setLoading(true);
-      const endpoint = selectedStatus === 'pending' ? '/leave/pending' : '/leave/my-requests';
-      const params = selectedStatus !== 'pending' ? { status: selectedStatus } : {};
-
-      const response = await api.get(endpoint, { params });
+      const response = await api.get('/leave', { params: { status: selectedStatus } });
       if (response.data.success) {
         setLeaveRequests(response.data.requests);
       }

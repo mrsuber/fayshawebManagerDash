@@ -9,3 +9,4 @@ coverage
 # Backend secrets and uploads
 backend/config/firebase-service-account.json
 backend/uploads/
+backend/storage/

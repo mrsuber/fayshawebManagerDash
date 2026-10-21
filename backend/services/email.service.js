@@ -13,7 +13,16 @@ class EmailService {
     });
   }
 
+  /** Outgoing email needs SMTP_USER and SMTP_PASS (see .env.example). */
+  get configured() {
+    return Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+  }
+
   async sendEmail(options) {
+    if (!this.configured) {
+      console.warn(`✉️  Email to ${options.to} not sent: outgoing email is not configured (SMTP_USER / SMTP_PASS)`);
+      throw new Error('Outgoing email is not configured');
+    }
     try {
       await this.transporter.sendMail({
         from: `${process.env.EMAIL_FROM_NAME || 'Fayshaa'} <${process.env.EMAIL_FROM || process.env.SMTP_USER}>`,

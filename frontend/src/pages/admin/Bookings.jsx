@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_URL } from '../../site/api';
 
 const Bookings = () => {
   const [bookings, setBookings] = useState([]);
@@ -11,11 +12,6 @@ const Bookings = () => {
   const [filterDateRange, setFilterDateRange] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const API_URL = process.env.REACT_APP_API_URL || (
-    window.location.hostname !== 'localhost'
-      ? '/api'
-      : 'http://localhost:5001/api'
-  );
 
   useEffect(() => {
     fetchData();
@@ -95,9 +91,9 @@ const Bookings = () => {
 
   const updateBookingStatus = async (bookingId, newStatus) => {
     try {
-      await axios.put(`${API_URL}/bookings/${bookingId}/status`, {
-        status: newStatus
-      });
+      // Confirming records the payment as received and sends the guest their digital key.
+      if (newStatus === 'confirmed') await axios.post(`${API_URL}/bookings/${bookingId}/confirm`, {});
+      else await axios.put(`${API_URL}/bookings/${bookingId}/status`, { status: newStatus });
       alert('Booking status updated successfully');
       fetchData();
       if (selectedBooking && selectedBooking.id === bookingId) {
