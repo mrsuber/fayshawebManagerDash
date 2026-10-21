@@ -119,7 +119,7 @@ Terms acceptance (`terms_accepted`, `terms_accepted_at`) is stored with every bo
 
 ## Deploying (same server as v1)
 
-Step by step, with backups and rollback: [docs/DEPLOY.md](docs/DEPLOY.md).
+Step by step, with backups and rollback: [docs/DEPLOY.md](docs/DEPLOY.md). To have a local AI assistant do it: [docs/DEPLOY_WITH_AI.md](docs/DEPLOY_WITH_AI.md).
 
 
 1. Database: a new, empty PostgreSQL database built with `node db/setup.js` (schema, base data and the first super
