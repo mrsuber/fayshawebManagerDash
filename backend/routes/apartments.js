@@ -57,19 +57,8 @@ router.get('/categories', async (req, res) => {
       SELECT
         c.*,
         COUNT(a.id) as apartment_count,
-        (
-          SELECT file_url
-          FROM apartment_media
-          WHERE category_id = c.id AND is_primary = true
-          LIMIT 1
-        ) as primary_image,
-        (
-          SELECT file_url
-          FROM apartment_media am
-          JOIN apartments apt ON am.apartment_id = apt.id
-          WHERE apt.category_id = c.id AND am.is_primary = true
-          LIMIT 1
-        ) as representative_image,
+        category_cover(c.id) as primary_image,
+        category_cover(c.id) as representative_image,
         (
           SELECT COUNT(*)
           FROM apartment_media
@@ -602,6 +591,15 @@ router.post('/media/upload', staffOnly, upload.array('files', 20), async (req, r
 
       mediaRecords.push(result.rows[0]);
     }
+
+    // The first photo of a residence or category becomes its main photo (shown in lists) until another is chosen.
+    await pool.query(
+      `UPDATE apartment_media SET is_primary = true
+        WHERE id = (SELECT id FROM apartment_media
+                     WHERE media_type = 'image' AND (apartment_id = $1 OR category_id = $2) ORDER BY sort_order, id LIMIT 1)
+          AND NOT EXISTS (SELECT 1 FROM apartment_media WHERE is_primary AND media_type = 'image' AND (apartment_id = $1 OR category_id = $2))`,
+      [apartment_id || null, category_id || null]
+    );
 
     res.json({
       success: true,

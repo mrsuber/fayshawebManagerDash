@@ -323,12 +323,7 @@ router.get('/availability', async (req, res) => {
         c.features,
         c.amenities,
         COALESCE(a.custom_price, c.base_price) as price_per_night,
-        (
-          SELECT file_url
-          FROM apartment_media
-          WHERE category_id = c.id AND is_primary = true AND media_type = 'image'
-          LIMIT 1
-        ) as primary_image,
+        COALESCE(media_cover(a.id, c.id), category_cover(c.id)) as primary_image,
         (
           SELECT file_url
           FROM apartment_media

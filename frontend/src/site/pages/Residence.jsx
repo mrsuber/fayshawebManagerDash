@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getAvailability, getResidences, getUnitMedia } from '../api';
+import PhotoViewer from '../components/PhotoViewer';
 import PanoramaDialog from '../components/PanoramaDialog';
 import { residenceMeta } from '../components/ResidenceCard';
 import { Icon, Loading, ResidenceImage } from '../components/ui';
-import { CHECK_IN_TIME, CHECK_OUT_TIME, IMG } from '../data';
+import { CHECK_IN_TIME, CHECK_OUT_TIME } from '../data';
 import { addDays, money, nightsBetween, stayFromParams, stayQuery, today } from '../format';
 import { plural, useLang } from '../i18n';
 import { withAvailability } from './Residences';
@@ -20,6 +21,7 @@ export default function Residence() {
   const [media, setMedia] = useState([]);
   const [error, setError] = useState('');
   const [tour, setTour] = useState(false);
+  const [viewing, setViewing] = useState(null);
 
   useEffect(() => {
     getResidences().then(setResidences).catch((e) => setError(e.message));
@@ -58,7 +60,8 @@ export default function Residence() {
     if (next.checkOut <= next.checkIn) next.checkOut = addDays(next.checkIn, 1);
     setParams(stayQuery(next), { replace: true });
   };
-  const tiles = photos.slice(panorama ? 0 : 1, panorama ? 4 : 5);
+  // Only real photos: the gallery shapes itself to how many the residence has (no filler images).
+  const tiles = photos.slice(panorama ? 0 : 1);
 
   return (
     <>
@@ -67,7 +70,7 @@ export default function Residence() {
       </div>
 
       <section className="fs-container" style={{ paddingTop: 20 }}>
-        <div className="fs-gallery">
+        <div className={`fs-gallery fs-gallery--${Math.min(tiles.length, 4) + 1}`}>
           {panorama ? (
             <div className="fs-tour">
               <Icon name="globe" size={70} stroke={0.8} className="fs-gold" />
@@ -76,22 +79,25 @@ export default function Residence() {
                 {t('res.startTour')}
               </button>
             </div>
+          ) : photos[0] ? (
+            <button type="button" className="fs-gallery__tile" onClick={() => setViewing(0)} aria-label={`${r.name} — view photos`}>
+              <img src={photos[0].url} alt={photos[0].title || r.name} />
+            </button>
           ) : (
             <div>
-              <ResidenceImage src={photos[0]?.url || r.image} name={r.name} />
+              <ResidenceImage src={r.image} name={r.name} />
             </div>
           )}
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i}>
-              {tiles[i] ? (
-                <img src={tiles[i].url} alt={tiles[i].title || r.name} loading="lazy" />
-              ) : i === 3 ? (
-                <img src={IMG.spa} alt="The Faysha spa, included with every stay" loading="lazy" />
-              ) : (
-                <ResidenceImage src={null} name={r.name} />
-              )}
-            </div>
-          ))}
+          {tiles.slice(0, 4).map((p, i) => {
+            const at = photos.indexOf(p);
+            const more = i === 3 ? photos.length - (at + 1) : 0;
+            return (
+              <button key={p.id || p.url} type="button" className="fs-gallery__tile" onClick={() => setViewing(at)} aria-label={more ? `View all ${photos.length} photos` : `View photo ${at + 1}`}>
+                <img src={p.url} alt={p.title || r.name} loading="lazy" />
+                {more > 0 && <span className="fs-gallery__more">+{more}</span>}
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -207,6 +213,7 @@ export default function Residence() {
         </div>
       </section>
 
+      <PhotoViewer photos={photos} index={viewing} onIndex={setViewing} onClose={() => setViewing(null)} title={r.name} />
       <PanoramaDialog open={tour} image={panorama} title={r.name} onClose={() => setTour(false)} />
     </>
   );

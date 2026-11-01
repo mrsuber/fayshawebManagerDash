@@ -135,7 +135,11 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/guest', guestRoutes);
 
 // Serve uploaded files
-app.use('/uploads', express.static(require('path').join(__dirname, 'uploads')));
+// Public media (residence photos, chat images): readable from the website, the dashboards and the app on any origin.
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(require('path').join(__dirname, 'uploads'), { maxAge: '7d' }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
