@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useLang } from '../i18n';
+import { useCurrency } from '../currency';
 import { Icon, Monogram } from './ui';
 
 const NAV = [
@@ -22,6 +23,7 @@ export default function Header({ over = false }) {
   useEffect(() => setOpen(false), [location.pathname, location.hash]);
 
   const toggleLang = () => setLang(lang === 'fr' ? 'en' : 'fr');
+  const currency = useCurrency();
 
   return (
     <header className={`fs-header${over ? ' fs-header--over' : ''}${open ? ' menu-open' : ''}`}>
@@ -50,6 +52,13 @@ export default function Header({ over = false }) {
           </nav>
 
           <div className="fs-header__actions">
+            {currency.accepted.length > 1 ? (
+              <select className="fs-currency fs-hide-sm" value={currency.code} onChange={(e) => currency.choose(e.target.value)} aria-label="Currency">
+                {currency.accepted.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            ) : null}
             <button type="button" className="fs-quiet fs-hide-sm" onClick={toggleLang} aria-label={lang === 'fr' ? 'Switch to English' : 'Passer en français'}>
               <span style={{ color: lang === 'en' ? 'var(--gold)' : undefined }}>EN</span>&nbsp;/&nbsp;
               <span style={{ color: lang === 'fr' ? 'var(--gold)' : undefined }}>FR</span>
@@ -80,6 +89,13 @@ export default function Header({ over = false }) {
             </Link>
           ))}
           <Link to="/login">{t('nav.signin')}</Link>
+          {currency.accepted.length > 1 ? (
+            <select className="fs-currency" value={currency.code} onChange={(e) => currency.choose(e.target.value)} aria-label="Currency" style={{ margin: '14px 0' }}>
+              {currency.accepted.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          ) : null}
           <button type="button" onClick={toggleLang}>
             {lang === 'fr' ? 'English' : 'Français'}
           </button>

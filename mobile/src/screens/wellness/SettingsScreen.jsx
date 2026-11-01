@@ -3,7 +3,8 @@ import { Alert, Linking, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import { Screen, Card, ListRow, SectionTitle, Sheet, Field, Notice, Button, Body } from '../../components/ui';
+import { Screen, Card, ListRow, SectionTitle, Sheet, Field, Notice, Button, Body, ChipRow } from '../../components/ui';
+import { currencyState, onCurrencyChange, setCurrency } from '../../services/currency';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import apiClient, { errorMessage } from '../../services/api';
@@ -16,6 +17,8 @@ const CONCIERGE = '+237 651 841 003';
 
 /** Real settings: notifications on this device, account, legal, help — and closing the account. */
 export default function SettingsScreen({ navigation }) {
+  const [currencies, setCurrencies] = React.useState(currencyState());
+  React.useEffect(() => onCurrencyChange((c) => setCurrencies(c)), []);
   const { logout } = useAuth();
   const [push, setPush] = useState(true);
   const [permission, setPermission] = useState('undetermined');
@@ -91,6 +94,13 @@ export default function SettingsScreen({ navigation }) {
         ) : null}
       </Card>
 
+      {currencies.accepted.length > 1 ? (
+        <>
+          <SectionTitle>SHOW PRICES IN</SectionTitle>
+          <ChipRow scroll={false} options={currencies.accepted} value={currencies.code} onChange={(c) => setCurrency(c)} />
+          <Body muted style={{ fontSize: 12, marginTop: 8 }}>Prices are set in XAF; other currencies are shown at today's rate (≈). Cards can be charged in your currency; mobile money is always XAF.</Body>
+        </>
+      ) : null}
       <SectionTitle>ACCOUNT</SectionTitle>
       <Card padded={false} style={{ paddingHorizontal: 16 }}>
         <ListRow icon="person-outline" title="Personal details" onPress={() => navigation.navigate('PersonalDetails')} />

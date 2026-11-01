@@ -141,9 +141,10 @@ export async function createBooking(payload) {
   return data.booking;
 }
 
-export async function createCardPayment(bookingId) {
+/** Starts a card payment, in `currency` when the guest chose one (converted at the recorded rate) else XAF. */
+export async function createCardPayment(bookingId, currency) {
   if (USE_MOCKS) return { client_secret: null, payment: { stripe_payment_intent_id: 'pi_mock' } };
-  return call(http.post('/payments/create-intent', { booking_id: bookingId }), 'Could not start the card payment');
+  return call(http.post('/payments/create-intent', { booking_id: bookingId, currency }), 'Could not start the card payment');
 }
 
 export async function confirmBooking(bookingId, body) {

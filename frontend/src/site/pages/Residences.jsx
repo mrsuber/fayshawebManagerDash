@@ -5,7 +5,7 @@ import BookingBar from '../components/BookingBar';
 import { residenceMeta } from '../components/ResidenceCard';
 import { Loading, ResidenceImage } from '../components/ui';
 import { PageContent, Txt } from '../content';
-import { money, nightsBetween, prettyDate, stayFromParams, stayQuery } from '../format';
+import { curCode, money, nightsBetween, prettyDate, stayFromParams, stayQuery } from '../format';
 import { plural, useLang } from '../i18n';
 
 /** Joins categories with the units free for the stay: lowest available nightly rate and count per category. */
@@ -148,12 +148,12 @@ function ResidencesBody() {
                       </span>
                       <span className="fs-muted" style={{ fontSize: 13 }}>
                         {' '}
-                        {t('price.night')}
+                        {curCode()} {t('price.night')}
                       </span>
                     </div>
                     {free > 0 && nights > 0 && (
                       <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 4 }}>
-                        {money(r.fromPrice * nights)} XAF · {plural(t, nights, 'night.one', 'night.many')}, {t('res.beforetax')}
+                        {money(r.fromPrice * nights)} {curCode()} · {plural(t, nights, 'night.one', 'night.many')}, {t('res.beforetax')}
                       </div>
                     )}
                   </div>

@@ -129,6 +129,30 @@ router.put(
   }),
 );
 
+// Currencies: which are offered to guests and the exchange rates (EUR, XOF and XAF are pegged and fixed).
+router.get('/settings/currencies', ah(async (req, res) => res.json(await require('../../services/currency').settings())));
+router.put(
+  '/settings/currencies',
+  ah(async (req, res) => {
+    const { settings, PEGGED } = require('../../services/currency');
+    const current = await settings();
+    const accepted = [...new Set((Array.isArray(req.body?.accepted) ? req.body.accepted : current.accepted).map((c) => String(c).toUpperCase()).filter((c) => /^[A-Z]{3}$/.test(c)))];
+    if (!accepted.includes(current.base)) accepted.unshift(current.base);
+    const rates = { ...current.rates };
+    for (const [code, value] of Object.entries(req.body?.rates || {})) {
+      const c = String(code).toUpperCase();
+      if (!/^[A-Z]{3}$/.test(c) || c in PEGGED) continue;
+      const n = Number(value);
+      if (!(n > 0 && n < 1e7)) throw httpError(400, `Rate for ${c} must be a positive number (XAF for 1 ${c})`);
+      rates[c] = n;
+    }
+    for (const c of accepted) if (!rates[c]) throw httpError(400, `Give a rate for ${c}`);
+    const value = { base: current.base, accepted, rates, updatedAt: new Date().toISOString(), updatedBy: req.user.fullName };
+    await db.query(`INSERT INTO app_settings (key, value, updated_by) VALUES ('currencies', $1, $2) ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2`, [JSON.stringify(value), req.user.id]);
+    res.json(await settings());
+  }),
+);
+
 router.get(
   '/settings/preferences',
   ah(async (req, res) => res.json(await getSetting('preferences'))),

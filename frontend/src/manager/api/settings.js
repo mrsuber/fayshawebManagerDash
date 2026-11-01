@@ -28,3 +28,8 @@ export const sendTestNotification = () =>
     () => api.post('/notifications/test'),
     () => mutate((d) => notify(d, 'Test notification', 'Your notification settings work 🎉') || { ok: true }),
   );
+
+/** GET /settings/currencies → { base, accepted, rates, updatedAt } (rates: base units for 1 unit) */
+export const getCurrencies = () => withMock(() => api.get('/settings/currencies'), { base: 'XAF', accepted: ['XAF'], rates: { XAF: 1, EUR: 655.957 } });
+/** PUT /settings/currencies { accepted, rates } */
+export const saveCurrencies = (data) => withMock(() => api.put('/settings/currencies', data), data);

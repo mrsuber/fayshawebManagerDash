@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { money } from '../format';
+import { curCode, money } from '../format';
 import { useLang } from '../i18n';
 import { ResidenceImage } from './ui';
 
@@ -30,7 +30,7 @@ export default function ResidenceCard({ residence: r, query = '' }) {
             <span className="fs-price" style={{ fontSize: 24 }}>
               {money(r.price)}
             </span>
-            <span style={{ fontSize: 12, color: 'rgba(236,230,218,.6)' }}> {t('price.night')}</span>
+            <span style={{ fontSize: 12, color: 'rgba(236,230,218,.6)' }}> {curCode()} {t('price.night')}</span>
           </span>
         </div>
       </div>

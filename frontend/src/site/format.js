@@ -1,5 +1,10 @@
 /** Formatting helpers for the public site. Prices are XAF (no decimals). */
-export const money = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
+import { convertedNumber, displayCurrency, isConverted } from './currency';
+
+/** An XAF amount in the visitor's display currency, number only (the code is shown with curCode()). */
+export const money = (n) => convertedNumber(n);
+/** The code to show after amounts, with ≈ when converted from XAF. */
+export const curCode = () => (isConverted() ? `${displayCurrency()} (≈)` : 'XAF');
 
 const pad = (n) => String(n).padStart(2, '0');
 

@@ -7,7 +7,8 @@ import { COLORS, FONTS } from '../../constants/theme';
 import apiClient, { errorMessage } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fileUrl, STRIPE_PUBLISHABLE_KEY } from '../../config';
-import { addDays, dayLabel, isoDay, nightsBetween, xaf } from '../../utils/format';
+import { addDays, dayLabel, isoDay, nightsBetween, xaf, xafExact } from '../../utils/format';
+import { currencyState } from '../../services/currency';
 
 const STEPS = ['Dates', 'Residence', 'Details', 'Terms', 'Payment'];
 const METHODS = [
@@ -140,7 +141,7 @@ export default function BookStayScreen({ navigation }) {
       }
       const b = await ensureBooking();
       if (method === 'card') {
-        const intent = await apiClient.post('/payments/create-intent', { booking_id: b.id });
+        const intent = await apiClient.post('/payments/create-intent', { booking_id: b.id, currency: currencyState().code });
         const { error: stripeError } = await stripe.confirmPayment(intent.client_secret, {
           paymentMethodType: 'Card',
           paymentMethodData: { billingDetails: { name: details.name.trim(), email: details.email.trim(), phone: details.phone.trim() } },
@@ -177,7 +178,7 @@ export default function BookStayScreen({ navigation }) {
           <Body style={{ textAlign: 'center', marginTop: 12 }}>
             {confirmed
               ? `We look forward to welcoming you on ${dayLabel(stay.checkIn, { weekday: true })}. Your confirmation and digital key are on their way to ${details.email.trim()}.`
-              : `Approve the ${method === 'mtn' ? 'MTN Mobile Money' : 'Orange Money'} payment of ${xaf(total)} on ${momoPhone}. As soon as it arrives, we confirm your stay and send your digital key to ${details.email.trim()}.`}
+              : `Approve the ${method === 'mtn' ? 'MTN Mobile Money' : 'Orange Money'} payment of ${xafExact(total)} on ${momoPhone}. As soon as it arrives, we confirm your stay and send your digital key to ${details.email.trim()}.`}
           </Body>
           {!isAuthenticated ? (
             <Notice style={{ marginTop: 20 }} icon="person-circle-outline">
@@ -348,7 +349,7 @@ export default function BookStayScreen({ navigation }) {
         )}
       </>
     );
-    footer = <Button title={method === 'card' ? `Pay ${xaf(total)}` : `Request ${xaf(total)}`} icon={method === 'card' ? 'lock-closed' : 'phone-portrait-outline'} onPress={pay} loading={busy} />;
+    footer = <Button title={method === 'card' ? `Pay ${xaf(total)}` : `Request ${xafExact(total)}`} icon={method === 'card' ? 'lock-closed' : 'phone-portrait-outline'} onPress={pay} loading={busy} />;
   }
 
   return (

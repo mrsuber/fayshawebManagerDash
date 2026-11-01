@@ -42,3 +42,9 @@ export const createAssetTask = (data) => post('/assets/tasks', data);
 export const updateAssetTask = (id, data) => withMock(() => api.patch(`/assets/tasks/${id}`, data), null);
 export const assetTaskDone = (id, data) => post(`/assets/tasks/${id}/done`, data);
 export const assetBudget = () => get('/assets/budget', undefined, null);
+
+// Wellness catalogue
+export const wellnessCatalog = () => get('/wellness/catalog', undefined, []);
+export const createWellness = (data) => post('/wellness/catalog', data);
+export const updateWellness = (id, data) => withMock(() => api.patch(`/wellness/catalog/${id}`, data), null);
+export const deleteWellness = (id) => withMock(() => api.delete(`/wellness/catalog/${id}`), { deleted: true });

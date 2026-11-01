@@ -462,3 +462,85 @@ body.fayos .kit-two { display: grid; grid-template-columns: repeat(auto-fit, min
 @media (max-width: 900px) {
   body.fayos .kit-editor { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---------- Shell layout (components/Layout.jsx) ---------- */
+body.fayos .sidebar-foot {
+  margin-top: 8px;
+  padding: 22px 20px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(232, 184, 74, 0.12);
+  background: radial-gradient(120% 90% at 0% 100%, rgba(232, 184, 74, 0.12), transparent 60%), var(--bg-sidebar);
+}
+body.fayos .shell-top {
+  position: relative;
+  background: radial-gradient(90% 140% at 100% 0%, rgba(232, 184, 74, 0.08), transparent 55%), linear-gradient(180deg, #0e1116, var(--bg));
+}
+body.fayos .shell-header { display: flex; align-items: center; gap: 6px; padding: 12px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+body.fayos .shell-topnav { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+body.fayos .shell-topnav::-webkit-scrollbar { display: none; }
+body.fayos .shell-topnav .top-item { white-space: nowrap; flex: 0 0 auto; }
+body.fayos .shell-icon-btn, body.fayos .shell-menu, body.fayos .shell-close {
+  display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 50%;
+  background: none; border: 0; color: var(--text); cursor: pointer; flex-shrink: 0;
+}
+body.fayos .shell-icon-btn:hover, body.fayos .shell-menu:hover { background: rgba(255, 255, 255, 0.06); }
+body.fayos .shell-menu, body.fayos .shell-close, body.fayos .shell-backdrop { display: none; }
+body.fayos .shell-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 22px 24px 20px; flex-wrap: wrap; }
+body.fayos .shell-title { margin: 0; font-weight: 600; font-size: 46px; line-height: 1; color: #f6f0e4; overflow-wrap: anywhere; }
+body.fayos .shell-sub { margin: 8px 0 0; font-size: 21px; color: #d9d2c4; }
+body.fayos .shell-tag { margin: 0; font-size: 22px; text-align: right; color: #f0e9dc; max-width: 360px; text-wrap: balance; }
+body.fayos .shell-body { padding: 4px 24px 32px; min-width: 0; }
+
+@media (max-width: 1100px) {
+  body.fayos .shell { grid-template-columns: minmax(0, 1fr); }
+  body.fayos .sidebar {
+    position: fixed; inset: 0 auto 0 0; z-index: 1300; width: min(300px, 86vw); height: 100dvh;
+    transform: translateX(-102%); transition: transform 0.28s ease; box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+  }
+  body.fayos .shell--drawer .sidebar { transform: none; }
+  body.fayos .shell-backdrop { display: block; position: fixed; inset: 0; z-index: 1299; background: rgba(5, 6, 8, 0.6); opacity: 0; pointer-events: none; transition: opacity 0.28s ease; }
+  body.fayos .shell--drawer .shell-backdrop { opacity: 1; pointer-events: auto; }
+  body.fayos .shell-menu, body.fayos .shell-close { display: inline-flex; }
+  body.fayos .shell-header { position: sticky; top: 0; z-index: 20; background: rgba(10, 12, 15, 0.92); backdrop-filter: blur(12px); padding: 8px 12px; }
+  body.fayos .shell-tag { display: none; }
+  body.fayos .shell-title { font-size: 34px; }
+  body.fayos .shell-sub { font-size: 17px; }
+}
+
+@media (max-width: 640px) {
+  body.fayos .shell-head { padding: 16px 16px 12px; }
+  body.fayos .shell-title { font-size: 28px; }
+  body.fayos .shell-sub { font-size: 15px; line-height: 1.35; }
+  body.fayos .shell-body { padding: 4px 12px 28px; }
+  body.fayos .shell-header .top-item { padding: 7px 10px; font-size: 14px; }
+  body.fayos .card { padding: 12px; }
+  body.fayos .kpis { gap: 8px !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  body.fayos .kpi { padding: 10px !important; }
+  body.fayos .kpi-n { font-size: 22px !important; }
+  body.fayos .grid-cols, body.fayos .grid-cols-320 { grid-template-columns: minmax(0, 1fr); }
+  body.fayos .card-title { font-size: 19px; }
+  body.fayos .kit-toolbar__right { width: 100%; }
+  body.fayos .kit-toolbar__right > * { flex: 1 1 auto; }
+  /* Dialogs use the whole screen on phones */
+  body.fayos .MuiDialog-paper { margin: 8px !important; width: calc(100% - 16px) !important; max-height: calc(100% - 16px) !important; }
+}
+body.fayos .settings-grid { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 760px) {
+  body.fayos .settings-grid { grid-template-columns: minmax(0, 1fr); }
+}
+body.fayos .user-chip { display: flex; align-items: center; gap: 10px; margin-left: 6px; padding: 4px 6px 4px 4px; border: 0; border-radius: 999px; background: none; color: var(--text); font-family: var(--sans); cursor: pointer; text-align: left; flex-shrink: 0; }
+body.fayos .user-chip:hover { background: rgba(255, 255, 255, 0.05); }
+body.fayos .user-chip__avatar { width: 42px; height: 42px; border-radius: 50%; border: 1.5px solid var(--gold); display: inline-flex; align-items: center; justify-content: center; font-family: var(--serif); font-size: 17px; color: var(--gold); background: radial-gradient(circle at 30% 25%, rgba(232, 184, 74, 0.18), rgba(232, 184, 74, 0.04)); }
+body.fayos .user-chip__text { display: flex; flex-direction: column; line-height: 1.2; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+body.fayos .kpi-n { overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  body.fayos .shell-header { flex-wrap: wrap; row-gap: 4px; }
+  body.fayos .shell-topnav { order: 10; flex: 1 1 100%; padding-bottom: 2px; }
+  body.fayos .shell-header > .shell-menu { margin-right: auto; }
+  body.fayos .user-chip__text { display: none; }
+}
+@media (max-width: 640px) {
+  body.fayos .kpi-n { font-size: 19px !important; }
+  body.fayos .user-chip__avatar { width: 36px; height: 36px; font-size: 15px; }
+}

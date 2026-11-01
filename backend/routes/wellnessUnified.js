@@ -37,7 +37,11 @@ router.get('/activities', async (req, res) => {
                 'name', s.name,
                 'description', s.description,
                 'duration', s.duration,
-                'icon', s.icon
+                'icon', s.icon,
+                'image_url', s.image_url,
+                'location', s.location,
+                'floor', s.floor,
+                'requires_pin', s.requires_pin
               ) ORDER BY s.stage_number
             )
             FROM wellness_activity_stages s

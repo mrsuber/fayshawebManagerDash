@@ -3,12 +3,22 @@ import { Outlet, useLocation } from 'react-router-dom';
 import Footer from './components/Footer';
 import Header from './components/Header';
 import { useLang } from './i18n';
+import { CurrencyProvider, useCurrency } from './currency';
 import './site.css';
 
 /** Pages with a full-bleed hero lay the header over it. */
 const OVER = ['/', '/wellness'];
 
 export default function SiteLayout() {
+  return (
+    <CurrencyProvider>
+      <Layout />
+    </CurrencyProvider>
+  );
+}
+
+function Layout() {
+  const { code } = useCurrency();
   const { pathname, hash } = useLocation();
   const { t, lang } = useLang();
 
@@ -38,7 +48,8 @@ export default function SiteLayout() {
         {t('nav.skip')}
       </a>
       <Header over={OVER.includes(pathname)} />
-      <main id="main">
+      {/* Remounted when the display currency changes, so every price is shown in it. */}
+      <main id="main" key={code}>
         <Outlet />
       </main>
       <Footer />

@@ -1,5 +1,10 @@
 /** Money and dates the way the property shows them (XAF, day month year). */
-export const xaf = (n) => `${Math.round(Number(n) || 0).toLocaleString('en-US').replace(/,/g, ' ')} XAF`;
+import { formatDisplay } from '../services/currency';
+
+/** A price in the guest's display currency (XAF unless they chose another; converted amounts show ≈). */
+export const xaf = (n) => formatDisplay(n);
+/** The exact XAF amount, for what is actually charged in XAF (mobile money, the bill). */
+export const xafExact = (n) => `${Math.round(Number(n) || 0).toLocaleString('en-US').replace(/,/g, ' ')} XAF`;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

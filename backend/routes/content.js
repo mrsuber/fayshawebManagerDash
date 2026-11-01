@@ -55,7 +55,8 @@ router.get('/stay-policy', async (req, res) => {
   try {
     const { rows } = await db.query(`SELECT key, value FROM app_settings WHERE key IN ('property', 'currencies')`);
     const property = rows.find((r) => r.key === 'property')?.value || {};
-    const currencies = rows.find((r) => r.key === 'currencies')?.value || null;
+    const cur = await require('../services/currency').settings();
+    const currencies = { base: cur.base, accepted: cur.accepted, rates: Object.fromEntries(cur.accepted.map((c) => [c, cur.rates[c]])), updatedAt: cur.updatedAt };
     res.set('Cache-Control', 'public, max-age=60').json({
       checkIn: property.standardCheckIn || '14:00',
       checkOut: property.standardCheckOut || '11:00',

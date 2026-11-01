@@ -6,7 +6,8 @@ import {
   USE_MOCKS, confirmBooking, createBooking, createCardPayment, getAvailability, getResidences, getUnit, requestMobileMoney,
 } from '../api';
 import { Icon, Loading, ResidenceImage } from '../components/ui';
-import { money, nightsBetween, prettyDate, stayFromParams, stayQuery } from '../format';
+import { displayCurrency } from '../currency';
+import { curCode, money, nightsBetween, prettyDate, stayFromParams, stayQuery } from '../format';
 import { plural, useLang } from '../i18n';
 import Markdown from '../../components/Markdown';
 import TermsBody from '../legal/TermsBody';
@@ -128,7 +129,7 @@ function BookFlow({ cardEnabled }) {
     try {
       const b = await ensureBooking();
       if (method === 'card') {
-        const intent = await createCardPayment(b.id);
+        const intent = await createCardPayment(b.id, displayCurrency());
         if (!USE_MOCKS) {
           if (!stripe || !elements) throw new Error(t('book.cardMissing'));
           const { error: stripeError } = await stripe.confirmCardPayment(intent.client_secret, {
@@ -339,7 +340,7 @@ function BookFlow({ cardEnabled }) {
                 </button>
               ) : (
                 <button type="button" className="fs-btn fs-btn--gold" onClick={pay} disabled={busy || (method === 'card' && !cardEnabled)}>
-                  {busy ? t('book.working') : method === 'card' ? `${t('book.pay')} · ${money(total)} XAF` : t('book.request')}
+                  {busy ? t('book.working') : method === 'card' ? `${t('book.pay')} · ${money(total)} ${displayCurrency()}` : t('book.request')}
                 </button>
               )}
             </div>
@@ -379,8 +380,13 @@ function BookFlow({ cardEnabled }) {
               </div>
               <div className="fs-sum-row fs-sum-total">
                 <span style={{ fontWeight: 500 }}>{t('price.total')}</span>
-                <span className="fs-price" style={{ fontSize: 24 }}>{money(booking?.final_price ?? total)}</span>
+                <span className="fs-price" style={{ fontSize: 24 }}>{money(booking?.final_price ?? total)} <span style={{ fontSize: 13 }}>{curCode()}</span></span>
               </div>
+              {displayCurrency() !== 'XAF' ? (
+                <p className="fs-muted" style={{ fontSize: 12.5, margin: 0, lineHeight: 1.6 }}>
+                  {Math.round(booking?.final_price ?? total).toLocaleString('en-US')} XAF. Card payments are charged in {displayCurrency()} at today’s rate; mobile money in XAF.
+                </p>
+              ) : null}
             </div>
           </div>
         </aside>

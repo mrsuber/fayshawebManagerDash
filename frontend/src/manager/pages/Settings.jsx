@@ -7,6 +7,7 @@ import 'react-phone-input-2/lib/style.css';
 import { useSearchParams } from 'react-router-dom';
 import { residencesApi, settingsApi } from '../api';
 import FormDialog from '../components/FormDialog';
+import CurrencySettings from '../components/CurrencySettings';
 import { Avatar, Card, Icon, Toggle } from '../components/ui';
 import { useToast } from '../context/ToastContext';
 import useApi from '../hooks/useApi';
@@ -356,7 +357,7 @@ export default function Settings() {
   );
 
   const content = [
-    [propertyCard, aiCard, integrationsCard],
+    [propertyCard, <CurrencySettings key="currencies" />, aiCard, integrationsCard],
     [teamCard],
     [residencesCard],
     [aiCard],
@@ -366,7 +367,7 @@ export default function Settings() {
   ][section];
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,240px) minmax(0,1fr)', gap: 14 }}>
+    <div className="settings-grid">
       <section className="card" style={{ padding: 10, gap: 2, alignSelf: 'start' }}>
         {SECTIONS.map(([l, icon], i) => (
           <div

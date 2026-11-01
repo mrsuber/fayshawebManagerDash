@@ -114,42 +114,57 @@ router.post('/create-intent', async (req, res) => {
       return res.status(503).json({ success: false, message: 'Card payments are not available right now. Please choose mobile money.' });
     }
 
+    // The guest may pay in another accepted currency: the amount is converted at today's rate, which is recorded.
+    // The payment itself is kept in the base currency (XAF) so every report adds up in one currency.
+    const fx = require('../services/currency');
+    const cur = await fx.settings();
+    const currency = String(req.body.currency || cur.base).toUpperCase();
+    if (!cur.accepted.includes(currency) || !fx.CARD_CURRENCIES.includes(currency)) {
+      return res.status(400).json({ success: false, message: `Card payments are available in ${cur.accepted.filter((c) => fx.CARD_CURRENCIES.includes(c)).join(', ')}` });
+    }
+    const charged = currency === cur.base ? Number(booking.final_price) : fx.fromBase(booking.final_price, currency, cur.rates);
+    const stripeAmount = fx.toStripeAmount(charged, currency);
+
     const open = await pool.query(
       `SELECT * FROM payments WHERE booking_id = $1 AND payment_method = 'stripe' AND status = 'pending' ORDER BY created_at DESC LIMIT 1`,
       [booking.id]
     );
     if (open.rows[0]) {
       const intent = await stripe.paymentIntents.retrieve(open.rows[0].stripe_payment_intent_id);
-      if (!['succeeded', 'canceled'].includes(intent.status) && Number(intent.amount) === Math.round(Number(booking.final_price))) {
-        return res.json({ success: true, payment: open.rows[0], client_secret: intent.client_secret, publishable_key: process.env.STRIPE_PUBLISHABLE_KEY });
+      if (!['succeeded', 'canceled'].includes(intent.status) && Number(intent.amount) === stripeAmount && intent.currency === currency.toLowerCase()) {
+        return res.json({ success: true, payment: open.rows[0], client_secret: intent.client_secret, publishable_key: process.env.STRIPE_PUBLISHABLE_KEY, currency, amount: charged });
       }
     }
 
-    // XAF is a zero-decimal currency in Stripe: the amount is in francs.
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(Number(booking.final_price)),
-      currency: 'xaf',
+      amount: stripeAmount,
+      currency: currency.toLowerCase(),
       metadata: {
         booking_id: booking.id,
         booking_number: booking.booking_number,
         guest_email: booking.guest_email,
-        guest_name: booking.guest_name
+        guest_name: booking.guest_name,
+        base_amount: String(booking.final_price),
+        base_currency: cur.base,
+        fx_rate: String(cur.rates[currency]),
       },
       receipt_email: booking.guest_email,
       description: `Booking ${booking.booking_number}`
     });
 
     const paymentResult = await pool.query(`
-      INSERT INTO payments (booking_id, payment_method, amount, currency, status, stripe_payment_intent_id)
-      VALUES ($1, 'stripe', $2, 'XAF', 'pending', $3)
+      INSERT INTO payments (booking_id, payment_method, amount, currency, status, stripe_payment_intent_id, payment_metadata)
+      VALUES ($1, 'stripe', $2, $3, 'pending', $4, $5)
       RETURNING *
-    `, [booking.id, booking.final_price, paymentIntent.id]);
+    `, [booking.id, booking.final_price, cur.base, paymentIntent.id, JSON.stringify({ charged_currency: currency, charged_amount: charged, fx_rate: cur.rates[currency] })]);
 
     res.json({
       success: true,
       payment: paymentResult.rows[0],
       client_secret: paymentIntent.client_secret,
-      publishable_key: process.env.STRIPE_PUBLISHABLE_KEY
+      publishable_key: process.env.STRIPE_PUBLISHABLE_KEY,
+      currency,
+      amount: charged
     });
   } catch (error) {
     console.error('Error creating payment intent:', error);
@@ -361,13 +376,17 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
         const refund = event.data.object;
         console.log('Charge refunded:', refund.id);
 
+        // Stripe reports the refund in the charged currency's smallest unit; it is stored in the base currency.
+        const { decimalsOf } = require('../utils/money');
+        const charged = String(refund.currency || 'xaf').toUpperCase();
+        const refundedInCharged = Number(refund.amount_refunded) / 10 ** decimalsOf(charged);
         await pool.query(`
           UPDATE payments
           SET status = 'refunded',
               refunded_at = CURRENT_TIMESTAMP,
-              refund_amount = $2
+              refund_amount = ROUND($2::numeric * COALESCE(NULLIF(payment_metadata->>'fx_rate', '')::numeric, 1), 2)
           WHERE stripe_charge_id = $1
-        `, [refund.id, refund.amount_refunded]);
+        `, [refund.id, refundedInCharged]);
         break;
 
       default:
@@ -400,9 +419,15 @@ async function processRefund(id, refundAmount, refundReason) {
     // Process Stripe refund if payment was through Stripe
     if (payment.payment_method === 'stripe' && payment.stripe_payment_intent_id) {
       try {
+        // Refunds are asked for in the base currency; the card is refunded in the currency it was charged in, at
+        // the rate of the original payment.
+        const meta = payment.payment_metadata || {};
+        const chargedCurrency = meta.charged_currency || payment.currency || 'XAF';
+        const rate = Number(meta.fx_rate) || 1;
+        const { toStripeAmount } = require('../services/currency');
         const refund = await stripe.refunds.create({
           payment_intent: payment.stripe_payment_intent_id,
-          amount: refundAmount ? Math.round(parseFloat(refundAmount)) : undefined,
+          amount: refundAmount ? toStripeAmount(chargedCurrency === (payment.currency || 'XAF') ? parseFloat(refundAmount) : parseFloat(refundAmount) / rate, chargedCurrency) : undefined,
           reason: 'requested_by_customer'
         });
         console.log('Stripe refund created:', refund.id);

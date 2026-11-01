@@ -1,5 +1,8 @@
 import moment from 'moment';
 import { useCallback, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Tabs, Toolbar } from '../components/kit';
+import Catalogue from './wellness/Catalogue';
 import { guestsApi } from '../api';
 import FormDialog from '../components/FormDialog';
 import GuestPicker from '../components/GuestPicker';
@@ -45,7 +48,7 @@ const mins = (hhmm) => {
 };
 const toHHMM = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-export default function Wellness() {
+function WellnessToday() {
   const toast = useToast();
   const { options: guestOptions, byId, firstId } = useGuestOptions();
   const schedule = useCollection('wellnessSchedule');
@@ -350,6 +353,20 @@ export default function Wellness() {
         onClose={() => setForm(null)}
       />
       {dialogs}
+    </div>
+  );
+}
+
+/** Wellness & Spa: today's operations, and the catalogue of experiences the app offers (editable). */
+export default function Wellness() {
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'catalogue' ? 'catalogue' : 'today';
+  return (
+    <div className="stack">
+      <Toolbar>
+        <Tabs value={view} onChange={(v) => setParams(v === 'today' ? {} : { view: v })} options={[['today', 'Today'], ['catalogue', 'Catalogue']]} />
+      </Toolbar>
+      {view === 'catalogue' ? <Catalogue /> : <WellnessToday />}
     </div>
   );
 }

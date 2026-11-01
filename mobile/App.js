@@ -13,6 +13,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { LiveProvider } from './src/contexts/LiveContext';
 import { STRIPE_PUBLISHABLE_KEY } from './src/config';
+import { initCurrency } from './src/services/currency';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -26,6 +27,11 @@ export default function App() {
     'Montserrat-SemiBold': Montserrat_600SemiBold,
   });
   const ready = fontsLoaded || Boolean(fontError);
+
+  // Offered currencies and the guest's choice for displaying prices.
+  useEffect(() => {
+    initCurrency();
+  }, []);
 
   useEffect(() => {
     // Hand over from the native splash to the animated one as soon as the first frame can render.

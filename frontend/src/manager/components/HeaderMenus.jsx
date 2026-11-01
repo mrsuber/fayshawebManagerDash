@@ -34,12 +34,14 @@ export function NotificationsMenu() {
   const { t } = useTranslation();
   const navigate = useNav();
   const [anchor, setAnchor] = useState(null);
-  const [tab, setTab] = useState('action');
+  // Opens on what needs attention, or on everything when nothing does.
+  const [chosenTab, setTab] = useState(null);
   const [permission, setPermission] = useState(desktopPermission());
   const { data, setData } = useApi(notificationsApi.list, [], []);
   const items = data || [];
   const open = items.filter(isOpen);
   const unread = items.filter((n) => !n.read && !n.resolvedAt).length;
+  const tab = chosenTab || (open.length ? 'action' : 'all');
   const shown = tab === 'action' ? open : items;
 
   useEffect(() => titleCount(open.length), [open.length]);
@@ -172,21 +174,20 @@ export function UserMenu() {
   const [anchor, setAnchor] = useState(null);
   return (
     <>
-      <div onClick={(e) => setAnchor(e.currentTarget)} style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 8, cursor: 'pointer' }}>
-        <div
-          style={{
-            width: 46,
-            height: 46,
-            borderRadius: '50%',
-            border: '2px solid var(--gold)',
-            background: 'repeating-linear-gradient(135deg,#2a2520 0 4px,#221e1a 4px 8px)',
-          }}
-        />
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-          <span style={{ fontSize: 17 }}>FAY</span>
-          <span style={{ fontSize: 13, color: '#b9b2a5' }}>{t('layout.concierge')}</span>
-        </div>
-      </div>
+      <button type="button" className="user-chip" onClick={(e) => setAnchor(e.currentTarget)} aria-label={`Account: ${user?.name || ''}`}>
+        <span className="user-chip__avatar" aria-hidden="true">
+          {String(user?.name || 'F')
+            .split(' ')
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((w) => w[0].toUpperCase())
+            .join('')}
+        </span>
+        <span className="user-chip__text">
+          <span style={{ fontSize: 15 }}>{user?.name || 'FAY OS'}</span>
+          <span style={{ fontSize: 12, color: '#b9b2a5' }}>{({ manager: 'Manager', superadmin: 'Super administrator' })[user?.role] || user?.role || t('layout.concierge')}</span>
+        </span>
+      </button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
         {user && (
           <Box sx={{ px: 2, py: 1 }}>

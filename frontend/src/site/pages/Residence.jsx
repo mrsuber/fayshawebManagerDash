@@ -5,7 +5,7 @@ import PhotoViewer from '../components/PhotoViewer';
 import PanoramaDialog from '../components/PanoramaDialog';
 import { residenceMeta } from '../components/ResidenceCard';
 import { Icon, Loading, ResidenceImage } from '../components/ui';
-import { addDays, money, nightsBetween, stayFromParams, stayQuery, today } from '../format';
+import { addDays, curCode, money, nightsBetween, stayFromParams, stayQuery, today } from '../format';
 import { plural, useLang } from '../i18n';
 import { withAvailability } from './Residences';
 import useStayPolicy from '../useStayPolicy';
@@ -165,7 +165,7 @@ export default function Residence() {
           <aside className="fs-card fs-card--gold fs-aside" aria-label={t('res.reserve')}>
             <div>
               <span className="fs-price" style={{ fontSize: 32 }}>{money(unit ? unit.price : r.price)}</span>
-              <span className="fs-muted" style={{ fontSize: 13 }}> {t('price.night')}</span>
+              <span className="fs-muted" style={{ fontSize: 13 }}> {curCode()} {t('price.night')}</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
               <label className="fs-field">
