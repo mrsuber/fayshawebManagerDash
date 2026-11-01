@@ -85,6 +85,18 @@
       "sub": "Transfers, fleet, chauffeurs and guest movement.",
       "tag": "Arrive in comfort. Depart in style."
     },
+    "lockers": {
+      "label": "Lockers & Loans",
+      "title": "Lockers & Loans",
+      "sub": "Extra lockers and equipment lent to guests — requested, handed over, returned.",
+      "tag": "Everything back where it belongs."
+    },
+    "visitors": {
+      "label": "Visitors & Gate",
+      "title": "Visitors & Gate",
+      "sub": "Residents’ guests: approve passes, check them in at the gate, open it.",
+      "tag": "Welcome, and safe."
+    },
     "experiences": {
       "label": "Experiences",
       "title": "Experiences",
@@ -108,6 +120,12 @@
       "title": "Analytics",
       "sub": "Performance across revenue, occupancy, service and satisfaction.",
       "tag": "Insight behind every decision."
+    },
+    "quality": {
+      "label": "Quality",
+      "title": "Quality",
+      "sub": "What guests think of the team, low scores to follow up, and inspection results.",
+      "tag": "Excellence, measured."
     },
     "ai": {
       "label": "AI Command",

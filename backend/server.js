@@ -136,6 +136,8 @@ app.use('/api/manager', managerRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Guest API for the Faysha app (own data only) — see routes/guest/index.js
+app.use('/api/visit', require('./routes/visit')); // public visitor pass (link shared by a resident)
+app.use('/api/guest', require('./routes/guest/operations')); // ratings, loans, visitor passes
 app.use('/api/guest', guestRoutes);
 
 // Serve uploaded files

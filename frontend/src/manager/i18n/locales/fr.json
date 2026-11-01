@@ -85,6 +85,18 @@
       "sub": "Transferts, flotte, chauffeurs et déplacements des clients.",
       "tag": "Arrivez dans le confort. Repartez avec style."
     },
+    "lockers": {
+      "label": "Casiers & prêts",
+      "title": "Casiers & prêts",
+      "sub": "Casiers supplémentaires et équipements prêtés — demandés, remis, rendus.",
+      "tag": "Chaque chose à sa place."
+    },
+    "visitors": {
+      "label": "Visiteurs & portail",
+      "title": "Visiteurs & portail",
+      "sub": "Les invités des résidents : valider les laissez-passer, les accueillir au portail, l’ouvrir.",
+      "tag": "Bienvenue, en sécurité."
+    },
     "experiences": {
       "label": "Expériences",
       "title": "Expériences",
@@ -108,6 +120,12 @@
       "title": "Analyses",
       "sub": "Performance du chiffre d'affaires, de l'occupation, du service et de la satisfaction.",
       "tag": "Des données derrière chaque décision."
+    },
+    "quality": {
+      "label": "Qualité",
+      "title": "Qualité",
+      "sub": "L’avis des clients sur l’équipe, les notes basses à suivre, et les inspections.",
+      "tag": "L’excellence, mesurée."
     },
     "ai": {
       "label": "Commande IA",

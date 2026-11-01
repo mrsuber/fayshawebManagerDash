@@ -6,8 +6,8 @@ import { getDb, mutate } from '../mocks/db';
 export const rooms = () => withMock(() => api.get('/housekeeping/rooms'), () => getDb().housekeepingRooms);
 
 /** PATCH /housekeeping/rooms/:id { status } (also broadcast as `housekeeping:updated`). */
-export const setStatus = (id, status) =>
+export const setStatus = (id, status, extra = {}) =>
   withMock(
-    () => api.patch(`/housekeeping/rooms/${id}`, { status }),
+    () => api.patch(`/housekeeping/rooms/${id}`, { status, ...extra }),
     () => mutate((d) => Object.assign(d.housekeepingRooms.find((r) => r.id === id), { status })),
   );

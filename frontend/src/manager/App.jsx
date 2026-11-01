@@ -16,6 +16,9 @@ import Experiences from './pages/Experiences';
 import Guest360 from './pages/Guest360';
 import GuestJourney from './pages/GuestJourney';
 import Housekeeping from './pages/Housekeeping';
+import Lockers from './pages/Lockers';
+import Quality from './pages/Quality';
+import Visitors from './pages/Visitors';
 import Maintenance from './pages/Maintenance';
 import Reservations from './pages/Reservations';
 import Residences from './pages/Residences';
@@ -38,10 +41,13 @@ const VIEWS = {
   wellness: Wellness,
   dining: Dining,
   transport: Transportation,
+  lockers: Lockers,
+  visitors: Visitors,
   experiences: Experiences,
   events: Events,
   content: Content,
   analytics: Analytics,
+  quality: Quality,
   ai: AICommand,
   settings: Settings,
 };

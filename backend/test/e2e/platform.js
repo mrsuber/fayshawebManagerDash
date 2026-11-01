@@ -135,7 +135,11 @@ const login = async (e, p) => (await call('POST', '/auth/login', { emailOrUserna
 
   // ---------- Guest app: stay services ----------
   expect('Guest concierge message', await call('POST', '/wellness/concierge/messages', { message: 'Can I get late checkout?' }, guest));
-  expect('Guest upload rejects traversal name safely', await call('POST', '/wellness/concierge/upload', { fileName: '../../server.js', fileData: Buffer.from('x').toString('base64') }, guest));
+  // A real photo with a hostile name is stored under our own name; anything that is not a photo or document is refused.
+  const jpeg = require('fs').readFileSync(require('path').join(__dirname, '..', '..', '..', 'frontend', 'public', 'images', 'site', 'spa.jpg'));
+  const up = expect('Guest upload stores a hostile name safely', await call('POST', '/wellness/concierge/upload', { fileName: '../../server.js', fileData: jpeg.toString('base64') }, guest));
+  if (!/^\/uploads\/chat\/[\w-]+\.jpg$/.test(up.url || '')) { failures++; console.log('FAIL upload stored under', up.url); }
+  expect('Guest upload refuses a disguised script (415)', await call('POST', '/wellness/concierge/upload', { fileName: 'photo.jpg', fileData: Buffer.from('<script>alert(1)</script>').toString('base64') }, guest), 415);
   const fs = require('fs');
   if (!fs.readFileSync(require('path').join(__dirname, '..', '..', 'server.js'), 'utf8').includes('express')) { failures++; console.log('FAIL server.js overwritten!'); }
   b = expect('Guest service request', await call('POST', '/guest/requests', { department: 'Housekeeping', title: 'Fresh towels', notes: 'Two please' }, guest), [200, 201]);

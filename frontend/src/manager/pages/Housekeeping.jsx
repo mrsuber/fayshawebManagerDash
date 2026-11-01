@@ -3,6 +3,7 @@ import { housekeepingApi } from '../api';
 import FormDialog from '../components/FormDialog';
 import { Avatar, Bar, Card, Icon, KpiGrid } from '../components/ui';
 import ViewAllDialog from '../components/ViewAllDialog';
+import InspectionDialog from '../components/InspectionDialog';
 import useCollection from '../hooks/useCollection';
 import { useToast } from '../context/ToastContext';
 import useApi from '../hooks/useApi';
@@ -118,15 +119,24 @@ export default function Housekeeping() {
   );
   const residenceOptions = rooms.map((r) => r.residence);
 
-  /** Occupied residences are locked; others advance Dirty → Cleaning → Inspect → Ready → Dirty. */
-  const advance = (room) => {
-    if (room.status === 'Occupied') return;
-    const next = FLOW[(FLOW.indexOf(room.status) + 1) % FLOW.length];
+  /**
+   * Occupied residences are locked; others advance Dirty → Cleaning → Inspect → Ready → Dirty. Moving to Inspect
+   * records who cleaned; Ready is reached only through the inspection checklist.
+   */
+  const [inspecting, setInspecting] = useState(null);
+  const [handing, setHanding] = useState(null);
+  const move = (room, next, extra = {}) => {
     patch({ id: room.id, status: next });
-    housekeepingApi.setStatus(room.id, next).catch((e) => {
+    return housekeepingApi.setStatus(room.id, next, extra).catch((e) => {
       patch({ id: room.id, status: room.status });
       toast(e.message, 'error');
     });
+  };
+  const advance = (room) => {
+    if (room.status === 'Occupied') return;
+    if (room.status === 'Inspect') return setInspecting(room);
+    if (room.status === 'Cleaning') return setHanding(room);
+    return move(room, FLOW[(FLOW.indexOf(room.status) + 1) % FLOW.length]);
   };
   return (
     <div className="stack">
@@ -274,6 +284,24 @@ export default function Housekeeping() {
         initial={{ location: residenceOptions[0], assignee: staff.items[0]?.name, time: '15:00' }}
         onSubmit={(v) => tasks.create({ ...v, status: 'Scheduled' }, `${v.title} scheduled for ${v.time}`)}
         onClose={() => setForm(null)}
+      />
+      <InspectionDialog
+        room={inspecting}
+        onClose={() => setInspecting(null)}
+        onDone={(r) => {
+          patch({ id: inspecting.id, status: r.status });
+          toast(r.passed ? `${inspecting.residence} passed inspection — ready` : `${inspecting.residence} sent back: ${r.failed.join(', ')}`, r.passed ? 'success' : 'warning');
+          setInspecting(null);
+        }}
+      />
+      <FormDialog
+        open={!!handing}
+        title={`${handing?.residence || ''} cleaned — ready for inspection`}
+        submitLabel="Ready for inspection"
+        fields={[{ name: 'cleanedBy', label: 'Cleaned by', type: 'select', options: staff.items.map((m) => m.name), required: true }]}
+        initial={{ cleanedBy: staff.items[0]?.name || '' }}
+        onSubmit={(v) => move(handing, 'Inspect', { cleanedBy: v.cleanedBy })}
+        onClose={() => setHanding(null)}
       />
       <FormDialog
         open={form === 'note'}

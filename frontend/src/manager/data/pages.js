@@ -15,10 +15,13 @@ export const PAGES = {
   wellness: { icon: 'self_improvement' },
   dining: { icon: 'restaurant' },
   transport: { icon: 'directions_car' },
+  lockers: { icon: 'lock' },
+  visitors: { icon: 'badge' },
   experiences: { icon: 'sailing' },
   events: { icon: 'celebration' },
   content: { icon: 'web' },
   analytics: { icon: 'monitoring' },
+  quality: { icon: 'reviews' },
   ai: { icon: 'neurology' },
   settings: { icon: 'settings' },
 };
@@ -31,12 +34,12 @@ export const TOP = [
   ['guests', 'guest360', ['guest360', 'journey', 'comms', 'enquiries']],
   ['reservations', 'reservations', ['reservations']],
   ['residences', 'residences', ['residences', 'housekeeping', 'maintenance']],
-  ['operations', 'requests', ['requests', 'transport']],
+  ['operations', 'requests', ['requests', 'transport', 'lockers', 'visitors']],
   ['wellness', 'wellness', ['wellness']],
   ['dining', 'dining', ['dining']],
   ['experiences', 'experiences', ['experiences']],
   ['events', 'events', ['events']],
-  ['analytics', 'analytics', ['analytics']],
+  ['analytics', 'analytics', ['analytics', 'quality']],
   ['ai', 'ai', ['ai']],
 ];
 

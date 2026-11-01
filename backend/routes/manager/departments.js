@@ -93,6 +93,9 @@ mapped({
     status: title(r.status),
     source: r.source || 'Reservation',
     notes: r.special_requests || '',
+    // Dishes chosen in advance with the booking (prepared for the reservation time).
+    preorder: r.preorder || [],
+    preorderTotal: Number(r.preorder_total || 0),
     createdAt: isoTime(r.created_at),
   }),
   async create(req, b) {

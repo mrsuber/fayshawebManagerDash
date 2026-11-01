@@ -57,6 +57,9 @@ import ChangePasswordScreen from '../screens/auth/ChangePasswordScreen';
 import PlanEventScreen from '../screens/events/PlanEventScreen';
 import MyEventsScreen from '../screens/events/MyEventsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
+import LoansScreen from '../screens/stay/LoansScreen';
+import VisitorsScreen from '../screens/stay/VisitorsScreen';
+import RateScreen from '../screens/stay/RateScreen';
 import VerificationSuccessScreen from '../screens/auth/VerificationSuccessScreen';
 
 const Stack = createStackNavigator();
@@ -161,6 +164,9 @@ export default function AppNavigator({ ready }) {
             <Stack.Screen name="PlanEvent" component={PlanEventScreen} options={bare} />
             <Stack.Screen name="MyEvents" component={MyEventsScreen} options={bare} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} options={bare} />
+            <Stack.Screen name="Loans" component={LoansScreen} options={bare} />
+            <Stack.Screen name="Visitors" component={VisitorsScreen} options={bare} />
+            <Stack.Screen name="Rate" component={RateScreen} options={bare} />
 
             <Stack.Screen name="SmartHome" component={SmartHomeScreen} options={bare} />
             <Stack.Screen name="Requests" component={RequestsScreen} options={bare} />

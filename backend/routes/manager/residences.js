@@ -155,9 +155,22 @@ housekeeping.get(
 housekeeping.patch(
   '/rooms/:id',
   ah(async (req, res) => {
-    const { status, note } = req.body || {};
+    const { status, note, cleanedBy, skipInspection } = req.body || {};
     if (!['Dirty', 'Cleaning', 'Inspect', 'Ready'].includes(status)) throw httpError(400, 'status must be Dirty, Cleaning, Inspect or Ready');
-    const row = await control(req.params.id, "housekeeping_status = $2::text, housekeeping_note = CASE WHEN $3::text IS NOT NULL THEN $3::text WHEN $2::text = 'Ready' THEN NULL ELSE housekeeping_note END", [status, note ?? null]);
+    // A residence becomes Ready through an inspection (POST /housekeeping/rooms/:id/inspect). A manager can skip it,
+    // which is recorded as a passed inspection without a checklist.
+    if (status === 'Ready') {
+      if (!skipInspection) throw httpError(409, 'Inspect the residence to mark it Ready');
+      await db.query(
+        `INSERT INTO housekeeping_inspections (apartment_id, cleaned_by, inspector_id, checklist, passed, notes) VALUES ($1, (SELECT cleaned_by FROM residence_controls WHERE apartment_id = $1), $2, '[]', true, 'Marked ready without inspection')`,
+        [req.params.id, req.user.id],
+      );
+    }
+    const row = await control(
+      req.params.id,
+      "housekeeping_status = $2::text, housekeeping_note = CASE WHEN $3::text IS NOT NULL THEN $3::text WHEN $2::text = 'Ready' THEN NULL ELSE housekeeping_note END, cleaned_by = COALESCE($4::text, cleaned_by)",
+      [status, note ?? null, cleanedBy ? String(cleanedBy).slice(0, 150) : null],
+    );
     const room = toRoom(row);
     emit(req, 'housekeeping:updated', room);
     res.json(room);

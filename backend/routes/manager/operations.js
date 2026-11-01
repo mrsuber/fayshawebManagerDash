@@ -117,7 +117,7 @@ router.use(
 );
 router.use(
   '/dining/menu',
-  crud({ table: 'menu_items', fields: f('name', 'venue', 'price', 'category', 'available', 'popular'), types: { price: 'number' }, required: ['name'], order: 'id' }),
+  crud({ table: 'menu_items', fields: f('name', 'venue', 'price', 'category', 'available', 'popular', 'description', 'imageUrl', 'preorder', 'leadHours'), types: { price: 'number', leadHours: 'number' }, required: ['name'], order: 'id' }),
 );
 
 // ---- Transportation ----

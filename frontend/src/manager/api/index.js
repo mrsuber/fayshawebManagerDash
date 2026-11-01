@@ -16,3 +16,4 @@ export * as paymentsApi from './payments';
 export * as enquiriesApi from './enquiries';
 export * as contentApi from './content';
 export * as eventsApi from './events';
+export * as opsApi from './ops';

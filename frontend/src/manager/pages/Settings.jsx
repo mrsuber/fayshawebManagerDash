@@ -30,8 +30,11 @@ const FIELDS = [
   ['Brand', 'brand'],
   ['Time zone', 'timeZone'],
   ['Currency', 'currency'],
-  ['Check-in time', 'checkInTime'],
-  ['Check-out time', 'checkOutTime'],
+  // Standard times drive the reservations board, emails, website, app and the alerts for late check-outs and no-shows.
+  ['Standard check-in', 'standardCheckIn', 'time'],
+  ['Standard check-out', 'standardCheckOut', 'time'],
+  ['Late check-out alert after (minutes)', 'lateCheckoutGraceMinutes', 'number'],
+  ['No-show alert after check-in time (hours)', 'noShowAfterHours', 'number'],
 ];
 const inputStyle = {
   padding: '10px 12px',
@@ -127,10 +130,10 @@ export default function Settings() {
       }
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 14 }}>
-        {FIELDS.map(([l, key]) => (
+        {FIELDS.map(([l, key, type = 'text']) => (
           <label key={key} className="col" style={{ gap: 6, fontSize: 13, color: 'var(--muted)' }}>
             {l}
-            <input value={form?.[key] ?? ''} onChange={(e) => set(key, e.target.value)} disabled={!form} style={inputStyle} />
+            <input type={type} value={form?.[key] ?? ''} onChange={(e) => set(key, type === 'number' ? Number(e.target.value) : e.target.value)} disabled={!form} style={inputStyle} />
           </label>
         ))}
         <label className="col" style={{ gap: 6, fontSize: 13, color: 'var(--muted)' }}>
@@ -139,7 +142,7 @@ export default function Settings() {
         </label>
         <div className="col fay-phone" style={{ gap: 6, fontSize: 13, color: 'var(--muted)' }}>
           {t('settings.phone')}
-          <PhoneInput country="ae" value={form?.phone ?? ''} onChange={(v) => set('phone', v)} disabled={!form} enableSearch />
+          <PhoneInput country="cm" value={form?.phone ?? ''} onChange={(v) => set('phone', v)} disabled={!form} enableSearch />
         </div>
       </div>
     </Card>

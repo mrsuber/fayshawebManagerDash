@@ -10,6 +10,7 @@ const fakeDb = {
     if (/SELECT token FROM fcm_tokens/.test(sql)) {
       return { rows: [{ token: 'ExponentPushToken[alive]' }, { token: 'ExponentPushToken[gone]' }, { token: 'fcm-web-token' }] };
     }
+    if (/INSERT INTO guest_notifications/.test(sql)) return { rows: [{ id: 41 }] };
     return { rows: [] };
   },
 };
@@ -27,7 +28,10 @@ test('a guest notification reaches the socket room and Expo, and forgets uninsta
 
   await notifyGuest(app, 7, { title: 'Dining', body: 'Your order is on its way.', event: 'dining:updated', data: { id: 3, screen: 'Dining' } });
 
-  assert.deepStrictEqual(emitted, [{ room: 'user_7', event: 'dining:updated', payload: { title: 'Dining', body: 'Your order is on its way.', id: 3, screen: 'Dining' } }]);
+  // Kept in the guest's inbox first; the live event and the push carry the inbox id.
+  const saved = queries.find((q) => /INSERT INTO guest_notifications/.test(q.sql));
+  assert.deepStrictEqual(saved.params.slice(0, 4), [7, 'Dining', 'Your order is on its way.', 'dining:updated']);
+  assert.deepStrictEqual(emitted, [{ room: 'user_7', event: 'dining:updated', payload: { title: 'Dining', body: 'Your order is on its way.', id: 3, screen: 'Dining', notificationId: 41 } }]);
   assert.strictEqual(sent.url, 'https://exp.host/--/api/v2/push/send');
   assert.deepStrictEqual(sent.body.map((m) => m.to), ['ExponentPushToken[alive]', 'ExponentPushToken[gone]'], 'only Expo tokens are pushed');
   assert.strictEqual(sent.body[0].data.screen, 'Dining');
@@ -41,4 +45,17 @@ test('notifications never throw, even when the push service is down', async () =
   };
   await assert.doesNotReject(notifyGuest({ get: () => null }, 7, { title: 't', body: 'b' }));
   await assert.doesNotReject(notifyGuest(null, null, { title: 't', body: 'b' }));
+});
+
+test('a notification with a dedupe key already sent is not sent again', async () => {
+  const before = queries.length;
+  const emitted = [];
+  const app = { get: () => ({ to: () => ({ emit: (e) => emitted.push(e) }) }) };
+  fakeDb.query = async (sql, params) => {
+    queries.push({ sql, params });
+    return { rows: [] }; // ON CONFLICT DO NOTHING: nothing inserted
+  };
+  await notifyGuest(app, 7, { title: 'Welcome', body: 'today', dedupeKey: 'arrival:9' });
+  assert.deepStrictEqual(emitted, []);
+  assert.ok(queries.slice(before).every((q) => !/fcm_tokens/.test(q.sql)), 'no push either');
 });

@@ -253,3 +253,9 @@ export async function getEventQuote(token) {
 export async function respondToEventQuote(token, body) {
   return call(http.post(`/events/quote/${encodeURIComponent(token)}/respond`, body), 'Could not record your answer');
 }
+
+/** A visitor pass shared by a resident (public link). */
+export async function getVisitorPass(token) {
+  return call(http.get(`/visit/${encodeURIComponent(token)}`), 'This visitor pass is not valid');
+}
+export const visitorQrUrl = (token) => `${API_URL}/visit/${encodeURIComponent(token)}/qr.png`;

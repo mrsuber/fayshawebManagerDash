@@ -23,7 +23,7 @@ const LiveContext = createContext(null);
 
 const LAST_READ = 'faysha.lastReadMessageId';
 /** Socket events that carry { title, body, screen } and deserve a banner. */
-const BANNER_EVENTS = ['message:push', 'request:updated', 'dining:updated', 'transfer:updated', 'stay:confirmed', 'stay:arrival', 'stay:departure', 'event:quote', 'guest:notification'];
+const BANNER_EVENTS = ['message:push', 'request:updated', 'dining:updated', 'transfer:updated', 'stay:confirmed', 'stay:arrival', 'stay:departure', 'event:quote', 'loan:ready', 'loan:declined', 'visitor:updated', 'guest:notification'];
 
 export const useLive = () => {
   const context = useContext(LiveContext);

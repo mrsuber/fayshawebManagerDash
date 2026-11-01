@@ -58,6 +58,9 @@ export default function ResidenceScreen({ navigation }) {
     { icon: 'car-outline', title: 'Rides', text: 'Airport and city rides', screen: 'Transfers' },
     { icon: 'receipt-outline', title: 'My bill', text: stay.balance > 0 ? `${xaf(stay.balance)} to settle` : 'All settled', screen: 'Bill' },
     { icon: 'compass-outline', title: 'Explore', text: 'The estate in 360°', screen: 'Explore' },
+    { icon: 'file-tray-stacked-outline', title: 'Lockers & equipment', text: 'Extra locker, golf, sport and beach kit', screen: 'Loans' },
+    { icon: 'people-outline', title: 'Visitors', text: 'Invite guests with a gate pass', screen: 'Visitors' },
+    { icon: 'star-outline', title: 'Rate your experience', text: 'Tell us how the team did', screen: 'Rate' },
   ];
 
   return (

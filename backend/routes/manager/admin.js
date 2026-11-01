@@ -6,6 +6,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { displayTime } = require('./lib');
 const { db, ah, httpError, isoDate, isoTime, notify, getSetting } = require('./lib');
 const { crud } = require('./crud');
 const { folioOf } = require('./guests');
@@ -95,9 +96,30 @@ router.get(
 router.put(
   '/settings/property',
   ah(async (req, res) => {
-    const keys = ['name', 'brand', 'timeZone', 'currency', 'checkInTime', 'checkOutTime', 'phone', 'email'];
-    const value = Object.fromEntries(keys.map((k) => [k, req.body?.[k] ?? '']));
+    const keys = ['name', 'brand', 'timeZone', 'currency', 'phone', 'email'];
+    const current = await getSetting('property');
+    const value = { ...current, ...Object.fromEntries(keys.map((k) => [k, req.body?.[k] ?? current[k] ?? ''])) };
     if (!value.name) throw httpError(400, 'Property name is required');
+    // Standard times (HH:MM, property time): used by the reservations board, confirmation emails, the website, the app
+    // and the operations monitor (late check-outs, no-shows, residences not ready).
+    const hhmm = (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || ''));
+    for (const k of ['standardCheckIn', 'standardCheckOut']) {
+      if (req.body?.[k] === undefined) continue;
+      if (!hhmm(req.body[k])) throw httpError(400, `${k === 'standardCheckIn' ? 'Check-in' : 'Check-out'} time must be HH:MM, e.g. 14:00`);
+      value[k] = req.body[k];
+    }
+    value.standardCheckIn = value.standardCheckIn || '14:00';
+    value.standardCheckOut = value.standardCheckOut || '11:00';
+    if (value.standardCheckOut >= value.standardCheckIn) throw httpError(400, 'Check-out must be earlier in the day than check-in (the residence is cleaned in between)');
+    for (const [k, min, max] of [['lateCheckoutGraceMinutes', 0, 240], ['noShowAfterHours', 1, 24]]) {
+      if (req.body?.[k] === undefined) continue;
+      const n = Number(req.body[k]);
+      if (!(n >= min && n <= max)) throw httpError(400, `${k} must be between ${min} and ${max}`);
+      value[k] = Math.round(n);
+    }
+    // The display forms the rest of FAY OS shows.
+    value.checkInTime = displayTime(value.standardCheckIn);
+    value.checkOutTime = displayTime(value.standardCheckOut);
     await db.query(
       `INSERT INTO app_settings (key, value, updated_by) VALUES ('property', $1, $2)
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2`,

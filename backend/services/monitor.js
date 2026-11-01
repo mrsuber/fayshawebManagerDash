@@ -133,6 +133,26 @@ const RULES = [
                  e.guests || ' guests · ' || to_char(e.event_date, 'Dy DD Mon') AS body, '/events?id=' || e.id AS link
             FROM event_requests e WHERE e.status = 'confirmed' AND e.event_date BETWEEN (NOW() AT TIME ZONE $1)::date AND (NOW() AT TIME ZONE $1)::date + 7`,
   },
+  {
+    prefix: 'loan-overdue',
+    level: 'action',
+    category: 'loans',
+    sql: `SELECT l.id, 'Not returned · ' || COALESCE(i.code, l.category) AS title,
+                 COALESCE(l.guest_name, 'A guest') || ' · ' || COALESCE(i.name, l.category) || ' was due back ' || to_char(l.due_at AT TIME ZONE $1, 'DD Mon HH24:MI') AS body,
+                 '/lockers' AS link
+            FROM loans l LEFT JOIN loan_items i ON i.id = l.item_id
+           WHERE l.status IN ('ready', 'out') AND l.due_at < NOW()`,
+  },
+  {
+    prefix: 'visitor-approve',
+    level: 'action',
+    category: 'gate',
+    sql: `SELECT p.id, 'Visitor to approve · ' || p.visitor_name AS title,
+                 'Expected ' || to_char(p.visit_date, 'Dy DD Mon') || COALESCE(' from ' || p.arrive_from, '') || ' · Residence ' || COALESCE(a.unit_number, '') AS body,
+                 '/visitors' AS link
+            FROM visitor_passes p LEFT JOIN apartments a ON a.id = p.apartment_id
+           WHERE p.status = 'pending' AND p.visit_date >= (NOW() AT TIME ZONE $1)::date`,
+  },
 ];
 
 /** Extra rules registered by other modules (assets, lockers…). */

@@ -47,7 +47,9 @@ export default function DiningScreen({ navigation, route }) {
   const canReserve = ['checked_in', 'confirmed'].includes(data?.stay?.status);
   const categories = useMemo(() => ['All', ...Array.from(new Set(menu.map((m) => m.category)))], [menu]);
   const venues = useMemo(() => Array.from(new Set(menu.map((m) => m.venue))).filter(Boolean), [menu]);
-  const shown = category === 'All' ? menu : menu.filter((m) => m.category === category);
+  // Pre-order-only dishes (full meals the kitchen prepares for a booked table) are chosen with a table, not ordered in.
+  const orderable = menu.filter((m) => !m.preorderOnly);
+  const shown = category === 'All' ? orderable : orderable.filter((m) => m.category === category);
   const items = Object.entries(cart).filter(([, q]) => q > 0).map(([id, qty]) => ({ item: menu.find((m) => String(m.id) === id), qty })).filter((l) => l.item);
   const total = items.reduce((sum, l) => sum + l.item.price * l.qty, 0);
   const count = items.reduce((n, l) => n + l.qty, 0);
@@ -81,7 +83,8 @@ export default function DiningScreen({ navigation, route }) {
     setBusy(true);
     setFormError('');
     try {
-      const r = await guest.reserveTable({ venue: table.venue, date: isoDay(table.date), time: hhmm(table.time), guests: table.guests, notes: table.notes.trim() || undefined });
+      const preorder = Object.entries(table.preorder || {}).filter(([, q]) => q > 0).map(([id, qty]) => ({ id: Number(id), qty }));
+      const r = await guest.reserveTable({ venue: table.venue, date: isoDay(table.date), time: hhmm(table.time), guests: table.guests, notes: table.notes.trim() || undefined, preorder });
       setData((d) => ({ ...d, reservations: [r, ...d.reservations] }));
       setTable(null);
     } catch (e) {
@@ -236,6 +239,36 @@ export default function DiningScreen({ navigation, route }) {
             <PickerField label="Time" mode="time" value={table.time} onChange={(time) => setTable({ ...table, time })} />
             <Stepper label="Guests" value={table.guests} min={1} max={20} onChange={(guests) => setTable({ ...table, guests })} />
             <Field label="Occasion or requests" value={table.notes} onChangeText={(notes) => setTable({ ...table, notes })} placeholder="Anniversary, window table…" multiline maxLength={300} />
+            {/* The restaurant serves tea, cakes and breads by default: meals are prepared for the table when chosen here. */}
+            {menu.some((m) => m.venue === table.venue) ? (
+              <>
+                <SectionTitle>CHOOSE YOUR MEAL (OPTIONAL)</SectionTitle>
+                <Body muted style={{ fontSize: 12.5, marginBottom: 6 }}>Tea, cakes and breads are always served. Choose dishes here and the kitchen prepares them for your table.</Body>
+                {menu
+                  .filter((m) => m.venue === table.venue)
+                  .sort((a, b) => Number(b.preorderOnly) - Number(a.preorderOnly))
+                  .map((m) => {
+                    const q = table.preorder?.[m.id] || 0;
+                    const setQ = (n) => setTable({ ...table, preorder: { ...(table.preorder || {}), [m.id]: Math.max(0, n) } });
+                    return (
+                      <View key={m.id} style={s.dish}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.dishName}>{m.name}</Text>
+                          <Text style={s.dishMeta}>{xaf(m.price)}{m.leadHours ? ` · order ${m.leadHours} h ahead` : ''}</Text>
+                        </View>
+                        {q > 0 ? <Text style={s.lineText} onPress={() => setQ(q - 1)}>  −  </Text> : null}
+                        {q > 0 ? <Text style={[s.lineText, { color: COLORS.primary }]}>{q}</Text> : null}
+                        <Text style={[s.lineText, { color: COLORS.primary }]} onPress={() => setQ(q + 1)}>  +  </Text>
+                      </View>
+                    );
+                  })}
+                {Object.values(table.preorder || {}).some((q) => q > 0) ? (
+                  <Text style={[s.lineText, { color: COLORS.primary, marginVertical: 10 }]}>
+                    Pre-order: {xaf(menu.reduce((t, m) => t + (table.preorder?.[m.id] || 0) * m.price, 0))}, charged to your stay
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
             {formError ? <Notice tone="red" icon="alert-circle-outline" style={{ marginBottom: 12 }}>{formError}</Notice> : null}
             <Button title="Send request" onPress={reserve} loading={busy} />
           </>
@@ -255,6 +288,7 @@ function ReservationCard({ r, onCancel }) {
       </View>
       <Text style={s.cardTitle}>{r.venue}</Text>
       <Text style={s.meta}>{dayLabel(r.date, { weekday: true })} · {r.time} · {r.guests} guest{r.guests > 1 ? 's' : ''}</Text>
+      {r.preorder?.length ? <Text style={s.meta}>Your meal: {r.preorder.map((p) => `${p.qty}× ${p.name}`).join(', ')}</Text> : null}
       {cancellable ? <Text style={s.cancel} onPress={onCancel}>Cancel</Text> : null}
     </Card>
   );

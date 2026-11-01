@@ -137,6 +137,11 @@ export default function Dining() {
       <span>
         {r.guestName}
         {r.date !== today && <span className="sub"> · {moment(r.date).format('MMM D')}</span>}
+        {r.preorder?.length ? (
+          <span className="sub" style={{ display: 'block', color: 'var(--gold)' }} title={r.preorder.map((p) => `${p.qty}× ${p.name}${p.note ? ` (${p.note})` : ''}`).join('\n')}>
+            Pre-order: {r.preorder.map((p) => `${p.qty}× ${p.name}`).join(', ')}
+          </span>
+        ) : null}
       </span>
       <span style={{ color: 'var(--text-3)' }}>{r.covers}</span>
       <span style={{ color: 'var(--text-3)' }}>{r.venue}</span>
@@ -459,9 +464,23 @@ export default function Dining() {
           { name: 'venue', label: 'Venue', type: 'select', options: ['Riviera', 'Pool Club', 'In-Residence'] },
           { name: 'category', label: 'Category', type: 'select', options: ['Starter', 'Main', 'Dessert', 'Drinks', 'Breakfast', 'Tasting menu'] },
           { name: 'price', label: `Price (${currencyCode()})`, type: 'number', required: true },
+          { name: 'description', label: 'Description (shown to guests)', type: 'textarea', rows: 2 },
+          {
+            name: 'preorder',
+            label: 'Availability',
+            type: 'select',
+            options: [['no', 'Served any time'], ['yes', 'Prepared on pre-order (booked with a table)']],
+            helperText: 'The restaurant serves tea, cakes and breads by default; full meals can be pre-order only.',
+          },
+          { name: 'leadHours', label: 'Notice the kitchen needs (hours)', type: 'number' },
         ]}
-        initial={{ venue: 'Riviera', category: 'Main' }}
-        onSubmit={(v) => menu.create({ ...v, price: Number(v.price), available: true, popular: false }, `${v.name} added to the menu`)}
+        initial={{ venue: 'Riviera', category: 'Main', preorder: 'no', leadHours: 0 }}
+        onSubmit={(v) =>
+          menu.create(
+            { ...v, price: Number(v.price), preorder: v.preorder === 'yes', leadHours: Number(v.leadHours) || 0, available: true, popular: false },
+            `${v.name} added to the menu`,
+          )
+        }
         onClose={() => setForm(null)}
       />
       <FormDialog

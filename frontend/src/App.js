@@ -20,6 +20,7 @@ import LegacyApartment from './site/pages/LegacyApartment';
 import { Privacy, Terms } from './site/pages/Legal';
 import Events, { EventQuote } from './site/pages/Events';
 import { Stories, Story } from './site/pages/Stories';
+import Visit from './site/pages/Visit';
 import { ForgotPassword, Login, NotFound, ResetPassword } from './site/pages/Account';
 
 // Faysha HQ — the super administrator dashboard (src/admin), its own bundle, loaded only at /admin.
@@ -90,6 +91,7 @@ function App() {
             <Route path="events/quote/:token" element={<EventQuote />} />
             <Route path="stories" element={<Stories />} />
             <Route path="stories/:slug" element={<Story />} />
+            <Route path="visit/:token" element={<Visit />} />
             <Route path="careers" element={<Careers />} />
             <Route path="feedback" element={<Feedback />} />
             <Route path="terms" element={<Terms />} />

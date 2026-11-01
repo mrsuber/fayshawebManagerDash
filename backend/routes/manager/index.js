@@ -29,6 +29,8 @@ router.use('/housekeeping', residences.housekeeping);
 router.use('/enquiries', enquiries);
 router.use('/content', require('./content'));
 router.use('/events', require('./events'));
+router.use(require('./frontdesk'));
+router.use(require('./quality'));
 router.post('/attachments', require('../../services/attachments').handler);
 router.use(departments.router);
 router.use(operations);

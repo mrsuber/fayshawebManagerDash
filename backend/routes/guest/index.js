@@ -254,8 +254,17 @@ router.post(
 router.get(
   '/dining/menu',
   ah(async (req, res) => {
-    const { rows } = await db.query('SELECT id, name, venue, price, category, popular FROM menu_items WHERE available IS NOT FALSE ORDER BY venue, category, popular DESC, name');
-    res.json(rows.map((m) => ({ id: m.id, name: m.name, venue: m.venue || 'Vitality Café', price: num(m.price), category: m.category || 'Menu', popular: Boolean(m.popular) })));
+    const { rows } = await db.query(
+      'SELECT id, name, venue, price, category, popular, description, image_url, preorder, lead_hours FROM menu_items WHERE available IS NOT FALSE ORDER BY venue, category, popular DESC, name',
+    );
+    res.json(
+      rows.map((m) => ({
+        id: m.id, name: m.name, venue: m.venue || 'Vitality Café', price: num(m.price), category: m.category || 'Menu', popular: Boolean(m.popular),
+        description: m.description || '', image: m.image_url || null,
+        // Prepared only when ordered with a table booking, with this much notice.
+        preorderOnly: Boolean(m.preorder), leadHours: m.lead_hours || 0,
+      })),
+    );
   }),
 );
 
@@ -310,7 +319,28 @@ router.post(
   }),
 );
 
-const toReservation = (r) => ({ id: r.id, number: r.reservation_number, venue: r.restaurant_name, date: isoDate(r.reservation_date), time: hhmm(r.reservation_time), guests: r.number_of_guests, status: r.status, notes: r.special_requests || '' });
+const toReservation = (r) => ({
+  id: r.id, number: r.reservation_number, venue: r.restaurant_name, date: isoDate(r.reservation_date), time: hhmm(r.reservation_time),
+  guests: r.number_of_guests, status: r.status, notes: r.special_requests || '', preorder: r.preorder || [], preorderTotal: num(r.preorder_total),
+});
+
+/**
+ * Dishes chosen with a table booking. Prices come from the menu, never from the app; each dish needs its kitchen
+ * notice (lead_hours) before the reservation time.
+ */
+async function pricePreorder(items, date, time) {
+  const wanted = (Array.isArray(items) ? items : []).map((i) => ({ id: Number(i.id), qty: Math.min(50, Math.max(1, parseInt(i.qty, 10) || 1)), note: i.note ? String(i.note).slice(0, 200) : '' })).filter((i) => i.id);
+  if (!wanted.length) return { lines: [], total: 0 };
+  const { rows } = await db.query('SELECT id, name, price, lead_hours, available FROM menu_items WHERE id = ANY($1::int[])', [wanted.map((i) => i.id)]);
+  const hoursAhead = (await db.query(`SELECT EXTRACT(EPOCH FROM (($1::date + $2::time) - (NOW() AT TIME ZONE $3))) / 3600 AS h`, [date, time, TZ])).rows[0].h;
+  const lines = wanted.map((w) => {
+    const m = rows.find((r) => r.id === w.id);
+    if (!m || m.available === false) throw httpError(400, 'One of the dishes is no longer on the menu');
+    if (Number(hoursAhead) < (m.lead_hours || 0)) throw httpError(400, `${m.name} needs ${m.lead_hours} hours' notice — choose a later time or another dish`);
+    return { id: m.id, name: m.name, qty: w.qty, price: num(m.price), note: w.note };
+  });
+  return { lines, total: lines.reduce((s2, l) => s2 + l.qty * l.price, 0) };
+}
 
 router.get(
   '/dining/reservations',
@@ -328,15 +358,21 @@ router.post(
     if (!venue || !isDate(date) || !isTime(time)) throw httpError(400, 'Choose a venue, date and time');
     if (date < isoDate(await todayIn())) throw httpError(400, 'Choose a date from today');
     const stay = await requireStay(req.user);
+    const pre = await pricePreorder(req.body.preorder, date, time);
     const { rows } = await db.query(
       `WITH n AS (SELECT nextval(pg_get_serial_sequence('dining_reservations', 'id')) AS id)
        INSERT INTO dining_reservations (id, reservation_number, guest_id, guest_name, booking_id, restaurant_name, reservation_date, reservation_time,
-                                        number_of_guests, status, source, special_requests)
-       SELECT n.id, 'DIN-' || n.id, $1, $2, $3, $4, $5, $6, $7, 'pending', 'Guest app', $8 FROM n RETURNING *`,
-      [req.user.id, req.user.fullName, stay.id, String(venue).slice(0, 100), date, time, Math.min(20, Math.max(1, Number(guests) || 1)), notes || null],
+                                        number_of_guests, status, source, special_requests, preorder, preorder_total)
+       SELECT n.id, 'DIN-' || n.id, $1, $2, $3, $4, $5, $6, $7, 'pending', 'Guest app', $8, $9::jsonb, $10 FROM n RETURNING *`,
+      [req.user.id, req.user.fullName, stay.id, String(venue).slice(0, 100), date, time, Math.min(20, Math.max(1, Number(guests) || 1)), notes || null, JSON.stringify(pre.lines), pre.total],
     );
     emit(req, 'dining:reservation', toReservation(rows[0]));
-    await notify(req, `Table request · ${venue}`, `${req.user.fullName} · ${date} ${time} · ${rows[0].number_of_guests} guest(s)`, { link: '/dining' });
+    await notify(
+      req,
+      pre.lines.length ? `Table with pre-order · ${venue}` : `Table request · ${venue}`,
+      `${req.user.fullName} · ${date} ${time} · ${rows[0].number_of_guests} guest(s)${pre.lines.length ? ` · ${pre.lines.map((l) => `${l.qty}× ${l.name}`).join(', ')}` : ''}`,
+      { link: '/dining', level: pre.lines.length ? 'action' : 'info', category: 'dining', dedupeKey: `dining-res:${rows[0].id}` },
+    );
     res.status(201).json(toReservation(rows[0]));
   }),
 );
@@ -694,3 +730,5 @@ router.use((err, req, res, next) => {
 
 module.exports = router;
 module.exports.ROOMS = ROOMS;
+module.exports.currentStay = currentStay;
+module.exports.requireStay = requireStay;
