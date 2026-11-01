@@ -93,6 +93,29 @@ says no residence matches the dates.
 `npm run check:sql` (from `backend/`) checks every SQL statement in the code against the database; it should
 report 0 failed.
 
+### Updating a database that is already running
+
+From v2.1 the database is updated with **migrations** (`backend/db/migrations/*.sql`). Every deploy, after copying the
+backend, run setup once more; it applies only the migrations this database has not had yet (each one once, in its own
+transaction, recorded in the `schema_migrations` table) and changes nothing else:
+
+```bash
+cd ~/fayshaa/backend && pg_dump -Fc "$DB_NAME" > ~/backups/$STAMP/db.dump   # back up first
+NODE_ENV=production node db/setup.js        # prints "Applying migration 00X_…" for each new one
+npm run check:sql                           # 0 failed
+```
+
+### nginx: upload size
+
+Guests and staff send photos in the chat (up to 10 MB), and HQ uploads residence photos and 360° panoramas. nginx refuses
+any request over 1 MB unless told otherwise, which made photo messages fail. In the site's `server { }` block:
+
+```nginx
+client_max_body_size 25m;
+```
+
+then `sudo nginx -t && sudo systemctl reload nginx`.
+
 ## 5. Restart
 
 ```bash

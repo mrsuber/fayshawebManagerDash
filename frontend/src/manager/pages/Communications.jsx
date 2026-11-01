@@ -10,6 +10,7 @@ import { useToast } from '../context/ToastContext';
 import useApi from '../hooks/useApi';
 import useGuestOptions from '../hooks/useGuestOptions';
 import useSocketEvent from '../hooks/useSocketEvent';
+import { mediaUrl } from '../config';
 import { BookingRow, RequestRow, ServiceRow, TimelineRow } from './guest360/cards';
 import useGuestActions from './guest360/GuestActions';
 import { BOOKING_TYPES, CHANNELS, fmtDate, nights, statusColors } from './guest360/format';
@@ -148,10 +149,29 @@ export default function Communications() {
     sendText(t).catch(() => setDraft(t));
   };
 
-  const attach = (e) => {
+  const [uploading, setUploading] = useState(false);
+  // Uploads the file, then sends it with whatever is typed as its caption.
+  const attach = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (file && current) sendText(`📎 ${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)`).then(() => toast('Attachment sent'));
+    if (!file || !current) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast('Files can be up to 10 MB', 'error');
+      return;
+    }
+    setUploading(true);
+    try {
+      const attachment = await conversationsApi.upload(file);
+      const caption = mode === 'Reply' ? draft.trim() : '';
+      const m = await conversationsApi.send(current.id, caption, attachment);
+      if (caption) setDraft('');
+      appendMessage(m);
+      toast(attachment.type === 'image' ? 'Photo sent' : 'File sent');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const replyTab = (l) => {
@@ -214,7 +234,8 @@ export default function Communications() {
               }}
             >
               <span style={{ fontSize: 12, color: 'var(--gold)' }}>{m.sender}</span>
-              {m.body}
+              {m.attachment ? <Attachment a={m.attachment} /> : null}
+              {m.attachment && /^(📷 Photo|📎 )/.test(m.body) ? null : m.body}
               <span style={{ fontSize: 11, color: 'var(--dim)', alignSelf: 'flex-end' }}>
                 {timeLabel(m.createdAt)}
                 {m.fromStaff ? ' ✓✓' : ''}
@@ -471,9 +492,16 @@ export default function Communications() {
                     placeholder={mode === 'Internal Note' ? `Internal note about ${active} (staff only)…` : `Type a message to ${active}…`}
                     style={{ flex: 1, background: 'transparent', border: 0, outline: 0, color: 'var(--text)', fontSize: 14, fontFamily: 'var(--sans)' }}
                   />
-                  <input ref={fileInput} type="file" hidden onChange={attach} />
-                  <button type="button" className="icon" title="Attach a file" onClick={() => fileInput.current?.click()} style={{ background: 'transparent', border: 0, color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}>
-                    attach_file
+                  <input ref={fileInput} type="file" hidden accept="image/*,.pdf,.doc,.docx" onChange={attach} />
+                  <button
+                    type="button"
+                    className="icon"
+                    title={mode === 'Internal Note' ? 'Switch to Reply to send a file' : 'Send a photo or document (what you typed becomes its caption)'}
+                    disabled={uploading || mode === 'Internal Note'}
+                    onClick={() => fileInput.current?.click()}
+                    style={{ background: 'transparent', border: 0, color: uploading ? 'var(--gold)' : 'var(--muted)', fontSize: 20, cursor: uploading ? 'progress' : 'pointer' }}
+                  >
+                    {uploading ? 'progress_activity' : 'attach_file'}
                   </button>
                   <button
                     type="button"
@@ -636,5 +664,23 @@ export default function Communications() {
       />
       {dialogs}
     </div>
+  );
+}
+
+/** A photo (opens full size) or a document link inside a message bubble. */
+function Attachment({ a }) {
+  const url = mediaUrl(a.url);
+  if (a.type === 'image') {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" style={{ display: 'block', margin: '4px 0' }} aria-label={`Open ${a.name || 'photo'}`}>
+        <img src={url} alt={a.name || 'Photo'} loading="lazy" style={{ display: 'block', maxWidth: '100%', width: 280, maxHeight: 320, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+      </a>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', margin: '4px 0', borderRadius: 8, border: '1px solid var(--border-strong)', color: 'var(--text)' }}>
+      <Icon name="description" size={22} color="var(--gold)" />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name || 'Document'}</span>
+    </a>
   );
 }

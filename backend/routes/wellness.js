@@ -523,21 +523,20 @@ router.post('/concierge/upload', authenticateToken, async (req, res) => {
       buffer = Buffer.from(fileData, 'base64');
     }
 
-    // Create upload directory
-    const uploadDir = path.join(__dirname, '..', 'uploads', 'chat');
-    await fs.mkdir(uploadDir, { recursive: true });
-
     if (buffer.length > 10 * 1024 * 1024) {
       return res.status(400).json({ success: false, error: 'File size exceeds 10MB limit' });
     }
-
-    // The stored name is ours: the client's name only contributes a safe extension.
-    const extension = (path.extname(String(fileName)).replace(/[^a-zA-Z0-9.]/g, '') || '.bin').slice(0, 10);
-    const storedName = `${userId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${extension}`;
-    await fs.writeFile(path.join(uploadDir, storedName), buffer);
-
-    const publicUrl = `/uploads/chat/${storedName}`;
-    const cdnUrl = `https://fayshaa.com${publicUrl}`;
+    // Stored under our own name with the extension of its real type (never the client's), so nothing
+    // uploaded here can be served back as a web page.
+    let saved;
+    try {
+      saved = await require('../services/attachments').store(buffer, fileName, userId);
+    } catch (e) {
+      return res.status(e.status || 400).json({ success: false, error: e.message, message: e.message });
+    }
+    const publicUrl = saved.url;
+    const storedName = path.basename(saved.url);
+    const cdnUrl = `${process.env.APP_URL || 'https://fayshaa.com'}${publicUrl}`;
 
     res.json({
       success: true,
@@ -559,66 +558,30 @@ router.post('/concierge/upload', authenticateToken, async (req, res) => {
 router.post('/concierge/messages', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { message, metadata } = req.body;
+    const { metadata } = req.body;
+    const attachments = require('../services/attachments');
 
-    if (!message) {
-      return res.status(400).json({
-        success: false,
-        error: 'Message is required'
-      });
-    }
-
-    // Process metadata to save image/file attachments
-    let processedMetadata = metadata || {};
-
-    if (metadata && metadata.attachment) {
-      const attachment = metadata.attachment;
-
-      // If attachment has base64 data, save it as a file
-      if (attachment.uri && attachment.uri.startsWith('data:')) {
+    // The attachment: a file uploaded first (POST /api/chat/attachments → { url }), or, from older app builds,
+    // base64 data inside the message, which is saved as a file here.
+    let attachment = null;
+    const sent = metadata && metadata.attachment;
+    if (sent && sent.url && !String(sent.uri || '').startsWith('data:')) {
+      attachment = attachments.clean(sent);
+    } else if (sent && String(sent.uri || '').startsWith('data:')) {
+      const match = String(sent.uri).match(/^data:[^;]+;base64,(.+)$/s);
+      if (match) {
         try {
-          // Extract base64 data
-          const matches = attachment.uri.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-          if (matches && matches.length === 3) {
-            const mimeType = matches[1];
-            const base64Data = matches[2];
-            const buffer = Buffer.from(base64Data, 'base64');
-
-            // Create uploads directory if it doesn't exist
-            const uploadDir = path.join(__dirname, '..', 'uploads', 'chat');
-            await fs.mkdir(uploadDir, { recursive: true });
-
-            // Generate unique filename
-            const timestamp = Date.now();
-            const extension = attachment.type === 'image'
-              ? (mimeType.split('/')[1] || 'jpg')
-              : path.extname(attachment.name || '.bin');
-            const filename = `${userId}_${timestamp}.${extension}`;
-            const filepath = path.join(uploadDir, filename);
-
-            // Save file
-            await fs.writeFile(filepath, buffer);
-
-            // Update metadata with file path instead of base64
-            processedMetadata = {
-              ...metadata,
-              attachment: {
-                type: attachment.type,
-                name: attachment.name,
-                mimeType: mimeType,
-                url: `/uploads/chat/${filename}`,
-                size: buffer.length
-              }
-            };
-
-            console.log(`Saved attachment: ${filename} (${buffer.length} bytes)`);
-          }
-        } catch (fileError) {
-          console.error('Error saving attachment file:', fileError);
-          // Continue with original metadata if file save fails
+          attachment = await attachments.store(Buffer.from(match[1], 'base64'), sent.name, userId);
+        } catch (e) {
+          return res.status(e.status || 400).json({ success: false, error: e.message, message: e.message });
         }
       }
     }
+    const message = String(req.body.message || '').trim() || (attachment ? (attachment.type === 'image' ? '📷 Photo' : `📎 ${attachment.name}`) : '');
+    if (!message) {
+      return res.status(400).json({ success: false, error: 'Message is required', message: 'Message is required' });
+    }
+    const processedMetadata = { ...(metadata && typeof metadata === 'object' ? metadata : {}), attachment: attachment || undefined };
 
     // Save user message
     const userMessageQuery = `
@@ -644,6 +607,20 @@ router.post('/concierge/messages', authenticateToken, async (req, res) => {
       };
       // Notify admin of new message from user
       io.to('admin').emit('new_message', messageData);
+      // FAY OS Communications listens for message:new in its own shape.
+      try {
+        const { messagesFor } = require('./manager/conversations');
+        const latest = (await messagesFor(userId)).find((m) => m.id === userMessage.rows[0].id);
+        if (latest) io.to('staff').emit('message:new', latest);
+      } catch (e) {
+        console.error('Could not relay the guest message to FAY OS:', e.message);
+      }
+    }
+    // A bell notification for the first unread message of a conversation (not one per message).
+    const unread = await db.query("SELECT COUNT(*)::int AS n FROM concierge_messages WHERE user_id = $1 AND sender_type = 'user' AND is_read = false", [userId]);
+    if (unread.rows[0].n === 1) {
+      const who = await db.query('SELECT full_name FROM users WHERE id = $1', [userId]);
+      require('../services/stayKeys').alertManagers(req.app, `Message from ${who.rows[0]?.full_name || 'a guest'}`, message.slice(0, 120), `/comms?conversation=${userId}`);
     }
 
     // Send to n8n for AI processing (non-blocking)

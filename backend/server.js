@@ -120,6 +120,8 @@ app.use('/api/wellness-availability', wellnessAvailabilityRoutes);
 app.use('/api/wellness-unified', wellnessUnifiedRoutes); // guest app wellness bookings
 app.use('/api/deposit-box', depositBoxRoutes);
 app.use('/api/contact', contactRoutes); // public contact form (website)
+// Chat attachments (guest app and FAY OS): multipart upload, type checked from the file itself.
+app.post('/api/chat/attachments', require('./middleware/auth').authenticateToken, require('./services/attachments').handler);
 app.use('/api/jobs', jobsRoutes); // listing and applications are public (Careers page); management is staff-only
 app.use('/api/employees', requireAreaByMethod('hr'), employeesRoutes); // super administrators, managers and HR roles
 app.use('/api/attendance', requireAreaByMethod('hr'), attendanceRoutes); // super administrators, managers and HR roles

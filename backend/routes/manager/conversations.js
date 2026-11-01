@@ -28,7 +28,7 @@ function messageOf(row) {
     body: row.message,
     channel: row.is_internal ? 'note' : row.channel || 'in_app',
     internal: Boolean(row.is_internal),
-    attachment: attachment && attachment.url ? { url: attachment.url, name: attachment.name, type: attachment.type } : undefined,
+    attachment: attachment && attachment.url ? { url: attachment.url, name: attachment.name, type: attachment.type, mimeType: attachment.mimeType } : undefined,
     createdAt: isoTime(row.created_at),
   };
 }
@@ -81,8 +81,11 @@ async function conversations({ channel, guestId } = {}) {
  * same payload as before), email goes out by SMTP, and other staff screens get `message:new`.
  * channel 'note' is an internal note the guest never sees.
  */
-async function sendStaffMessage(req, guestId, { channel = 'in_app', body }) {
-  if (!body || !String(body).trim()) throw httpError(400, 'Message body is required');
+async function sendStaffMessage(req, guestId, { channel = 'in_app', body, attachment: sentAttachment }) {
+  const attachment = require('../../services/attachments').clean(sentAttachment);
+  if (sentAttachment && !attachment) throw httpError(400, 'Upload the file first, then send it');
+  if ((!body || !String(body).trim()) && !attachment) throw httpError(400, 'Message body is required');
+  if (!body || !String(body).trim()) body = attachment.type === 'image' ? '📷 Photo' : `📎 ${attachment.name}`;
   if (!CHANNELS.includes(channel)) throw httpError(400, `Unknown channel "${channel}"`);
   const guest = await db.query('SELECT id, full_name, email FROM users WHERE id = $1 AND deleted_at IS NULL', [guestId]);
   if (!guest.rows.length) throw httpError(404, 'Guest not found');
@@ -91,7 +94,7 @@ async function sendStaffMessage(req, guestId, { channel = 'in_app', body }) {
   const { rows } = await db.query(
     `INSERT INTO concierge_messages (user_id, message, sender_type, metadata, channel, staff_id, is_internal, is_read)
      VALUES ($1, $2, 'concierge', $3, $4, $5, $6, true) RETURNING *`,
-    [guestId, String(body).trim(), JSON.stringify({ auto: false, staffName: req.user.fullName }), internal ? 'in_app' : channel, req.user.id, internal],
+    [guestId, String(body).trim(), JSON.stringify({ auto: false, staffName: req.user.fullName, ...(attachment ? { attachment } : {}) }), internal ? 'in_app' : channel, req.user.id, internal],
   );
   // Staff have now seen the guest's side of the thread.
   await db.query("UPDATE concierge_messages SET is_read = true WHERE user_id = $1 AND sender_type = 'user' AND is_read = false", [guestId]);
@@ -138,7 +141,7 @@ router.post(
   ah(async (req, res) => {
     const last = await db.query('SELECT channel FROM concierge_messages WHERE user_id = $1 AND is_internal = false ORDER BY created_at DESC LIMIT 1', [req.params.id]);
     const channel = req.body.channel || last.rows[0]?.channel || 'in_app';
-    res.status(201).json(await sendStaffMessage(req, req.params.id, { channel, body: req.body.body }));
+    res.status(201).json(await sendStaffMessage(req, req.params.id, { channel, body: req.body.body, attachment: req.body.attachment }));
   }),
 );
 

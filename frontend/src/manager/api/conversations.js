@@ -15,10 +15,17 @@ export const list = (params) =>
 /** GET /conversations/:id/messages → Message[] oldest first */
 export const messages = (id) => withMock(() => api.get(`/conversations/${id}/messages`), () => getDb().messages.filter((m) => m.conversationId === id));
 
-/** POST /conversations/:id/messages { body } → Message (also broadcast as `message:new`). */
-export const send = (id, body) =>
+/** POST /attachments (multipart) → { url, name, type, mimeType, size } — then send it with send(id, body, attachment). */
+export const upload = (file) => {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post('/attachments', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 }).then((r) => r.data.attachment);
+};
+
+/** POST /conversations/:id/messages { body, attachment? } → Message (also broadcast as `message:new`). */
+export const send = (id, body, attachment) =>
   withMock(
-    () => api.post(`/conversations/${id}/messages`, { body }),
+    () => api.post(`/conversations/${id}/messages`, { body, attachment }),
     () =>
       mutate((d) => {
         const message = { id: nextId(d.messages), conversationId: id, fromStaff: true, sender: 'FAY AI Concierge', body, createdAt: new Date().toISOString() };

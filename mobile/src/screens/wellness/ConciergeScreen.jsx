@@ -17,7 +17,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS } from '../../constants/theme';
 import { CONCIERGE_QUICK_REPLIES } from '../../constants/wellnessData';
@@ -161,119 +160,69 @@ export default function ConciergeScreen() {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   };
 
-  // Pick image from gallery
+  // A picked photo or document is kept as a local file and uploaded when sent (multipart, not base64:
+  // a phone photo as base64 JSON is several megabytes and was refused by the server's request size limit).
+  const asAttachment = (asset, type) => {
+    const fallbackName = `${type === 'image' ? 'photo' : 'document'}_${Date.now()}`;
+    const name = asset.fileName || asset.name || asset.uri.split('/').pop() || fallbackName;
+    const mimeType = asset.mimeType || (type === 'image' ? 'image/jpeg' : 'application/pdf');
+    if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
+      Alert.alert('File too large', 'Files can be up to 10 MB.');
+      return;
+    }
+    setAttachedFile({ type, name, uri: asset.uri, mimeType });
+  };
+
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please grant access to your photos');
+        Alert.alert('Permission needed', 'Please allow access to your photos to send one.');
         return;
       }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.7,
-        // Note: base64 option may not work in all Expo versions
-        // We'll read it manually with FileSystem instead
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-
-        try {
-          // Read the image file as base64 using FileSystem
-          const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-
-          if (!base64) {
-            console.error('Failed to convert image to base64');
-            Alert.alert('Error', 'Failed to process image. Please try again.');
-            return;
-          }
-
-
-          // Determine mime type from file extension
-          const fileName = asset.fileName || asset.uri.split('/').pop() || '';
-          const extension = fileName.toLowerCase().match(/\.(png|jpg|jpeg|gif|webp)$/i)?.[1] || 'jpeg';
-
-          let mimeType;
-          switch (extension) {
-            case 'png':
-              mimeType = 'image/png';
-              break;
-            case 'gif':
-              mimeType = 'image/gif';
-              break;
-            case 'webp':
-              mimeType = 'image/webp';
-              break;
-            case 'jpg':
-            case 'jpeg':
-            default:
-              mimeType = 'image/jpeg';
-              break;
-          }
-
-          const base64Data = `data:${mimeType};base64,${base64}`;
-
-          setAttachedFile({
-            type: 'image',
-            name: fileName || `image_${Date.now()}.${extension}`,
-            uri: base64Data,
-            mimeType: mimeType,
-          });
-
-        } catch (fileError) {
-          console.error('Error reading image file:', fileError);
-          Alert.alert('Error', 'Failed to read image file: ' + fileError.message);
-        }
-      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6, exif: false });
+      if (!result.canceled && result.assets?.[0]) asAttachment(result.assets[0], 'image');
     } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image: ' + error.message);
+      Alert.alert('Could not open your photos', error.message);
     }
   };
 
-  // Pick document
+  const takePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please allow camera access to take a photo.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6, exif: false });
+      if (!result.canceled && result.assets?.[0]) asAttachment(result.assets[0], 'image');
+    } catch (error) {
+      Alert.alert('Could not open the camera', error.message);
+    }
+  };
+
   const pickDocument = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/*'],
         copyToCacheDirectory: true,
       });
-
-      if (result.type === 'success') {
-        // Read file as base64
-        const response = await fetch(result.uri);
-        const blob = await response.blob();
-        const reader = new FileReader();
-
-        reader.onloadend = () => {
-          setAttachedFile({
-            type: 'document',
-            name: result.name,
-            uri: reader.result,
-            mimeType: result.mimeType || 'application/pdf',
-          });
-        };
-
-        reader.readAsDataURL(blob);
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        asAttachment({ ...asset, fileSize: asset.size }, String(asset.mimeType || '').startsWith('image/') ? 'image' : 'document');
       }
     } catch (error) {
-      console.error('Error picking document:', error);
-      Alert.alert('Error', 'Failed to pick document');
+      Alert.alert('Could not open your files', error.message);
     }
   };
 
-  // Show attachment options
   const showAttachmentOptions = () => {
     Alert.alert(
-      'Attach File',
-      'Choose file type',
+      'Send a file',
+      undefined,
       [
-        { text: 'Image', onPress: pickImage },
+        { text: 'Take a photo', onPress: takePhoto },
+        { text: 'Photo library', onPress: pickImage },
         { text: 'Document', onPress: pickDocument },
         { text: 'Cancel', style: 'cancel' },
       ],
@@ -281,57 +230,19 @@ export default function ConciergeScreen() {
     );
   };
 
-  // Upload file to server
+  /** Uploads the local file (POST /chat/attachments, multipart) → { url, name, type, mimeType, size }. */
   const uploadFile = async (file) => {
+    setUploadProgress(5);
     try {
-      setUploadProgress(10);
-
-      // Step 1: Get upload URL
-      const urlResponse = await api.post('/wellness/concierge/upload-url', {
-        fileName: file.name,
-        fileType: file.mimeType,
-        fileSize: file.uri.length,
+      const form = new FormData();
+      form.append('file', { uri: file.uri, name: file.name, type: file.mimeType });
+      const res = await api.post('/chat/attachments', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
+        transformRequest: (data) => data,
+        onUploadProgress: (e) => e.total && setUploadProgress(Math.max(5, Math.round((e.loaded / e.total) * 100))),
       });
-
-      setUploadProgress(30);
-
-      if (!urlResponse.success) {
-        throw new Error('Failed to get upload URL');
-      }
-
-      const { fileName, cdnUrl } = urlResponse;
-
-      setUploadProgress(50);
-
-      // Step 2: Upload the file data
-      const uploadResponse = await api.post('/wellness/concierge/upload', {
-        fileName: fileName,
-        fileData: file.uri, // base64 data
-        mimeType: file.mimeType,
-      });
-
-      setUploadProgress(100);
-
-      if (!uploadResponse.success) {
-        throw new Error('Failed to upload file');
-      }
-
-      return {
-        type: file.type,
-        name: file.name,
-        url: uploadResponse.url,
-        cdnUrl: uploadResponse.cdnUrl,
-        mimeType: file.mimeType,
-        size: uploadResponse.size,
-      };
-    } catch (error) {
-      console.error('❌ Upload error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
-      throw error;
+      return res.attachment;
     } finally {
       setUploadProgress(0);
     }
@@ -348,7 +259,7 @@ export default function ConciergeScreen() {
     // Create optimistic message
     const optimisticMessage = {
       id: localId,
-      message: text.trim() || '📎 Sent an attachment',
+      message: text.trim() || (file?.type === 'image' ? '📷 Photo' : `📎 ${file?.name || 'File'}`),
       sender_type: 'user',
       created_at: new Date().toISOString(),
       metadata: file ? {
@@ -373,36 +284,15 @@ export default function ConciergeScreen() {
     try {
       let uploadedAttachment = null;
 
-      // ✅ Step 2: Upload file if exists (in background)
+      // Upload the file first; if that fails the message is not sent and the guest can retry.
       if (file) {
-        try {
-          // Try new upload method first
-          uploadedAttachment = await uploadFile(file);
-
-          // Update message with uploaded URL
-          setMessages(prev => prev.map(m =>
-            m.id === localId
-              ? {
-                  ...m,
-                  metadata: { attachment: uploadedAttachment }
-                }
-              : m
-          ));
-        } catch (uploadError) {
-          console.error('⚠️ File upload failed, using fallback method:', uploadError);
-          // Fallback: send base64 directly (old method that works)
-          uploadedAttachment = {
-            type: file.type,
-            uri: file.uri, // Base64 data
-            name: file.name,
-            mimeType: file.mimeType,
-          };
-        }
+        uploadedAttachment = await uploadFile(file);
+        setMessages(prev => prev.map(m => (m.id === localId ? { ...m, metadata: { attachment: { ...uploadedAttachment, uri: file.uri } } } : m)));
       }
 
       // ✅ Step 3: Send message to server
       const response = await api.post('/wellness/concierge/messages', {
-        message: text.trim() || '📎 Sent an attachment',
+        message: text.trim(),
         metadata: uploadedAttachment ? { attachment: uploadedAttachment } : {},
       });
 
@@ -637,7 +527,7 @@ export default function ConciergeScreen() {
                   {metadata?.attachment && renderAttachment(metadata.attachment)}
 
                   {/* Only show message text if it's not just the attachment placeholder */}
-                  {msg.message && !msg.message.includes('📎 Sent an attachment') && (
+                  {msg.message && !(metadata?.attachment && /^(📎 Sent an attachment|📷 Photo$|📎 )/.test(msg.message)) && (
                     <Text style={styles.messageTextUser}>
                       {msg.message}
                     </Text>
@@ -666,7 +556,7 @@ export default function ConciergeScreen() {
                   {metadata?.attachment && renderAttachment(metadata.attachment)}
 
                   {/* Only show message text if it's not just the attachment placeholder */}
-                  {msg.message && !msg.message.includes('📎 Sent an attachment') && (
+                  {msg.message && !(metadata?.attachment && /^(📎 Sent an attachment|📷 Photo$|📎 )/.test(msg.message)) && (
                     <Text style={styles.messageTextConcierge}>
                       {msg.message}
                     </Text>
