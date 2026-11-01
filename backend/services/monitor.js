@@ -153,6 +153,53 @@ const RULES = [
             FROM visitor_passes p LEFT JOIN apartments a ON a.id = p.apartment_id
            WHERE p.status = 'pending' AND p.visit_date >= (NOW() AT TIME ZONE $1)::date`,
   },
+  {
+    prefix: 'asset-task',
+    level: 'action',
+    category: 'assets',
+    sql: `SELECT t.id, CASE WHEN t.next_due < (NOW() AT TIME ZONE $1)::date THEN 'Overdue · ' ELSE 'Due soon · ' END || t.title AS title,
+                 COALESCE(a.code || ' ' || a.name, t.area, '') || ' · due ' || to_char(t.next_due, 'Dy DD Mon') || COALESCE(' · ' || t.team, '') AS body,
+                 '/assets?tab=schedule' AS link
+            FROM asset_tasks t LEFT JOIN assets a ON a.id = t.asset_id
+           WHERE t.active AND t.next_due <= (NOW() AT TIME ZONE $1)::date + 3 AND (a.id IS NULL OR a.status <> 'retired')`,
+  },
+  {
+    prefix: 'asset-order',
+    level: 'action',
+    category: 'assets',
+    sql: `SELECT a.id, 'Order a replacement · ' || a.code AS title,
+                 a.name || ' reaches the end of its expected life on ' || to_char((a.purchase_date + make_interval(months => a.expected_life_months))::date, 'DD Mon YYYY')
+                 || CASE WHEN a.lead_time_days > 0 THEN ' and takes ' || a.lead_time_days || ' days to arrive' ELSE '' END AS body,
+                 '/assets?id=' || a.id AS link
+            FROM assets a
+           WHERE a.status <> 'retired' AND a.purchase_date IS NOT NULL AND a.expected_life_months IS NOT NULL
+             AND (a.purchase_date + make_interval(months => a.expected_life_months) - make_interval(days => a.lead_time_days + 30))::date <= (NOW() AT TIME ZONE $1)::date + 30`,
+  },
+  {
+    prefix: 'asset-spares',
+    level: 'action',
+    category: 'assets',
+    sql: `SELECT a.id, 'Spares below minimum · ' || a.code AS title,
+                 a.name || ': ' || a.spares_on_hand || ' in stock, keep ' || a.spares_min || CASE WHEN a.lead_time_days > 0 THEN ' (' || a.lead_time_days || ' days to ship)' ELSE '' END AS body,
+                 '/assets?id=' || a.id AS link
+            FROM assets a WHERE a.status <> 'retired' AND a.spares_on_hand < a.spares_min`,
+  },
+  {
+    prefix: 'asset-warranty',
+    level: 'info',
+    category: 'assets',
+    sql: `SELECT a.id, 'Warranty ending · ' || a.code AS title, a.name || ' is under warranty until ' || to_char(a.warranty_until, 'DD Mon YYYY') || ' — claim anything outstanding now' AS body,
+                 '/assets?id=' || a.id AS link
+            FROM assets a WHERE a.status <> 'retired' AND a.warranty_until BETWEEN (NOW() AT TIME ZONE $1)::date AND (NOW() AT TIME ZONE $1)::date + 30`,
+  },
+  {
+    prefix: 'asset-down',
+    level: 'urgent',
+    category: 'assets',
+    sql: `SELECT a.id, 'Out of service · ' || a.code AS title, a.name || COALESCE(' · ' || a.location, '') || CASE WHEN a.spares_on_hand > 0 THEN ' · a spare is in stock' ELSE '' END AS body,
+                 '/assets?id=' || a.id AS link
+            FROM assets a WHERE a.status = 'out_of_service' AND a.criticality IN ('critical', 'high')`,
+  },
 ];
 
 /** Extra rules registered by other modules (assets, lockers…). */
@@ -225,6 +272,8 @@ async function tick(app) {
     try {
       const p = await policy();
       await runRules(app, p);
+      // The replacement reserve: this month's contribution per asset, posted once.
+      await require('./assets').postMonthlyReserve().catch((e) => console.error('Asset reserve posting failed:', e.message));
       await guestReminders(app, p);
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [LOCK]);

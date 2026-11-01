@@ -67,6 +67,12 @@
       "sub": "Work orders, preventive care and system health.",
       "tag": "Flawless spaces. Quietly maintained."
     },
+    "assets": {
+      "label": "Assets & Lifecycle",
+      "title": "Assets & Lifecycle",
+      "sub": "Everything the property owns, its care schedule, and the money set aside to replace it before it fails.",
+      "tag": "Nothing waits for a shipment."
+    },
     "wellness": {
       "label": "Wellness & Spa",
       "title": "Wellness & Spa",

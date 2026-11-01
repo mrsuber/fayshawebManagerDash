@@ -67,6 +67,12 @@
       "sub": "Ordres de travail, maintenance préventive et état des systèmes.",
       "tag": "Des espaces parfaits. Entretenus en silence."
     },
+    "assets": {
+      "label": "Équipements & cycle de vie",
+      "title": "Équipements & cycle de vie",
+      "sub": "Tout ce que possède la propriété, son entretien, et l’argent mis de côté pour le remplacer avant la panne.",
+      "tag": "Rien n’attend une livraison."
+    },
     "wellness": {
       "label": "Bien-être & Spa",
       "title": "Bien-être & Spa",

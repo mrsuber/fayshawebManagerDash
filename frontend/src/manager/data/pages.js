@@ -12,6 +12,7 @@ export const PAGES = {
   residences: { icon: 'villa' },
   housekeeping: { icon: 'cleaning_services' },
   maintenance: { icon: 'build' },
+  assets: { icon: 'inventory' },
   wellness: { icon: 'self_improvement' },
   dining: { icon: 'restaurant' },
   transport: { icon: 'directions_car' },
@@ -33,7 +34,7 @@ export const SIDE = Object.keys(PAGES);
 export const TOP = [
   ['guests', 'guest360', ['guest360', 'journey', 'comms', 'enquiries']],
   ['reservations', 'reservations', ['reservations']],
-  ['residences', 'residences', ['residences', 'housekeeping', 'maintenance']],
+  ['residences', 'residences', ['residences', 'housekeeping', 'maintenance', 'assets']],
   ['operations', 'requests', ['requests', 'transport', 'lockers', 'visitors']],
   ['wellness', 'wellness', ['wellness']],
   ['dining', 'dining', ['dining']],

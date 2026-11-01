@@ -6,6 +6,7 @@ import Layout, { LAST_PAGE_KEY } from './components/Layout';
 import { useAuth } from './context/AuthContext';
 import { SIDE, href, isPageId } from './data/pages';
 import AICommand from './pages/AICommand';
+import Assets from './pages/Assets';
 import Analytics from './pages/Analytics';
 import Communications from './pages/Communications';
 import Content from './pages/Content';
@@ -38,6 +39,7 @@ const VIEWS = {
   residences: Residences,
   housekeeping: Housekeeping,
   maintenance: Maintenance,
+  assets: Assets,
   wellness: Wellness,
   dining: Dining,
   transport: Transportation,

@@ -29,3 +29,16 @@ export const inspections = (days) => get('/housekeeping/inspections', { days }, 
 export const checklist = () => get('/housekeeping/checklist', undefined, []);
 export const saveChecklist = (items) => withMock(() => api.put('/housekeeping/checklist', { items }), items);
 export const inspect = (roomId, data) => post(`/housekeeping/rooms/${roomId}/inspect`, data);
+
+// Assets: register, care schedule, replacement reserve
+export const assets = () => get('/assets', undefined, []);
+export const asset = (id) => get(`/assets/${id}`, undefined, null);
+export const createAsset = (data) => post('/assets', data);
+export const updateAsset = (id, data) => withMock(() => api.patch(`/assets/${id}`, data), null);
+export const logAsset = (id, data) => post(`/assets/${id}/log`, data);
+export const replaceAsset = (id, data) => post(`/assets/${id}/replace`, data);
+export const assetTasks = (days) => get('/assets/tasks', { days }, []);
+export const createAssetTask = (data) => post('/assets/tasks', data);
+export const updateAssetTask = (id, data) => withMock(() => api.patch(`/assets/tasks/${id}`, data), null);
+export const assetTaskDone = (id, data) => post(`/assets/tasks/${id}/done`, data);
+export const assetBudget = () => get('/assets/budget', undefined, null);
