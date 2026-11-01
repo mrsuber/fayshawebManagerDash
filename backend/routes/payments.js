@@ -200,7 +200,8 @@ router.post('/mobile-money', async (req, res) => {
     `, [booking.id, booking.final_price, details]);
 
     await pool.query(
-      'UPDATE bookings SET terms_accepted = TRUE, terms_accepted_at = $2 WHERE id = $1',
+      `UPDATE bookings SET terms_accepted = TRUE, terms_accepted_at = $2,
+              terms_version = COALESCE(terms_version, (SELECT version FROM legal_documents WHERE slug = 'terms')) WHERE id = $1`,
       [booking.id, terms_accepted_at || new Date().toISOString()]
     );
 

@@ -7,6 +7,8 @@
     "wellness": "Bien-être",
     "dining": "Restauration",
     "experiences": "Expériences",
+    "events": "Événements",
+    "content": "Contenu",
     "analytics": "Analyses",
     "ai": "Commande IA"
   },
@@ -88,6 +90,18 @@
       "title": "Expériences",
       "sub": "Activités, excursions et moments signature soigneusement sélectionnés.",
       "tag": "Des moments qui restent."
+    },
+    "events": {
+      "label": "Événements",
+      "title": "Événements",
+      "sub": "Mariages, célébrations et journées d’entreprise — de la demande à la proposition sur mesure, l’acompte et le jour J.",
+      "tag": "Chaque célébration, parfaitement accueillie."
+    },
+    "content": {
+      "label": "Contenu",
+      "title": "Contenu",
+      "sub": "Le domaine, la visite 360°, les conditions et la confidentialité, et le journal — modifiés ici, en ligne sur le site et dans l’application.",
+      "tag": "Votre histoire, racontée à votre façon."
     },
     "analytics": {
       "label": "Analyses",

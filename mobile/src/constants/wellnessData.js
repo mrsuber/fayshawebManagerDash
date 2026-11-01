@@ -243,6 +243,7 @@ export const CONCIERGE_QUICK_REPLIES = [
 
 export const PROFILE_ITEMS = [
   { glyph: '☰', label: 'My Stays', screen: null },
+  { glyph: '✦', label: 'My Events', screen: 'MyEvents' },
   { glyph: '▤', label: 'Wellness Bookings', screen: 'Bookings' },
   { glyph: '📦', label: 'Deposit Box', screen: 'DigitalKey' },
   { glyph: '◈', label: 'Explore the Estate', screen: 'Explore' },

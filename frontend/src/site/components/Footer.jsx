@@ -15,12 +15,14 @@ export default function Footer() {
             <span className="fs-footer__head">{t('footer.stay')}</span>
             <Link to="/residences">{t('nav.residences')}</Link>
             <Link to="/wellness">{t('nav.wellness')}</Link>
+            <Link to="/events">{t('nav.events')}</Link>
             <Link to="/#dining">{t('nav.dining')}</Link>
             <Link to="/#app">{t('nav.app')}</Link>
           </div>
           <div className="fs-footer__col">
             <span className="fs-footer__head">{t('footer.faysha')}</span>
             <Link to="/about">{t('nav.about')}</Link>
+            <Link to="/stories">{t('nav.stories')}</Link>
             <Link to="/careers">{t('nav.careers')}</Link>
             <Link to="/feedback">{t('nav.feedback')}</Link>
             <Link to="/contact">{t('nav.contact')}</Link>

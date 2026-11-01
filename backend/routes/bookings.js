@@ -720,7 +720,8 @@ router.post('/:id/confirm', async (req, res) => {
         `UPDATE bookings
             SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP, cancelled_at = NULL, cancellation_reason = NULL,
                 terms_accepted = terms_accepted OR COALESCE($2, FALSE),
-                terms_accepted_at = COALESCE(terms_accepted_at, $3::timestamp)
+                terms_accepted_at = COALESCE(terms_accepted_at, $3::timestamp),
+                terms_version = CASE WHEN $2 THEN COALESCE(terms_version, (SELECT version FROM legal_documents WHERE slug = 'terms')) ELSE terms_version END
           WHERE id = $1 AND status IN ('pending', 'cancelled')
           RETURNING *`,
         [id, terms_accepted === true, terms_accepted ? terms_accepted_at || new Date().toISOString() : null]

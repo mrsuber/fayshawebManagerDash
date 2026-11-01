@@ -27,6 +27,8 @@ router.use('/reservations', reservations);
 router.use('/residences', residences.router);
 router.use('/housekeeping', residences.housekeeping);
 router.use('/enquiries', enquiries);
+router.use('/content', require('./content'));
+router.use('/events', require('./events'));
 router.post('/attachments', require('../../services/attachments').handler);
 router.use(departments.router);
 router.use(operations);

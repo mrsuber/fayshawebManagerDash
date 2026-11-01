@@ -120,6 +120,8 @@ app.use('/api/wellness-availability', wellnessAvailabilityRoutes);
 app.use('/api/wellness-unified', wellnessUnifiedRoutes); // guest app wellness bookings
 app.use('/api/deposit-box', depositBoxRoutes);
 app.use('/api/contact', contactRoutes); // public contact form (website)
+app.use('/api/events', require('./routes/events')); // event requests and proposals (website and app)
+app.use('/api/content', require('./routes/content')); // public content managed in FAY OS → Content (places, legal, stay policy)
 // Chat attachments (guest app and FAY OS): multipart upload, type checked from the file itself.
 app.post('/api/chat/attachments', require('./middleware/auth').authenticateToken, require('./services/attachments').handler);
 app.use('/api/jobs', jobsRoutes); // listing and applications are public (Careers page); management is staff-only

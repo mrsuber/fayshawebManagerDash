@@ -89,6 +89,18 @@ export default function WelcomeScreen({ navigation }) {
                 </View>
                 <Text style={styles.exploreChevron}>›</Text>
               </TouchableOpacity>
+
+              {/* Weddings, celebrations and corporate events: a request, then a tailored proposal */}
+              <TouchableOpacity style={[styles.exploreButton, { marginTop: 12 }]} onPress={() => navigation.navigate('PlanEvent')} activeOpacity={0.8}>
+                <View style={styles.exploreIcon}>
+                  <Text style={styles.exploreIconText}>✦</Text>
+                </View>
+                <View style={styles.exploreTextContainer}>
+                  <Text style={styles.exploreButtonTitle}>Plan an Event</Text>
+                  <Text style={styles.exploreButtonSubtitle}>Weddings • Celebrations • Corporate</Text>
+                </View>
+                <Text style={styles.exploreChevron}>›</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </LinearGradient>

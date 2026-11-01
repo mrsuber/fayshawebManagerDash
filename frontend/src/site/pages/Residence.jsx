@@ -5,10 +5,10 @@ import PhotoViewer from '../components/PhotoViewer';
 import PanoramaDialog from '../components/PanoramaDialog';
 import { residenceMeta } from '../components/ResidenceCard';
 import { Icon, Loading, ResidenceImage } from '../components/ui';
-import { CHECK_IN_TIME, CHECK_OUT_TIME } from '../data';
 import { addDays, money, nightsBetween, stayFromParams, stayQuery, today } from '../format';
 import { plural, useLang } from '../i18n';
 import { withAvailability } from './Residences';
+import useStayPolicy from '../useStayPolicy';
 
 export default function Residence() {
   const { id } = useParams();
@@ -22,6 +22,7 @@ export default function Residence() {
   const [error, setError] = useState('');
   const [tour, setTour] = useState(false);
   const [viewing, setViewing] = useState(null);
+  const policy = useStayPolicy();
 
   useEffect(() => {
     getResidences().then(setResidences).catch((e) => setError(e.message));
@@ -143,12 +144,12 @@ export default function Residence() {
             <div className="fs-info-grid">
               <div className="fs-card fs-info">
                 <div className="fs-info__k">{t('res.checkin')}</div>
-                <div className="fs-info__v">{CHECK_IN_TIME}</div>
+                <div className="fs-info__v">{policy.checkIn}</div>
                 <div className="fs-info__s">{t('res.selfcheckin')}</div>
               </div>
               <div className="fs-card fs-info">
                 <div className="fs-info__k">{t('res.checkout')}</div>
-                <div className="fs-info__v">{CHECK_OUT_TIME}</div>
+                <div className="fs-info__v">{policy.checkOut}</div>
                 <div className="fs-info__s">{t('res.leave')}</div>
               </div>
               <div className="fs-card fs-info">

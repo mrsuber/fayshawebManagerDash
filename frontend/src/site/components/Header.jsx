@@ -6,6 +6,7 @@ import { Icon, Monogram } from './ui';
 const NAV = [
   ['/residences', 'nav.residences'],
   ['/wellness', 'nav.wellness'],
+  ['/events', 'nav.events'],
   ['/#dining', 'nav.dining'],
   ['/#app', 'nav.app'],
   ['/about', 'nav.about'],

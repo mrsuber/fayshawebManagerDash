@@ -8,7 +8,9 @@ import {
 import { Icon, Loading, ResidenceImage } from '../components/ui';
 import { money, nightsBetween, prettyDate, stayFromParams, stayQuery } from '../format';
 import { plural, useLang } from '../i18n';
+import Markdown from '../../components/Markdown';
 import TermsBody from '../legal/TermsBody';
+import useLegal from '../legal/useLegal';
 
 const STRIPE_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || '';
 let stripePromise;
@@ -44,6 +46,7 @@ function BookFlow({ cardEnabled }) {
   const [step, setStep] = useState(0);
   const [guest, setGuest] = useState({ name: '', email: '', phone: '', requests: '' });
   const [terms, setTerms] = useState({ terms: false, rules: false });
+  const termsDoc = useLegal('terms');
   const [method, setMethod] = useState(cardEnabled ? 'card' : 'mtn');
   const [momoPhone, setMomoPhone] = useState('');
   const [booking, setBooking] = useState(null);
@@ -214,7 +217,7 @@ function BookFlow({ cardEnabled }) {
               <h1 ref={headRef} tabIndex={-1} className="fs-h1" style={{ fontSize: 44, outline: 'none' }}>{t('book.terms')}</h1>
               <p className="fs-muted" style={{ margin: 0, lineHeight: 1.7 }}>{t('book.termsLead')}</p>
               <div className="fs-card fs-terms-box fs-prose" tabIndex={0} aria-label={t('book.terms')}>
-                <TermsBody />
+                {termsDoc ? <Markdown source={termsDoc.body} /> : <TermsBody />}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <label className="fs-check">

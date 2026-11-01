@@ -8,8 +8,10 @@ import { SIDE, href, isPageId } from './data/pages';
 import AICommand from './pages/AICommand';
 import Analytics from './pages/Analytics';
 import Communications from './pages/Communications';
+import Content from './pages/Content';
 import Dining from './pages/Dining';
 import Enquiries from './pages/Enquiries';
+import Events from './pages/Events';
 import Experiences from './pages/Experiences';
 import Guest360 from './pages/Guest360';
 import GuestJourney from './pages/GuestJourney';
@@ -37,6 +39,8 @@ const VIEWS = {
   dining: Dining,
   transport: Transportation,
   experiences: Experiences,
+  events: Events,
+  content: Content,
   analytics: Analytics,
   ai: AICommand,
   settings: Settings,

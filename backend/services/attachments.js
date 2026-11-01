@@ -48,6 +48,39 @@ async function store(buffer, originalName, userId) {
   return { url: `/uploads/chat/${stored}`, name, type, mimeType, size: buffer.length };
 }
 
+/**
+ * Saves an image for managed content (estate photos, 360° panoramas, story covers) under uploads/<dir>.
+ * Images only; returns the public URL.
+ */
+async function storeImage(buffer, dir, userId) {
+  const kind = sniff(buffer);
+  if (!kind || kind[2] !== 'image') {
+    const e = new Error('Upload a JPEG, PNG or WebP image');
+    e.status = 415;
+    throw e;
+  }
+  const target = path.join(__dirname, '..', 'uploads', dir);
+  await fs.promises.mkdir(target, { recursive: true });
+  const stored = `${userId}_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${kind[1]}`;
+  await fs.promises.writeFile(path.join(target, stored), buffer);
+  return `/uploads/${dir}/${stored}`;
+}
+
+/** Express handler for content images: multipart "file", up to 25 MB (360° panoramas are large). */
+function imageHandler(dir) {
+  const one = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } }).single('file');
+  return (req, res) =>
+    one(req, res, async (err) => {
+      if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ message: err.code === 'LIMIT_FILE_SIZE' ? 'Images can be up to 25 MB' : err.message });
+      if (!req.file) return res.status(400).json({ message: 'Choose an image' });
+      try {
+        res.status(201).json({ url: await storeImage(req.file.buffer, dir, req.user.id) });
+      } catch (e) {
+        res.status(e.status || 500).json({ message: e.status ? e.message : 'Could not save the image' });
+      }
+    });
+}
+
 /** Express handler (after authentication). */
 function handler(req, res) {
   upload(req, res, async (err) => {
@@ -77,4 +110,4 @@ function clean(attachment) {
   return { url, name: String(attachment.name || path.basename(url)).slice(0, 120), type, mimeType: String(attachment.mimeType || '').slice(0, 100) || undefined, size: Number(attachment.size) || undefined };
 }
 
-module.exports = { handler, store, clean, sniff };
+module.exports = { handler, store, clean, sniff, storeImage, imageHandler };

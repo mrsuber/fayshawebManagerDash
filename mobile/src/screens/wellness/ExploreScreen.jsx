@@ -10,6 +10,7 @@ import {
 import { WebView } from 'react-native-webview';
 import { LinearGradient } from 'expo-linear-gradient';
 import guest from '../../services/guestService';
+import apiClient from '../../services/api';
 import { fileUrl } from '../../config';
 import { COLORS, FONTS } from '../../constants/theme';
 import { ZONE_DATA } from '../../constants/wellnessData';
@@ -22,12 +23,22 @@ export default function ExploreScreen({ navigation }) {
   const [selectedLocation, setSelectedLocation] = useState(null);
   // Real 360° panoramas of the residences, uploaded in HQ (GET /api/guest/tour).
   const [tour, setTour] = useState([]);
+  const [zones, setZones] = useState(ZONE_DATA);
 
   useEffect(() => {
     guest
       .tour()
-      .then((list) => setTour((list || []).map((p) => ({ id: String(p.id), name: p.title, desc: p.residence || 'Faysha', url: fileUrl(p.url) }))))
+      .then((list) => setTour((list || []).map((p) => ({ id: String(p.id), name: p.name || p.title, desc: p.desc || p.residence || 'Faysha', url: fileUrl(p.url), yaw: Number(p.yaw) || 0 }))))
       .catch(() => setTour([]));
+    // The places managed in FAY OS → Content (the bundled list is the fallback when offline).
+    apiClient
+      .get('/content/places')
+      .then((list) => {
+        if (Array.isArray(list) && list.length) {
+          setZones(list.map((p) => ({ name: p.name, sub: p.subtitle, glyph: p.glyph, img: p.cover ? { uri: fileUrl(p.cover) } : EXPLORE_IMAGE, desc: p.description, features: p.features })));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleZonePress = (zone) => {
@@ -112,6 +123,7 @@ export default function ExploreScreen({ navigation }) {
             "type": "equirectangular",
             "panorama": ${JSON.stringify(location.url).replace(/</g, "\\u003c")},
             "autoLoad": true,
+            "yaw": ${Number(location.yaw) || 0},
             "showControls": false,
             "mouseZoom": false,
             "draggable": true,
@@ -190,7 +202,7 @@ export default function ExploreScreen({ navigation }) {
             <Text style={styles.sectionTitle}>EXPLORE BY LOCATION</Text>
 
             {/* Zones List */}
-            {ZONE_DATA.map((zone, index) => (
+            {zones.map((zone, index) => (
               <TouchableOpacity
                 key={index}
                 style={styles.zoneItem}

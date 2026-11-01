@@ -206,3 +206,50 @@ export async function resetPassword(token, newPassword, confirmPassword) {
   if (USE_MOCKS) return { success: true };
   return call(http.post('/auth/reset-password', { token, newPassword, confirmPassword }), 'Could not reset your password');
 }
+
+/** Published legal document (FAY OS → Content): { slug, title, version, effectiveDate, body (Markdown) }. */
+export async function getLegal(slug) {
+  if (USE_MOCKS) throw new Error('mocks');
+  return call(http.get(`/content/legal/${slug}`), 'Could not load the document');
+}
+
+/** Standard check-in / check-out times (FAY OS → Settings) and the currencies on offer. */
+export async function getStayPolicy() {
+  if (USE_MOCKS) return { checkIn: '14:00', checkOut: '11:00', currency: 'XAF' };
+  return call(http.get('/content/stay-policy'), 'Could not load the stay policy');
+}
+
+/** Published estate places (Explore, 360° tour). */
+export async function getPlaces() {
+  if (USE_MOCKS) return [];
+  const data = await call(http.get('/content/places'), 'Could not load the estate');
+  return (Array.isArray(data) ? data : []).map((p) => ({ ...p, cover: mediaUrl(p.cover), panorama: mediaUrl(p.panorama) }));
+}
+
+/** Published stories (the journal), optionally one category. */
+export async function getStories(category) {
+  if (USE_MOCKS) return [];
+  const data = await call(http.get('/content/stories', { params: category ? { category } : {} }), 'Could not load stories');
+  return (Array.isArray(data) ? data : []).map((s) => ({ ...s, cover: mediaUrl(s.cover) }));
+}
+
+/** One published story with its gallery and three more to read. */
+export async function getStory(slug) {
+  const s = await call(http.get(`/content/stories/${encodeURIComponent(slug)}`), 'Story not found');
+  return { ...s, cover: mediaUrl(s.cover), gallery: (s.gallery || []).map(mediaUrl), more: (s.more || []).map((m) => ({ ...m, cover: mediaUrl(m.cover) })) };
+}
+
+/** An event request (wedding, celebration, corporate…): POST /events → { reference }. */
+export async function sendEventRequest(body) {
+  if (USE_MOCKS) return { reference: 'EVT-DEMO-0001' };
+  return call(http.post('/events', body), 'Could not send your request');
+}
+
+/** A proposal sent to the client (private link). */
+export async function getEventQuote(token) {
+  return call(http.get(`/events/quote/${encodeURIComponent(token)}`), 'This proposal link is not valid');
+}
+
+export async function respondToEventQuote(token, body) {
+  return call(http.post(`/events/quote/${encodeURIComponent(token)}/respond`, body), 'Could not record your answer');
+}

@@ -98,7 +98,7 @@ router.patch(
       if (!STATUSES.includes(next)) throw httpError(400, `Status must be one of ${Object.values(LABEL).join(', ')}`);
       if (next !== cur.status) {
         await db.query(
-          `UPDATE enquiries SET status = $2, updated_at = NOW(), closed_at = CASE WHEN $2 IN ('closed', 'spam') THEN NOW() ELSE NULL END WHERE id = $1`,
+          `UPDATE enquiries SET status = $2::text, updated_at = NOW(), closed_at = CASE WHEN $2::text IN ('closed', 'spam') THEN NOW() ELSE NULL END WHERE id = $1`,
           [cur.id, next],
         );
         await addNote(cur.id, req.user.id, 'event', `Marked as ${LABEL[next]}`);

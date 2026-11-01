@@ -29,7 +29,8 @@ const config = {
   firebaseVapidKey: env.REACT_APP_FIREBASE_VAPID_KEY || '',
 };
 
-/** Full URL of an uploaded file (/uploads/...): served by the API origin (same origin in production). */
-export const mediaUrl = (url) => (!url ? null : /^(https?:)?\/\/|^data:/.test(url) ? url : `${apiOrigin || ''}${url.startsWith('/') ? '' : '/'}${url}`);
+/** Full URL of an uploaded file (/uploads/...): served by the API origin (same origin in production). Site images (/images/...) are the website's own. */
+export const mediaUrl = (url) =>
+  !url ? null : /^(https?:)?\/\/|^data:|^\/images\//.test(url) ? url : `${apiOrigin || ''}${url.startsWith('/') ? '' : '/'}${url}`;
 
 export default config;

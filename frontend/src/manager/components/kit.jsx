@@ -200,3 +200,64 @@ export function Toolbar({ children, right }) {
     </div>
   );
 }
+
+/**
+ * An image chosen by upload: preview, Replace and Remove. `upload(file) → Promise<url>`; `toUrl(url)` builds the
+ * preview address. `wide` shows a 2:1 preview (360° panoramas).
+ */
+export function ImageField({ label, value, onChange, upload, toUrl, hint, wide = false, onPreview }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const pick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    try {
+      onChange(await upload(file));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="kit-image">
+      <span className="kit-label">{label}</span>
+      <div className={`kit-image__frame ${wide ? 'kit-image__frame--wide' : ''}`}>
+        {value ? <img src={toUrl(value)} alt="" /> : <span className="kit-image__none">{busy ? 'Uploading…' : 'No image'}</span>}
+      </div>
+      <div className="kit-actions">
+        <label className="fay-btn-outline" style={{ cursor: busy ? 'progress' : 'pointer' }}>
+          <Icon name="upload" size={18} /> {busy ? 'Uploading…' : value ? 'Replace' : 'Upload'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={pick} disabled={busy} />
+        </label>
+        {value && onPreview ? (
+          <button type="button" className="fay-btn-outline" onClick={onPreview}>
+            <Icon name="360" size={18} /> Preview
+          </button>
+        ) : null}
+        {value ? (
+          <button type="button" className="fay-btn-outline" onClick={() => onChange(null)}>
+            <Icon name="delete" size={18} /> Remove
+          </button>
+        ) : null}
+      </div>
+      {hint ? <span className="sub">{hint}</span> : null}
+      {error ? <span className="kit-error">{error}</span> : null}
+    </div>
+  );
+}
+
+/** Labelled text input / textarea bound to a value. */
+export function TextInput({ label, value, onChange, multiline, rows = 4, placeholder, hint, type = 'text', style }) {
+  const Tag = multiline ? 'textarea' : 'input';
+  return (
+    <label className="kit-field" style={style}>
+      <span className="kit-label">{label}</span>
+      <Tag className="kit-input" value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={multiline ? rows : undefined} type={multiline ? undefined : type} />
+      {hint ? <span className="sub">{hint}</span> : null}
+    </label>
+  );
+}

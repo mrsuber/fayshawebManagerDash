@@ -54,6 +54,8 @@ import EmailVerificationScreen from '../screens/auth/EmailVerificationScreen';
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/auth/ResetPasswordScreen';
 import ChangePasswordScreen from '../screens/auth/ChangePasswordScreen';
+import PlanEventScreen from '../screens/events/PlanEventScreen';
+import MyEventsScreen from '../screens/events/MyEventsScreen';
 import VerificationSuccessScreen from '../screens/auth/VerificationSuccessScreen';
 
 const Stack = createStackNavigator();
@@ -147,6 +149,7 @@ export default function AppNavigator({ ready }) {
             <Stack.Screen name="EmailVerification" component={EmailVerificationScreen} options={bare} />
             <Stack.Screen name="VerificationSuccess" component={VerificationSuccessScreen} options={bare} />
             <Stack.Screen name="BookStay" component={BookStayScreen} options={bare} />
+            <Stack.Screen name="PlanEvent" component={PlanEventScreen} options={bare} />
           </Stack.Group>
         ) : user.mustChangePassword ? (
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Choose your password', headerLeft: () => null }} />
@@ -154,6 +157,8 @@ export default function AppNavigator({ ready }) {
           <Stack.Group>
             <Stack.Screen name="Main" component={MainTabs} options={bare} />
             <Stack.Screen name="BookStay" component={BookStayScreen} options={bare} />
+            <Stack.Screen name="PlanEvent" component={PlanEventScreen} options={bare} />
+            <Stack.Screen name="MyEvents" component={MyEventsScreen} options={bare} />
 
             <Stack.Screen name="SmartHome" component={SmartHomeScreen} options={bare} />
             <Stack.Screen name="Requests" component={RequestsScreen} options={bare} />
@@ -183,8 +188,8 @@ export default function AppNavigator({ ready }) {
         )}
         {/* Reachable signed in or out */}
         <Stack.Group navigationKey={user ? 'in' : 'out'}>
-          <Stack.Screen name="Terms" component={TermsScreen} options={{ title: 'Terms & Conditions' }} />
-          <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ title: 'Privacy Policy' }} />
+          <Stack.Screen name="Terms" component={TermsScreen} options={bare} />
+          <Stack.Screen name="Privacy" component={PrivacyScreen} options={bare} />
         </Stack.Group>
       </Stack.Navigator>
     </NavigationContainer>

@@ -7,6 +7,8 @@
     "wellness": "Wellness",
     "dining": "Dining",
     "experiences": "Experiences",
+    "events": "Events",
+    "content": "Content",
     "analytics": "Analytics",
     "ai": "AI Command"
   },
@@ -88,6 +90,18 @@
       "title": "Experiences",
       "sub": "Curated activities, excursions and signature moments.",
       "tag": "Moments worth remembering."
+    },
+    "events": {
+      "label": "Events",
+      "title": "Events",
+      "sub": "Weddings, celebrations and corporate days — from first request to tailored proposal, deposit and the day itself.",
+      "tag": "Every celebration, flawlessly hosted."
+    },
+    "content": {
+      "label": "Content",
+      "title": "Content",
+      "sub": "The estate, the 360° tour, terms and privacy, and the journal — edited here, live on the website and in the app.",
+      "tag": "Your story, told your way."
     },
     "analytics": {
       "label": "Analytics",

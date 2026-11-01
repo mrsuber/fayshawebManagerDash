@@ -45,6 +45,7 @@ export default function ResidenceScreen({ navigation }) {
         <SectionTitle>DISCOVER</SectionTitle>
         <Tile icon="compass-outline" title="Explore the estate" text="A 360° tour of the residences and grounds" onPress={() => navigation.navigate('Explore')} />
         <Tile icon="leaf-outline" title="Wellness" text="Spa, movement and reflection rituals" onPress={() => navigation.navigate('Main', { screen: 'Wellness' })} />
+        <Tile icon="sparkles-outline" title="Plan an event" text="Weddings, celebrations and corporate days" onPress={() => navigation.navigate('PlanEvent')} />
       </Screen>
     );
   }

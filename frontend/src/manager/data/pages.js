@@ -16,6 +16,8 @@ export const PAGES = {
   dining: { icon: 'restaurant' },
   transport: { icon: 'directions_car' },
   experiences: { icon: 'sailing' },
+  events: { icon: 'celebration' },
+  content: { icon: 'web' },
   analytics: { icon: 'monitoring' },
   ai: { icon: 'neurology' },
   settings: { icon: 'settings' },
@@ -33,6 +35,7 @@ export const TOP = [
   ['wellness', 'wellness', ['wellness']],
   ['dining', 'dining', ['dining']],
   ['experiences', 'experiences', ['experiences']],
+  ['events', 'events', ['events']],
   ['analytics', 'analytics', ['analytics']],
   ['ai', 'ai', ['ai']],
 ];

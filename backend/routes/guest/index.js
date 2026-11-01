@@ -604,6 +604,8 @@ router.delete(
 router.get(
   '/tour',
   ah(async (req, res) => {
+    // Places with a 360° panorama (FAY OS → Content → Estate), then residence panoramas uploaded in HQ.
+    const places = await db.query('SELECT id, name, subtitle, panorama_url, panorama_yaw FROM estate_places WHERE is_published AND panorama_url IS NOT NULL ORDER BY sort_order, id');
     const { rows } = await db.query(
       `SELECT m.id, m.title, m.file_url, m.thumbnail_url, COALESCE(c.display_name, c2.display_name) AS residence
          FROM apartment_media m
@@ -614,7 +616,13 @@ router.get(
         ORDER BY m.is_primary DESC, m.sort_order, m.id
         LIMIT 30`,
     );
-    res.json(rows.map((r) => ({ id: r.id, title: r.title || r.residence || 'Faysha', residence: r.residence, url: r.file_url, thumbnail: r.thumbnail_url || null })));
+    res.json([
+      ...places.rows.map((p) => ({ id: `place-${p.id}`, title: p.name, name: p.name, desc: p.subtitle || '', url: p.panorama_url, yaw: p.panorama_yaw || 0, thumbnail: null })),
+      ...rows.map((r) => {
+        const title = r.title && !/\.(jpe?g|png|webp)$/i.test(r.title) ? r.title : r.residence || 'Faysha';
+        return { id: `media-${r.id}`, title, name: title, desc: r.residence || '', residence: r.residence, url: r.file_url, yaw: 0, thumbnail: r.thumbnail_url || null };
+      }),
+    ]);
   }),
 );
 
