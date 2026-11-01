@@ -594,6 +594,13 @@ router.post('/', async (req, res) => {
 
     await client.query('COMMIT');
 
+    require('../services/notify').staffAlert(req.app, {
+      title: `New booking · ${bookingResult.rows[0].booking_number}`,
+      body: `${String(guest_name).trim()} · ${check_in_date} → ${check_out_date} · awaiting payment`,
+      link: `/reservations?booking=${bookingResult.rows[0].id}`,
+      category: 'booking',
+    });
+
     // This endpoint is public: the response never carries sign-in details or the access code.
     const { temporary_password, access_code, ...booking } = bookingResult.rows[0];
     res.status(201).json({

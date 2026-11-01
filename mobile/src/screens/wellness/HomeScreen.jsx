@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import apiClient from '../../services/api';
 import {
   View,
   Text,
@@ -78,6 +80,19 @@ function StayCard({ overview, navigation }) {
 export default function HomeScreen({ navigation }) {
   const { user } = useAuth();
   const { unreadCount, latestUnreadMessage, refreshUnreadCount } = useChat();
+  // Unread items in the notification inbox; refreshed when the screen is shown and when something new arrives.
+  const [inboxUnread, setInboxUnread] = useState(0);
+  const refreshInbox = useCallback(() => {
+    apiClient.get('/guest/notifications').then((d) => setInboxUnread(d?.unread || 0)).catch(() => {});
+  }, []);
+  useFocusEffect(refreshInbox);
+  useLiveEvent('stay:confirmed', refreshInbox);
+  useLiveEvent('stay:arrival', refreshInbox);
+  useLiveEvent('stay:departure', refreshInbox);
+  useLiveEvent('event:quote', refreshInbox);
+  useLiveEvent('request:updated', refreshInbox);
+  useLiveEvent('dining:updated', refreshInbox);
+  useLiveEvent('transfer:updated', refreshInbox);
   const [greeting, setGreeting] = useState('GOOD EVENING');
   const [todaysBookings, setTodaysBookings] = useState([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
@@ -251,6 +266,17 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.greeting}>{greeting}</Text>
             <Text style={styles.userName}>{getUserFirstName()}</Text>
           </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity onPress={() => navigation.navigate('Notifications')} activeOpacity={0.85} accessibilityLabel={`Notifications${inboxUnread ? `, ${inboxUnread} unread` : ''}`}>
+            <View style={[styles.aiButton, { alignItems: 'center', justifyContent: 'center' }]}>
+              <Ionicons name="notifications-outline" size={22} color={COLORS.primary} />
+              {inboxUnread > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{inboxUnread > 99 ? '99+' : inboxUnread}</Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
           <TouchableOpacity onPress={handleCompanionPress} activeOpacity={0.85}>
             <LinearGradient
               colors={['rgba(200, 164, 93, 0.2)', 'rgba(200, 164, 93, 0.1)']}
@@ -269,6 +295,7 @@ export default function HomeScreen({ navigation }) {
               )}
             </LinearGradient>
           </TouchableOpacity>
+          </View>
         </View>
 
         <StayCard overview={overview} navigation={navigation} />

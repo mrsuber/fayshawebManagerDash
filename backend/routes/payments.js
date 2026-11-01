@@ -205,6 +205,16 @@ router.post('/mobile-money', async (req, res) => {
       [booking.id, terms_accepted_at || new Date().toISOString()]
     );
 
+    // Someone must check the money arrived and confirm: an action for the team until the stay is confirmed.
+    await require('../services/notify').staffAlert(req.app, {
+      title: `Mobile money to confirm · ${booking.booking_number}`,
+      body: `${booking.guest_name} · ${Number(booking.final_price).toLocaleString('en-US')} XAF · ${provider === 'mtn' ? 'MTN MoMo' : 'Orange Money'} ${String(phone).slice(-4).padStart(String(phone).length, '•')}`,
+      link: `/reservations?booking=${booking.id}`,
+      level: 'action',
+      category: 'payment',
+      dedupeKey: `momo:${booking.id}`,
+    });
+
     res.json({
       success: true,
       payment: paymentResult.rows[0],

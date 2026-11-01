@@ -35,9 +35,17 @@ async function sendExpo(tokens, { title, body, data }) {
  * Tells a guest something happened: socket event `event` to room user_<id>, plus a push notification.
  * `app` is the Express app (for the Socket.io server), e.g. req.app.
  */
-async function notifyGuest(app, userId, { title, body, event = 'guest:notification', data = {} }) {
+async function notifyGuest(app, userId, { title, body, event = 'guest:notification', data = {}, dedupeKey = null }) {
   if (!userId) return;
   try {
+    // Kept for the app's notification inbox (a push can be missed or dismissed). A dedupe key sends it once.
+    const saved = await db.query(
+      `INSERT INTO guest_notifications (user_id, title, body, event, data, dedupe_key) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING RETURNING id`,
+      [userId, String(title).slice(0, 255), body || '', event, JSON.stringify(data || {}), dedupeKey],
+    );
+    if (dedupeKey && !saved.rows[0]) return;
+    data = { ...data, notificationId: saved.rows[0]?.id };
     const io = app && app.get && app.get('io');
     if (io) io.to(`user_${userId}`).emit(event, { title, body, ...data });
     await sendExpo(await expoTokens(userId), { title, body, data: { event, ...data } });

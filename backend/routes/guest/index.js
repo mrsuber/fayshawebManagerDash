@@ -599,6 +599,35 @@ router.delete(
 );
 
 // ======================================================================
+// Notifications inbox — everything the app told the guest (push messages can be missed)
+// ======================================================================
+router.get(
+  '/notifications',
+  ah(async (req, res) => {
+    const { rows } = await db.query(
+      `SELECT id, title, body, event, data, read_at, created_at FROM guest_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      [req.user.id],
+    );
+    res.json({
+      unread: rows.filter((r) => !r.read_at).length,
+      items: rows.map((r) => ({ id: r.id, title: r.title, body: r.body || '', event: r.event, data: r.data || {}, read: Boolean(r.read_at), createdAt: isoTime(r.created_at) })),
+    });
+  }),
+);
+
+router.post(
+  '/notifications/read',
+  ah(async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : null;
+    await db.query(
+      `UPDATE guest_notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL AND ($2::int[] IS NULL OR id = ANY($2::int[]))`,
+      [req.user.id, ids],
+    );
+    res.json({ ok: true });
+  }),
+);
+
+// ======================================================================
 // Estate tour — the 360° panoramas uploaded in HQ → Residences (apartment_media, media_type panorama_360)
 // ======================================================================
 router.get(

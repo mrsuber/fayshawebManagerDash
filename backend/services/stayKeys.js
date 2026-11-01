@@ -176,6 +176,7 @@ async function sendConfirmation(bookingId, { force = false } = {}) {
     });
     // The first password has been delivered: it is not kept any longer.
     await db.query('UPDATE bookings SET temporary_password = NULL, confirmation_error = NULL WHERE id = $1', [bookingId]);
+    await require('./notify').resolve(null, `confirmation-email:${bookingId}`);
     return { sent: true, to: b.guest_email };
   } catch (e) {
     await db.query('UPDATE bookings SET email_sent = false, email_sent_at = NULL, confirmation_error = $2 WHERE id = $1', [
@@ -186,18 +187,9 @@ async function sendConfirmation(bookingId, { force = false } = {}) {
   }
 }
 
-/** Raises a manager notification (header bell, live, push) without needing a request object. */
-async function alertManagers(app, title, body, link) {
-  try {
-    const { rows } = await db.query(
-      'INSERT INTO staff_notifications (user_id, title, body, link) VALUES (NULL, $1, $2, $3) RETURNING id, created_at',
-      [title, body, link],
-    );
-    const io = app && app.get && app.get('io');
-    if (io) io.to('staff').emit('notification:new', { id: rows[0].id, title, body, link, createdAt: rows[0].created_at, read: false });
-  } catch (e) {
-    console.error('Could not raise manager alert:', e.message);
-  }
+/** Raises a manager alert (header bell, live, push) without needing a request object. */
+async function alertManagers(app, title, body, link, options = {}) {
+  return require('./notify').staffAlert(app, { title, body, link, ...options });
 }
 
 /**
@@ -210,6 +202,11 @@ async function finalizeStay(bookingId, { app = null, notify = true } = {}) {
     const b = await loadStay(bookingId);
     if (!b || !LIVE.includes(b.status)) return out;
     out.keyIssued = await issueKey(b);
+    if (out.keyIssued) {
+      const { staffAlert, resolve } = require('./notify');
+      await resolve(app, `momo:${b.id}`);
+      await staffAlert(app, { title: `Booking confirmed · ${b.booking_number}`, body: `${b.guest_name} · ${b.unit_number} · key issued`, link: `/reservations?booking=${b.id}`, category: 'booking' });
+    }
     await handOverDepositBox(b.apartment_id);
     // A later stay knows its box number now; its PIN comes when the box passes to it.
     await db.query(
@@ -220,7 +217,9 @@ async function finalizeStay(bookingId, { app = null, notify = true } = {}) {
     out.email = await sendConfirmation(b.id);
     if (out.email.error) {
       console.error(`Confirmation email for ${b.booking_number} failed: ${out.email.error}`);
-      await alertManagers(app, 'Confirmation email not delivered', `${b.guest_name} · ${b.booking_number}: ${out.email.error}. Open the reservation to resend.`, '/reservations');
+      await alertManagers(app, 'Confirmation email not delivered', `${b.guest_name} · ${b.booking_number}: ${out.email.error}. Open the reservation to resend.`, '/reservations', {
+        level: 'urgent', category: 'booking', dedupeKey: `confirmation-email:${b.id}`,
+      });
     }
     if (notify && out.keyIssued && b.user_id) {
       notifyGuest(app, b.user_id, {

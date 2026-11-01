@@ -60,32 +60,10 @@ async function addTimeline(q, guestId, title, category, { bookingId = null, perf
  * Creates a header notification for managers, pushes it over Socket.io and (best effort) FCM.
  * userId = null means every manager.
  */
-async function notify(req, title, body, { userId = null, link = null } = {}) {
-  const { rows } = await db.query(
-    'INSERT INTO staff_notifications (user_id, title, body, link) VALUES ($1, $2, $3, $4) RETURNING id, title, body, link, created_at',
-    [userId, title, body || '', link],
-  );
-  const n = { id: rows[0].id, title, body: body || '', link, createdAt: isoTime(rows[0].created_at), read: false };
-  const io = req.app.get('io');
-  if (io) io.to(userId ? `user_${userId}` : 'staff').emit('notification:new', n);
-  pushToStaff(title, body, userId).catch(() => {});
-  return n;
-}
-
-async function pushToStaff(title, body, userId) {
-  const { rows } = await db.query(
-    `SELECT t.token FROM fcm_tokens t
-       JOIN users u ON u.id = t.user_id
-       JOIN roles r ON r.id = u.role_id
-      WHERE t.is_active = true AND t.platform = 'web'
-        AND r.name IN ('manager', 'superadmin')
-        AND ($1::int IS NULL OR u.id = $1)`,
-    [userId],
-  );
-  if (!rows.length) return;
-  // Loaded lazily: Firebase is optional and may not be configured.
-  const { sendNotificationToMultipleDevices } = require('../../services/notificationService');
-  await sendNotificationToMultipleDevices(rows.map((r) => r.token), { title, body: body || '' });
+async function notify(req, title, body, { userId = null, link = null, level = 'info', category = null, dedupeKey = null } = {}) {
+  const { staffAlert } = require('../../services/notify');
+  const n = await staffAlert(req.app, { title, body, link, userId, level, category, dedupeKey });
+  return n && { ...n, createdAt: isoTime(n.createdAt) };
 }
 
 /** Returns { id, name } of a user, or a 400 if they don't exist. */

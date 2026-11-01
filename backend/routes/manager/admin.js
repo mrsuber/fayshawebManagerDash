@@ -24,14 +24,20 @@ router.get('/auth/me', (req, res) => {
 router.get(
   '/notifications',
   ah(async (req, res) => {
+    // Open alerts that need someone first, then the latest of everything (resolved ones included, marked as such).
     const { rows } = await db.query(
       `SELECT n.*, (r.user_id IS NOT NULL) AS read FROM staff_notifications n
          LEFT JOIN staff_notification_reads r ON r.notification_id = n.id AND r.user_id = $1
-        WHERE n.user_id IS NULL OR n.user_id = $1
-        ORDER BY n.created_at DESC LIMIT 100`,
+        WHERE (n.user_id IS NULL OR n.user_id = $1) AND n.created_at > NOW() - INTERVAL '30 days'
+        ORDER BY (n.resolved_at IS NULL AND n.level <> 'info') DESC, n.created_at DESC LIMIT 150`,
       [req.user.id],
     );
-    res.json(rows.map((n) => ({ id: n.id, title: n.title, body: n.body, link: n.link, createdAt: isoTime(n.created_at), read: n.read })));
+    res.json(
+      rows.map((n) => ({
+        id: n.id, title: n.title, body: n.body, link: n.link, level: n.level, category: n.category,
+        createdAt: isoTime(n.created_at), resolvedAt: n.resolved_at ? isoTime(n.resolved_at) : null, read: n.read,
+      })),
+    );
   }),
 );
 
@@ -44,6 +50,14 @@ router.patch(
        ON CONFLICT DO NOTHING`,
       [req.user.id],
     );
+    res.json({ ok: true });
+  }),
+);
+
+router.patch(
+  '/notifications/:id/read',
+  ah(async (req, res) => {
+    await db.query(`INSERT INTO staff_notification_reads (notification_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [req.params.id, req.user.id]);
     res.json({ ok: true });
   }),
 );

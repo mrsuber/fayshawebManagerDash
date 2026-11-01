@@ -14,3 +14,6 @@ export const markAllRead = () =>
 
 /** POST /notifications/device-token { token, platform } — stores the FCM token so firebase-admin can push to this browser. */
 export const registerDevice = (token) => withMock(() => api.post('/notifications/device-token', { token, platform: 'web' }), { ok: true });
+
+/** PATCH /notifications/:id/read */
+export const markRead = (id) => withMock(() => api.patch(`/notifications/${id}/read`), { ok: true });

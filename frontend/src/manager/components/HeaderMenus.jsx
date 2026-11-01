@@ -15,26 +15,63 @@ import useApi from '../hooks/useApi';
 import useSocketEvent from '../hooks/useSocketEvent';
 import { LANGUAGES } from '../i18n';
 import { getPushToken, onForegroundPush } from '../lib/firebase';
+import { askDesktop, chime, desktop, desktopPermission, desktopSupported, titleCount } from '../lib/alerts';
+import useNav from '../hooks/useNav';
 
-/** Bell with unread count; loads GET /notifications and prepends `notification:new` socket events. */
+const LEVEL = {
+  urgent: { color: '#ff6b6b', icon: 'priority_high', label: 'Urgent' },
+  action: { color: '#e8b84a', icon: 'pending_actions', label: 'Needs action' },
+  info: { color: '#5b8ff0', icon: 'notifications', label: '' },
+};
+const isOpen = (n) => !n.resolvedAt && n.level && n.level !== 'info';
+
+/**
+ * The alert centre: everything that happened, and — first — what still needs someone (raised by the operations
+ * monitor and by guest actions, resolved automatically when done). Live over Socket.io, with a chime, desktop
+ * notifications while the tab is in the background, and the count in the tab title.
+ */
 export function NotificationsMenu() {
   const { t } = useTranslation();
+  const navigate = useNav();
   const [anchor, setAnchor] = useState(null);
+  const [tab, setTab] = useState('action');
+  const [permission, setPermission] = useState(desktopPermission());
   const { data, setData } = useApi(notificationsApi.list, [], []);
   const items = data || [];
-  const unread = items.filter((n) => !n.read).length;
+  const open = items.filter(isOpen);
+  const unread = items.filter((n) => !n.read && !n.resolvedAt).length;
+  const shown = tab === 'action' ? open : items;
 
-  const push = (n) => setData((list) => [n, ...(list || [])]);
+  useEffect(() => titleCount(open.length), [open.length]);
+  useEffect(() => () => titleCount(0), []);
+
+  const go = (n) => {
+    setAnchor(null);
+    if (!n.read) {
+      setData((list) => list.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      notificationsApi.markRead(n.id).catch(() => {});
+    }
+    if (n.link) navigate(n.link);
+  };
+
+  const push = (n) => {
+    setData((list) => [n, ...(list || []).filter((x) => x.id !== n.id)]);
+    chime(n.level);
+    desktop(n, () => go(n));
+  };
   useSocketEvent('notification:new', push);
+  useSocketEvent('notification:resolved', ({ ids = [] }) =>
+    setData((list) => (list || []).map((x) => (ids.includes(x.id) ? { ...x, resolvedAt: new Date().toISOString() } : x))),
+  );
 
-  // Register this browser for Firebase Cloud Messaging; foreground pushes land in the same list.
+  // Register this browser for Firebase Cloud Messaging (when configured); foreground pushes land in the same list.
   useEffect(() => {
     let unsubscribe = () => {};
     getPushToken()
       .then((token) => token && notificationsApi.registerDevice(token))
       .catch(() => {});
     onForegroundPush(({ notification = {}, messageId }) =>
-      setData((list) => [{ id: messageId, title: notification.title, body: notification.body || '', createdAt: new Date().toISOString(), read: false }, ...(list || [])]),
+      setData((list) => [{ id: messageId, title: notification.title, body: notification.body || '', createdAt: new Date().toISOString(), read: false, level: 'info' }, ...(list || [])]),
     ).then((fn) => (unsubscribe = fn));
     return () => unsubscribe();
   }, [setData]);
@@ -47,27 +84,53 @@ export function NotificationsMenu() {
   return (
     <>
       <Tooltip title={t('layout.notifications')}>
-        <IconButton onClick={(e) => setAnchor(e.currentTarget)} aria-label={t('layout.notifications')} sx={{ color: 'text.primary' }}>
-          <Badge badgeContent={unread} color="error">
+        <IconButton onClick={(e) => setAnchor(e.currentTarget)} aria-label={`${t('layout.notifications')}${open.length ? ` (${open.length} need action)` : ''}`} sx={{ color: 'text.primary' }}>
+          <Badge badgeContent={open.length || unread} color={open.some((n) => n.level === 'urgent') ? 'error' : open.length ? 'warning' : 'error'}>
             <NotificationsNoneIcon sx={{ fontSize: 26 }} />
           </Badge>
         </IconButton>
       </Tooltip>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { width: 340, maxWidth: '90vw' } } }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1 }}>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { width: 400, maxWidth: '94vw', maxHeight: '78vh' } } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1, gap: 1 }}>
           <Typography variant="subtitle1">{t('layout.notifications')}</Typography>
           <Button size="small" onClick={markAll} disabled={!unread}>
             {t('layout.markAllRead')}
           </Button>
         </Box>
-        <Divider />
-        {items.length === 0 && <MenuItem disabled>{t('layout.noNotifications')}</MenuItem>}
-        {items.map((n) => (
-          <MenuItem key={n.id} onClick={() => setAnchor(null)} sx={{ whiteSpace: 'normal', alignItems: 'flex-start', gap: 1 }}>
-            <Box sx={{ width: 8, height: 8, mt: 1, borderRadius: '50%', flexShrink: 0, bgcolor: n.read ? 'transparent' : 'primary.main' }} />
-            <ListItemText primary={n.title} secondary={`${n.body} · ${moment(n.createdAt).fromNow()}`} />
+        <Box sx={{ display: 'flex', gap: 1, px: 2, pb: 1 }}>
+          {[
+            ['action', `Needs action (${open.length})`],
+            ['all', 'All'],
+          ].map(([k, l]) => (
+            <Button key={k} size="small" variant={tab === k ? 'contained' : 'outlined'} onClick={() => setTab(k)} sx={{ borderRadius: 99, textTransform: 'none' }}>
+              {l}
+            </Button>
+          ))}
+        </Box>
+        {desktopSupported() && permission === 'default' ? (
+          <MenuItem onClick={() => askDesktop().then(setPermission)} sx={{ whiteSpace: 'normal', fontSize: 13, color: 'primary.main' }}>
+            Turn on desktop alerts — be told even when FAY OS is in another tab
           </MenuItem>
-        ))}
+        ) : null}
+        <Divider />
+        {shown.length === 0 && <MenuItem disabled sx={{ whiteSpace: 'normal' }}>{tab === 'action' ? 'Nothing needs attention right now.' : t('layout.noNotifications')}</MenuItem>}
+        {shown.map((n) => {
+          const lv = LEVEL[n.level] || LEVEL.info;
+          return (
+            <MenuItem key={n.id} onClick={() => go(n)} sx={{ whiteSpace: 'normal', alignItems: 'flex-start', gap: 1.25, opacity: n.resolvedAt ? 0.55 : 1, py: 1.25 }}>
+              <span className="icon" style={{ fontSize: 20, color: lv.color, marginTop: 2 }} aria-hidden="true">{lv.icon}</span>
+              <ListItemText
+                primary={
+                  <span style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                    <span style={{ flex: 1, fontWeight: n.read ? 400 : 600 }}>{n.title}</span>
+                    {n.resolvedAt ? <span style={{ fontSize: 11, color: '#3fd283' }}>Resolved</span> : lv.label ? <span style={{ fontSize: 11, color: lv.color }}>{lv.label}</span> : null}
+                  </span>
+                }
+                secondary={`${n.body ? `${n.body} · ` : ''}${moment(n.createdAt).fromNow()}`}
+              />
+            </MenuItem>
+          );
+        })}
       </Menu>
     </>
   );

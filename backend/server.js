@@ -248,6 +248,9 @@ const io = new Server(server, {
 // Make io accessible to routes
 app.set('io', io);
 
+// Operations monitor: deadlines, waiting guests, late check-outs… raised as alerts once a minute (services/monitor.js).
+require('./services/monitor').start(app);
+
 // Socket.IO authentication: clients pass their JWT as `auth: { token }`.
 // Staff (manager / superadmin) sockets join the 'staff' and 'admin' rooms automatically.
 const jwt = require('jsonwebtoken');
