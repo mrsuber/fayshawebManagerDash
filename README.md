@@ -8,7 +8,7 @@ current administrator pages come from v1. The public website is new, built from 
 |---|---|---|
 | `/` | Guests | The public website: residences, availability and booking (details, terms of stay, card or mobile money payment, confirmation), wellness, about, careers, feedback, contact, terms, privacy |
 | `/login` | Everyone | One sign-in for the whole platform. Managers go to `/manager` and administrators to `/admin`. Guests are pointed to the app. (`/admin/login` still works.) |
-| `/manager` | Managers, super administrators | **FAY OS** operations dashboard: Guest 360, journey, communications, requests, reservations, residences & smart home, housekeeping, maintenance, wellness, dining, transport, experiences, analytics, FAY AI, settings |
+| `/manager` | Managers, super administrators | **FAY OS** operations dashboard: Guest 360, journey, communications, enquiries, requests, reservations, residences & smart home, housekeeping (with inspections), maintenance, assets & lifecycle, wellness (with the editable catalogue), dining, transport, lockers & loans, visitors & gate, experiences, events, content (estate & 360° tour, terms & privacy, stories), analytics, quality, FAY AI, settings (stay times, currencies) |
 | `/admin` | Super administrators, and any role granted an HQ area | **Faysha HQ**, the boss section: overview, finance, approvals, staff & departments, roles & permissions, view as, HR, properties, audit log, plus residences, bookings, wellness catalogue, feedback and website content |
 | iOS / Android | Guests | **The Faysha app** (`mobile/`): stay hub, digital key, smart home, requests, in-residence dining, experiences, rides, bill, concierge chat, wellness, rewards, booking with card or mobile money. See [mobile/README.md](mobile/README.md) |
 
@@ -132,6 +132,14 @@ Step by step, with backups and rollback: [docs/DEPLOY.md](docs/DEPLOY.md). To ha
    new pages, so links in emails that were already sent keep working.
 5. Guest app: build with EAS and publish to the stores (see [mobile/README.md](mobile/README.md)). The current v1 app
    keeps working against the new backend, except its sign-up screen, which only the new app has.
+
+## v2.1
+
+What changed and how each part works — booking confirmation, notifications and the operations monitor, events and
+proposals, content, lockers, visitors, ratings, inspections, assets and the replacement reserve, wellness catalogue,
+currencies, FAY OS on phones — is explained in [docs/V2_1_GUIDE.md](docs/V2_1_GUIDE.md). Existing databases are brought up
+to date by running `node db/setup.js` after deploying (it applies `db/migrations/*.sql`, each once); see
+[docs/DEPLOY.md](docs/DEPLOY.md), which also covers the nginx upload size.
 
 ## Roadmap
 

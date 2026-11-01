@@ -22,6 +22,7 @@ const suites = [
   ['API smoke (every read endpoint)', 'scripts/smoke-api.js'],
   ['Booking flow', 'test/e2e/bookings.js'],
   ['Platform write paths', 'test/e2e/platform.js'],
+  ['v2.1: confirmation, events, operations, assets, currencies', 'test/e2e/v21.js'],
 ];
 
 let failed = 0;
