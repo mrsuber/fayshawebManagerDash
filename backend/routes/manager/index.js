@@ -14,6 +14,7 @@ const residences = require('./residences');
 const departments = require('./departments');
 const operations = require('./operations');
 const admin = require('./admin');
+const enquiries = require('./enquiries');
 
 const router = express.Router();
 
@@ -25,6 +26,7 @@ router.use('/service-requests', serviceRequests);
 router.use('/reservations', reservations);
 router.use('/residences', residences.router);
 router.use('/housekeeping', residences.housekeeping);
+router.use('/enquiries', enquiries);
 router.use(departments.router);
 router.use(operations);
 router.use(admin);

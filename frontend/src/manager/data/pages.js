@@ -6,6 +6,7 @@ export const PAGES = {
   guest360: { icon: 'person' },
   journey: { icon: 'route' },
   comms: { icon: 'mail' },
+  enquiries: { icon: 'inbox' },
   requests: { icon: 'room_service' },
   reservations: { icon: 'calendar_month' },
   residences: { icon: 'villa' },
@@ -25,7 +26,7 @@ export const SIDE = Object.keys(PAGES);
 
 /** Top nav: i18n key under `nav.`, landing page, pages that highlight the item. */
 export const TOP = [
-  ['guests', 'guest360', ['guest360', 'journey', 'comms']],
+  ['guests', 'guest360', ['guest360', 'journey', 'comms', 'enquiries']],
   ['reservations', 'reservations', ['reservations']],
   ['residences', 'residences', ['residences', 'housekeeping', 'maintenance']],
   ['operations', 'requests', ['requests', 'transport']],

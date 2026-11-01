@@ -14,7 +14,7 @@ export default function Contact() {
 
 function ContactBody() {
   const { t } = useLang();
-  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: 'Booking', message: '' });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: 'Booking', message: '', website: '' });
   const [state, setState] = useState({ busy: false, ok: false, error: '' });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -24,7 +24,7 @@ function ContactBody() {
     try {
       await sendContact(form);
       setState({ busy: false, ok: true, error: '' });
-      setForm({ name: '', email: '', phone: '', subject: 'Booking', message: '' });
+      setForm({ name: '', email: '', phone: '', subject: 'Booking', message: '', website: '' });
     } catch (err) {
       setState({ busy: false, ok: false, error: err.message });
     }
@@ -64,6 +64,8 @@ function ContactBody() {
           </div>
 
           <form className="fs-card" style={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 18, flexGrow: 2 }} onSubmit={submit}>
+              {/* Left empty by people; bots fill it in and are ignored. */}
+              <input type="text" name="website" value={form.website} onChange={set('website')} tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }} />
             <h2 className="fs-h3" style={{ fontSize: 28 }}>
               <Txt s="form" k="title">Send us a message</Txt>
             </h2>

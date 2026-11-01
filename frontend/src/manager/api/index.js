@@ -13,3 +13,4 @@ export * as guestsApi from './guests';
 export * as collectionsApi from './collections';
 export * as analyticsApi from './analytics';
 export * as paymentsApi from './payments';
+export * as enquiriesApi from './enquiries';

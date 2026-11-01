@@ -9,6 +9,7 @@ import AICommand from './pages/AICommand';
 import Analytics from './pages/Analytics';
 import Communications from './pages/Communications';
 import Dining from './pages/Dining';
+import Enquiries from './pages/Enquiries';
 import Experiences from './pages/Experiences';
 import Guest360 from './pages/Guest360';
 import GuestJourney from './pages/GuestJourney';
@@ -26,6 +27,7 @@ const VIEWS = {
   guest360: Guest360,
   journey: GuestJourney,
   comms: Communications,
+  enquiries: Enquiries,
   requests: ServiceRequests,
   reservations: Reservations,
   residences: Residences,

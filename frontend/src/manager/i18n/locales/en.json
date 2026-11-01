@@ -29,6 +29,12 @@
       "sub": "Unified guest communication across all channels.",
       "tag": "Connected stays. Exceptional experiences."
     },
+    "enquiries": {
+      "label": "Enquiries",
+      "title": "Enquiries",
+      "sub": "Website messages, followed up and answered — nothing left in an inbox.",
+      "tag": "Every message answered."
+    },
     "requests": {
       "label": "Service Requests",
       "title": "Service Requests & Operations",

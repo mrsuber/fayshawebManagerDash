@@ -29,6 +29,12 @@
       "sub": "Communication client unifiée sur tous les canaux.",
       "tag": "Séjours connectés. Expériences exceptionnelles."
     },
+    "enquiries": {
+      "label": "Demandes",
+      "title": "Demandes",
+      "sub": "Les messages du site, suivis et traités — rien ne reste sans réponse.",
+      "tag": "Chaque message a sa réponse."
+    },
     "requests": {
       "label": "Demandes de service",
       "title": "Demandes de service & opérations",
