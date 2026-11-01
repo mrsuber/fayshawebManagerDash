@@ -86,7 +86,7 @@ export default function StayDetailScreen({ navigation, route }) {
       ) : null}
 
       <Card padded={false} style={{ marginTop: 14, paddingHorizontal: 16 }}>
-        {keyReady ? <ListRow icon="key-outline" title="Digital key" subtitle="Gate code, door PIN and deposit box" onPress={() => navigation.navigate('DigitalKey')} /> : null}
+        {keyReady ? <ListRow icon="key-outline" title="Digital key" subtitle="Gate code, door PIN and deposit box" onPress={() => navigation.navigate('DigitalKey', { bookingId: stay.id })} /> : null}
         <ListRow icon="receipt-outline" title="Bill" subtitle={`${xaf(stay.total)} · ${stay.balance > 0 ? `${xaf(stay.balance)} to settle` : 'settled'}`} onPress={() => navigation.navigate('Bill', { stayId: stay.id })} />
         <ListRow icon="chatbubble-ellipses-outline" title="Talk to the concierge" subtitle="Changes, early arrival, special occasions" onPress={() => navigation.navigate('Main', { screen: 'Concierge' })} last />
       </Card>

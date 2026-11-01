@@ -3,11 +3,8 @@ const router = express.Router();
 const db = require('../config/database');
 const pool = db.pool;
 const bcrypt = require('bcryptjs');
-const emailService = require('../services/email.service');
-const { notifyGuest } = require('../services/guestPush');
-const keyGenerator = require('../utils/keyGenerator');
+const { finalizeStay, sendConfirmation, handOverDepositBox, temporaryPassword } = require('../services/stayKeys');
 const { releaseExpiredHolds, HOLD_EXPIRED } = require('../services/bookingHolds');
-const QRCode = require('qrcode');
 const { authenticateToken, requireStaff, userFromRequest, STAFF_ROLES } = require('../middleware/auth');
 
 // ============================================
@@ -126,25 +123,8 @@ const calculatePrice = async (apartmentId, checkInDate, checkOutDate) => {
   };
 };
 
-// Generate strong random password
-const generateTempPassword = () => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-  let password = '';
-
-  // Ensure password meets requirements
-  password += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]; // Uppercase
-  password += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]; // Lowercase
-  password += '0123456789'[Math.floor(Math.random() * 10)]; // Number
-  password += '!@#$%^&*'[Math.floor(Math.random() * 8)]; // Special char
-
-  // Fill rest with random chars
-  for (let i = 4; i < 12; i++) {
-    password += chars[Math.floor(Math.random() * chars.length)];
-  }
-
-  // Shuffle password
-  return password.split('').sort(() => Math.random() - 0.5).join('');
-};
+// A new guest's first password (cryptographically random; meets the sign-in rules).
+const generateTempPassword = temporaryPassword;
 
 // Create user account for guest
 const createGuestAccount = async (guestData, pool = db) => {
@@ -201,7 +181,8 @@ const createGuestAccount = async (guestData, pool = db) => {
 
     // Generate username from email
     const baseUsername = guestData.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    const username = baseUsername + '_' + Math.floor(Math.random() * 1000);
+    // Unique without a lookup: a short random suffix (the base alone can repeat across guests).
+    const username = `${(baseUsername || 'guest').slice(0, 30)}_${require('crypto').randomBytes(3).toString('hex')}`;
 
     // Generate email verification token
     const crypto = require('crypto');
@@ -666,6 +647,8 @@ router.put('/:id/status', requireStaff, async (req, res) => {
         WHERE id = $2 RETURNING *`,
       [status, req.params.id, cancellation_reason || null]
     );
+    // The deposit box passes to the next stay (with a new PIN) when this one ends or is cancelled.
+    await handOverDepositBox(result.rows[0].apartment_id);
     const { temporary_password, ...booking } = result.rows[0];
     res.json({ success: true, message: 'Booking status updated', booking });
   } catch (error) {
@@ -712,6 +695,8 @@ router.post('/:id/confirm', async (req, res) => {
 
     if (booking.status !== 'pending' && !lateCardPayment) {
       if (['confirmed', 'checked_in', 'checked_out'].includes(booking.status)) {
+        // Usually the Stripe webhook confirmed it a moment earlier: finish anything it left (key, email).
+        await finalizeStay(booking.id, { app: req.app });
         return res.json({ success: true, message: 'Booking already confirmed', booking: { id: booking.id, booking_number: booking.booking_number, status: booking.status } });
       }
       return res.status(409).json({ success: false, message: `This booking is ${booking.status} and cannot be confirmed` });
@@ -760,6 +745,7 @@ router.post('/:id/confirm', async (req, res) => {
 
     if (!updatedBooking.rows[0]) {
       // Confirmed by a request that arrived at the same moment.
+      await finalizeStay(booking.id, { app: req.app });
       return res.json({ success: true, message: 'Booking already confirmed', booking: { id: booking.id, booking_number: booking.booking_number, status: 'confirmed' } });
     }
 
@@ -787,179 +773,15 @@ router.post('/:id/confirm', async (req, res) => {
       }
     }
 
-    // Generate digital keys automatically after confirmation
-    try {
-      // Check if keys already exist
-      if (!booking.gate_qr_code) {
-        const keys = await keyGenerator.generateApartmentKeys(
-          booking.id,
-          booking.user_id,
-          booking.apartment_id
-        );
-
-        // Save keys to database
-        await pool.query(`
-          UPDATE bookings
-          SET gate_qr_code = $1,
-              door_pin = $2,
-              deposit_box_number = $3,
-              deposit_box_pin = $4,
-              keys_generated_at = $5
-          WHERE id = $6
-        `, [
-          keys.gateQRCode,
-          keys.doorPIN,
-          keys.depositBoxNumber,
-          keys.depositBoxPIN,
-          keys.generatedAt,
-          id
-        ]);
-
-        // Link deposit box to this booking
-        await pool.query(`
-          UPDATE deposit_boxes
-          SET current_booking_id = $1,
-              status = 'empty'
-          WHERE apartment_id = $2
-        `, [id, booking.apartment_id]);
-
-        console.log(`✅ Digital keys auto-generated for booking #${booking.booking_number}`);
-        console.log('🔑 Gate QR Code:', keys.gateQRCode);
-        console.log('🔑 Door PIN:', keys.doorPIN);
-        console.log('📦 Deposit Box:', keys.depositBoxNumber, 'linked to booking');
-
-        // Generate QR code as data URI for email
-        const qrCodeDataURI = await QRCode.toDataURL(keys.gateQRCode, {
-          width: 400,
-          margin: 2,
-          color: {
-            dark: '#0D0D0D',
-            light: '#FFFFFF'
-          }
-        });
-
-        console.log('📊 QR Code Data URI length:', qrCodeDataURI.length);
-        console.log('📊 QR Code Data URI prefix:', qrCodeDataURI.substring(0, 50));
-
-        // Format dates for email
-        const checkInDate = new Date(booking.check_in_date).toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-
-        const checkOutDate = new Date(booking.check_out_date).toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-
-        // Get user credentials if account exists
-        let credentials = null;
-        if (booking.user_id) {
-          console.log('📧 Checking credentials for user_id:', booking.user_id);
-
-          const userResult = await pool.query(
-            `SELECT username, email, is_password_temporary FROM users WHERE id = $1`,
-            [booking.user_id]
-          );
-
-          if (userResult.rows.length > 0) {
-            console.log('📧 User found:', userResult.rows[0].username);
-            console.log('📧 is_password_temporary:', userResult.rows[0].is_password_temporary);
-
-            // Try to get temporary password from booking if column exists
-            const temporaryPassword = booking.temporary_password;
-
-            if (temporaryPassword) {
-              console.log('✅ Temporary password found in booking');
-              credentials = {
-                username: userResult.rows[0].username,
-                email: userResult.rows[0].email,
-                temporaryPassword: temporaryPassword
-              };
-            } else if (userResult.rows[0].is_password_temporary) {
-              console.log('⚠️ User has temporary password but not stored in booking - generating new one');
-
-              // Generate a new temporary password since we can't retrieve the old one
-              const bcrypt = require('bcryptjs');
-              const crypto = require('crypto');
-              const newTempPassword = crypto.randomBytes(6).toString('base64').slice(0, 10).replace(/[^a-zA-Z0-9]/g, '') + 'A1$';
-              const hashedPassword = await bcrypt.hash(newTempPassword, 10);
-
-              await pool.query(
-                'UPDATE users SET password_hash = $1 WHERE id = $2',
-                [hashedPassword, booking.user_id]
-              );
-
-
-              credentials = {
-                username: userResult.rows[0].username,
-                email: userResult.rows[0].email,
-                temporaryPassword: newTempPassword
-              };
-            } else {
-              console.log('ℹ️ User does not have temporary password');
-            }
-          }
-        }
-
-        // Send comprehensive booking confirmation email with all access codes
-        await emailService.sendBookingConfirmation({
-          to: booking.guest_email,
-          guestName: booking.guest_name,
-          bookingNumber: booking.booking_number,
-          checkInDate: checkInDate,
-          checkOutDate: checkOutDate,
-          unitNumber: booking.unit_number,
-          apartmentCategory: booking.category_display_name,
-          numberOfNights: booking.number_of_nights,
-          totalPrice: booking.final_price,
-          accessCode: booking.access_code,
-          qrCodeDataURI: qrCodeDataURI,
-          doorPIN: keys.doorPIN,
-          depositBoxNumber: keys.depositBoxNumber,
-          depositBoxPIN: keys.depositBoxPIN,
-          credentials: credentials
-        });
-
-        // Mark email as sent and clear temporary password for security
-        await pool.query(`
-          UPDATE bookings
-          SET email_sent = true,
-              email_sent_at = CURRENT_TIMESTAMP,
-              temporary_password = NULL
-          WHERE id = $1
-        `, [id]);
-
-        console.log(`✅ Comprehensive confirmation email sent to ${booking.guest_email}`);
-      }
-    } catch (keyError) {
-      console.error('❌ Failed to generate/send digital keys (booking still confirmed):', keyError);
-      // Don't fail the confirmation if key generation fails
-    }
-
-    // Note: Comprehensive email with all booking details and digital keys
-    // is automatically sent via the sendApartmentDigitalKey call above
-    // No need to send separate booking confirmation email
-
-    // Tell the guest in the app (push + live update) that their stay is confirmed.
-    if (booking.user_id) {
-      notifyGuest(req.app, booking.user_id, {
-        title: 'Your stay is confirmed',
-        body: `${booking.category_display_name} · ${new Date(booking.check_in_date).toDateString()}. Your digital key is ready in the app.`,
-        event: 'stay:confirmed',
-        data: { bookingId: booking.id, screen: 'MyStays' }
-      });
-    }
+    // Key, deposit box, confirmation email (with first sign-in details) and the app notification.
+    const finalized = await finalizeStay(booking.id, { app: req.app });
 
     const { temporary_password: _password, ...confirmed } = updatedBooking.rows[0];
     res.json({
       success: true,
       message: 'Booking confirmed successfully',
-      booking: confirmed
+      booking: confirmed,
+      emailSent: finalized.email ? finalized.email.sent : false
     });
   } catch (error) {
     console.error('Error confirming booking:', error);
@@ -975,204 +797,50 @@ router.post('/:id/confirm', async (req, res) => {
 // DIGITAL KEY ENDPOINTS
 // ============================================
 
-// Generate digital keys for apartment booking
+// Issue the digital key of a confirmed stay (if it has none) and return it. Staff only.
 router.post('/:id/generate-keys', requireStaff, async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // Get booking details
-    const bookingResult = await pool.query(`
-      SELECT b.*, a.id as apartment_id, a.unit_number
-      FROM bookings b
-      JOIN apartments a ON b.apartment_id = a.id
-      WHERE b.id = $1
-    `, [id]);
-
-    if (bookingResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
+    const found = await pool.query('SELECT id, status FROM bookings WHERE id = $1', [req.params.id]);
+    if (!found.rows[0]) return res.status(404).json({ success: false, message: 'Booking not found' });
+    if (!['confirmed', 'checked_in'].includes(found.rows[0].status)) {
+      return res.status(409).json({ success: false, message: 'A digital key is issued once the stay is confirmed' });
     }
-
-    const booking = bookingResult.rows[0];
-
-    // Check if keys already exist
-    if (booking.gate_qr_code) {
-      return res.json({
-        success: true,
-        message: 'Keys already generated',
-        keys: {
-          gateQRCode: booking.gate_qr_code,
-          doorPIN: booking.door_pin,
-          depositBox: {
-            number: booking.deposit_box_number,
-            pin: booking.deposit_box_pin
-          },
-          booking: {
-            id: booking.id,
-            type: 'apartment',
-            checkIn: booking.check_in_date,
-            checkOut: booking.check_out_date
-          }
-        }
-      });
-    }
-
-    // Generate new keys
-    const keys = await keyGenerator.generateApartmentKeys(
-      booking.id,
-      booking.user_id,
-      booking.apartment_id
-    );
-
-    // Save keys to database
-    await pool.query(`
-      UPDATE bookings
-      SET gate_qr_code = $1,
-          door_pin = $2,
-          deposit_box_number = $3,
-          deposit_box_pin = $4,
-          keys_generated_at = $5
-      WHERE id = $6
-    `, [
-      keys.gateQRCode,
-      keys.doorPIN,
-      keys.depositBoxNumber,
-      keys.depositBoxPIN,
-      keys.generatedAt,
-      id
-    ]);
-
-    console.log(`✅ Digital keys generated for booking #${booking.booking_number}`);
-
+    await finalizeStay(found.rows[0].id, { app: req.app });
+    const b = (await pool.query('SELECT * FROM bookings WHERE id = $1', [req.params.id])).rows[0];
     res.json({
       success: true,
-      message: 'Digital keys generated successfully',
+      message: 'Digital key ready',
       keys: {
-        gateQRCode: keys.gateQRCode,
-        doorPIN: keys.doorPIN,
-        depositBox: {
-          number: keys.depositBoxNumber,
-          pin: keys.depositBoxPIN
-        },
-        booking: {
-          id: booking.id,
-          type: 'apartment',
-          checkIn: booking.check_in_date,
-          checkOut: booking.check_out_date
-        }
-      }
+        gateQRCode: b.gate_qr_code,
+        doorPIN: b.door_pin,
+        depositBox: { number: b.deposit_box_number, pin: b.deposit_box_pin },
+        booking: { id: b.id, type: 'apartment', checkIn: b.check_in_date, checkOut: b.check_out_date },
+      },
     });
   } catch (error) {
     console.error('Error generating digital keys:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate digital keys',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to generate digital keys' });
   }
 });
 
-// Send digital key email with QR code
-router.post('/:id/send-digital-key-email', requireStaff, async (req, res) => {
+// Email the confirmation with the digital key again (staff). Issues the key first if needed.
+const resendConfirmation = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    // Get booking details with apartment info
-    const bookingResult = await pool.query(`
-      SELECT
-        b.*,
-        a.unit_number,
-        a.floor,
-        a.building,
-        c.display_name as category_display_name
-      FROM bookings b
-      JOIN apartments a ON b.apartment_id = a.id
-      JOIN apartment_categories c ON a.category_id = c.id
-      WHERE b.id = $1
-    `, [id]);
-
-    if (bookingResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
+    const found = await pool.query('SELECT id, status FROM bookings WHERE id = $1', [req.params.id]);
+    if (!found.rows[0]) return res.status(404).json({ success: false, message: 'Booking not found' });
+    if (!['confirmed', 'checked_in'].includes(found.rows[0].status)) {
+      return res.status(409).json({ success: false, message: 'Only a confirmed stay has a digital key to send' });
     }
-
-    const booking = bookingResult.rows[0];
-
-    // Check if keys exist
-    if (!booking.gate_qr_code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Digital keys not generated yet. Please generate keys first.'
-      });
-    }
-
-    // Generate QR code as data URI
-    const qrCodeDataURI = await QRCode.toDataURL(booking.gate_qr_code, {
-      width: 400,
-      margin: 2,
-      color: {
-        dark: '#0D0D0D',
-        light: '#FFFFFF'
-      }
-    });
-
-    // Format dates for email
-    const checkInDate = new Date(booking.check_in_date).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-
-    const checkOutDate = new Date(booking.check_out_date).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-
-    // Send email with digital keys
-    await emailService.sendApartmentDigitalKey({
-      to: booking.guest_email,
-      name: booking.guest_name,
-      bookingNumber: booking.booking_number,
-      apartmentName: booking.category_display_name,
-      villaNumber: `VILLA ${booking.unit_number}`,
-      checkInDate: checkInDate,
-      checkOutDate: checkOutDate,
-      qrCodeDataURI: qrCodeDataURI,
-      doorPIN: booking.door_pin,
-      depositBoxNumber: booking.deposit_box_number,
-      depositBoxPIN: booking.deposit_box_pin
-    });
-
-    // Mark email as sent
-    await pool.query(`
-      UPDATE bookings
-      SET email_sent = true,
-          email_sent_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-    `, [id]);
-
-    console.log(`✅ Digital key email sent to ${booking.guest_email} for booking #${booking.booking_number}`);
-
-    res.json({
-      success: true,
-      message: 'Digital key email sent successfully'
-    });
+    await finalizeStay(found.rows[0].id, { app: req.app, notify: false });
+    const result = await sendConfirmation(found.rows[0].id, { force: true });
+    if (!result.sent) return res.status(502).json({ success: false, message: `The email could not be sent: ${result.error || 'unknown error'}` });
+    res.json({ success: true, message: 'Confirmation email sent successfully', email: result.to });
   } catch (error) {
-    console.error('Error sending digital key email:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send digital key email',
-      error: error.message
-    });
+    console.error('Error resending confirmation email:', error);
+    res.status(500).json({ success: false, message: 'Failed to resend confirmation email' });
   }
-});
+};
+router.post('/:id/send-digital-key-email', requireStaff, resendConfirmation);
 
 // Get all active digital keys for logged-in user
 /** A DATE column (parsed by pg as local midnight) → "YYYY-MM-DD". */
@@ -1205,15 +873,18 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
         a.unit_number,
         a.floor,
         a.building,
-        c.display_name as apartment_name
+        c.display_name as apartment_name,
+        d.status AS box_status,
+        (SELECT COUNT(*)::int FROM deposit_box_history h WHERE h.deposit_box_id = d.id AND h.booking_id = b.id AND h.status = 'waiting') AS packages_waiting
       FROM bookings b
       JOIN apartments a ON b.apartment_id = a.id
       JOIN apartment_categories c ON a.category_id = c.id
+      LEFT JOIN deposit_boxes d ON d.apartment_id = a.id AND d.current_booking_id = b.id
       WHERE b.user_id = $1
         AND b.status IN ('confirmed', 'checked_in')
         AND b.check_out_date >= CURRENT_DATE
         AND b.gate_qr_code IS NOT NULL
-      ORDER BY b.check_in_date ASC
+      ORDER BY b.status = 'checked_in' DESC, b.check_in_date ASC
     `, [user_id]);
 
     // Format apartment keys
@@ -1231,8 +902,9 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
       depositBox: {
         number: booking.deposit_box_number,
         pin: booking.deposit_box_pin,
-        status: 'secure', // TODO: Implement deposit box status tracking
-        packageCount: 0 // TODO: Implement package tracking
+        // Held: this stay has the box now. Otherwise its PIN arrives when the box passes to it.
+        status: !booking.box_status ? 'not_yet' : booking.box_status === 'package_waiting' ? 'package_waiting' : 'secure',
+        packageCount: booking.packages_waiting || 0
       },
       // Calendar days as YYYY-MM-DD, so the app shows the same date in every time zone.
       checkIn: calendarDay(booking.check_in_date),
@@ -1283,263 +955,10 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
   }
 });
 
-// Send access code
-router.post('/:id/send-access-code', requireStaff, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Get booking details with apartment and category info
-    const bookingResult = await pool.query(`
-      SELECT
-        b.*,
-        a.unit_number,
-        a.floor,
-        a.building,
-        c.display_name as category_display_name
-      FROM bookings b
-      JOIN apartments a ON b.apartment_id = a.id
-      JOIN apartment_categories c ON a.category_id = c.id
-      WHERE b.id = $1
-    `, [id]);
-
-    if (bookingResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    const booking = bookingResult.rows[0];
-
-    // Get user credentials if account exists
-    let credentials = null;
-    if (booking.user_id) {
-      const userResult = await pool.query(
-        `SELECT username, email, is_password_temporary FROM users WHERE id = $1`,
-        [booking.user_id]
-      );
-
-      if (userResult.rows.length > 0) {
-        // If user has a temporary password, generate a new one and update it
-        if (userResult.rows[0].is_password_temporary) {
-          const newTempPassword = generateTempPassword();
-          const hashedPassword = await bcrypt.hash(newTempPassword, 10);
-
-          await pool.query(
-            `UPDATE users SET password_hash = $1 WHERE id = $2`,
-            [hashedPassword, booking.user_id]
-          );
-
-          credentials = {
-            username: userResult.rows[0].username,
-            temporaryPassword: newTempPassword,
-          };
-
-          console.log(`🔄 Generated new temporary password for user: ${userResult.rows[0].email}`);
-        } else {
-          // User has already changed their password, just include username
-          credentials = {
-            username: userResult.rows[0].username,
-          };
-        }
-      }
-    }
-
-    // Send confirmation email with access code
-    try {
-      await emailService.sendBookingConfirmation({
-        to: booking.guest_email,
-        guestName: booking.guest_name,
-        bookingNumber: booking.booking_number,
-        checkInDate: booking.check_in_date,
-        checkOutDate: booking.check_out_date,
-        unitNumber: booking.unit_number,
-        apartmentCategory: booking.category_display_name,
-        numberOfNights: booking.number_of_nights,
-        totalPrice: booking.final_price,
-        accessCode: booking.access_code,
-        credentials: credentials,
-      });
-      console.log(`✅ Access code email sent to ${booking.guest_email}`);
-    } catch (emailError) {
-      console.error('❌ Failed to send access code email:', emailError);
-      throw new Error('Failed to send access code email: ' + emailError.message);
-    }
-
-    // Update the sent timestamp
-    await pool.query(
-      'UPDATE bookings SET access_code_sent_at = CURRENT_TIMESTAMP WHERE id = $1',
-      [id]
-    );
-
-    res.json({
-      success: true,
-      message: 'Access code sent successfully',
-      access_code: booking.access_code
-    });
-  } catch (error) {
-    console.error('Error sending access code:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send access code',
-      error: error.message
-    });
-  }
-});
-
 // Resend confirmation email
-router.post('/:id/resend-confirmation', requireStaff, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Get booking details with digital key info
-    const bookingResult = await pool.query(`
-      SELECT
-        b.*,
-        a.unit_number,
-        a.floor,
-        a.building,
-        c.display_name as category_display_name
-      FROM bookings b
-      JOIN apartments a ON b.apartment_id = a.id
-      JOIN apartment_categories c ON a.category_id = c.id
-      WHERE b.id = $1
-    `, [id]);
-
-    if (bookingResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    const booking = bookingResult.rows[0];
-
-    // Check if booking has digital keys, if not generate them
-    if (!booking.gate_qr_code) {
-      const keys = await keyGenerator.generateApartmentKeys(
-        booking.id,
-        booking.user_id,
-        booking.apartment_id
-      );
-
-      await pool.query(`
-        UPDATE bookings
-        SET gate_qr_code = $1,
-            door_pin = $2,
-            deposit_box_number = $3,
-            deposit_box_pin = $4,
-            keys_generated_at = $5
-        WHERE id = $6
-      `, [
-        keys.gateQRCode,
-        keys.doorPIN,
-        keys.depositBoxNumber,
-        keys.depositBoxPIN,
-        keys.generatedAt,
-        booking.id
-      ]);
-
-      // Update local booking object
-      booking.gate_qr_code = keys.gateQRCode;
-      booking.door_pin = keys.doorPIN;
-      booking.deposit_box_number = keys.depositBoxNumber;
-      booking.deposit_box_pin = keys.depositBoxPIN;
-
-      console.log(`✅ Digital keys generated for booking #${booking.booking_number}`);
-    }
-
-    // Generate QR code as data URI for email
-    const QRCode = require('qrcode');
-    const qrCodeDataURI = await QRCode.toDataURL(booking.gate_qr_code, {
-      width: 400,
-      margin: 2,
-      color: {
-        dark: '#0D0D0D',
-        light: '#FFFFFF'
-      }
-    });
-
-    // Format dates for email
-    const checkInDate = new Date(booking.check_in_date).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-
-    const checkOutDate = new Date(booking.check_out_date).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-
-    // Get user credentials if account exists with temporary password
-    let credentials = null;
-    if (booking.user_id) {
-      const userResult = await pool.query(
-        `SELECT username, email, is_password_temporary FROM users WHERE id = $1`,
-        [booking.user_id]
-      );
-
-      if (userResult.rows.length > 0 && userResult.rows[0].is_password_temporary) {
-        // Try to get temporary password from booking if it exists
-        if (booking.temporary_password) {
-          credentials = {
-            username: userResult.rows[0].username,
-            email: userResult.rows[0].email,
-            temporaryPassword: booking.temporary_password
-          };
-        } else {
-          credentials = {
-            username: userResult.rows[0].username,
-            email: userResult.rows[0].email,
-            note: 'Use your existing temporary password. Contact support if you need a new one.'
-          };
-        }
-      }
-    }
-
-    // Send comprehensive email with all access details
-    try {
-      await emailService.sendBookingConfirmation({
-        to: booking.guest_email,
-        guestName: booking.guest_name,
-        bookingNumber: booking.booking_number,
-        checkInDate: checkInDate,
-        checkOutDate: checkOutDate,
-        unitNumber: booking.unit_number,
-        apartmentCategory: booking.category_display_name,
-        numberOfNights: booking.number_of_nights,
-        totalPrice: booking.final_price,
-        accessCode: booking.access_code,
-        qrCodeDataURI: qrCodeDataURI,
-        doorPIN: booking.door_pin,
-        depositBoxNumber: booking.deposit_box_number,
-        depositBoxPIN: booking.deposit_box_pin,
-        credentials: credentials
-      });
-      console.log(`✅ Comprehensive confirmation email resent to ${booking.guest_email}`);
-    } catch (emailError) {
-      console.error('❌ Failed to resend confirmation email:', emailError);
-      throw new Error('Failed to resend confirmation email: ' + emailError.message);
-    }
-
-    res.json({
-      success: true,
-      message: 'Confirmation email sent successfully',
-      email: booking.guest_email
-    });
-  } catch (error) {
-    console.error('Error resending confirmation email:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to resend confirmation email',
-      error: error.message
-    });
-  }
-});
+router.post('/:id/resend-confirmation', requireStaff, resendConfirmation);
+// v1 name for the same action (it used to reset the guest's password, which could lock out a signed-in guest).
+router.post('/:id/send-access-code', requireStaff, resendConfirmation);
 
 // Get booking statistics
 router.get('/stats/overview', requireStaff, async (req, res) => {

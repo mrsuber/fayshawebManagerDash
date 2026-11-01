@@ -6,6 +6,8 @@
 const express = require('express');
 const { db, ah, httpError, isoDate, isoTime, displayTime, notify, getSetting } = require('./lib');
 
+const { finalizeStay, handOverDepositBox } = require('../../services/stayKeys');
+
 const router = express.Router();
 
 const STATUS_OUT = { pending: 'Pending', confirmed: 'Confirmed', checked_in: 'Confirmed', checked_out: 'Confirmed', cancelled: 'Cancelled' };
@@ -138,6 +140,8 @@ router.post(
       if (e.code === '23P01') throw httpError(409, `${apt.unit_number} is already booked for those dates`);
       throw e;
     }
+    // Staff reservations are confirmed at once: issue the key and send the guest their confirmation.
+    await finalizeStay(row.id, { app: req.app });
     const reservation = await one(row.id);
     await notify(req, 'New reservation', `${reservation.guestName} · ${reservation.residence} · ${reservation.checkIn}`, { link: '/reservations' });
     res.status(201).json(reservation);
@@ -161,6 +165,8 @@ router.patch(
       if (e.code === '23P01') throw httpError(409, 'Those dates are no longer free');
       throw e;
     }
+    if (status === 'confirmed') await finalizeStay(req.params.id, { app: req.app });
+    else await handOverDepositBox((await db.query('SELECT apartment_id FROM bookings WHERE id = $1', [req.params.id])).rows[0].apartment_id);
     res.json(await one(req.params.id));
   }),
 );
@@ -201,6 +207,7 @@ router.patch(
     if (kind === 'arrivals' && status === 'Checked In') {
       if (!['confirmed', 'pending'].includes(b.status)) throw httpError(409, `Booking is ${b.status.replace('_', ' ')}`);
       await db.query("UPDATE bookings SET status = 'checked_in', checked_in_at = NOW(), confirmed_at = COALESCE(confirmed_at, NOW()) WHERE id = $1", [id]);
+      await finalizeStay(id, { app: req.app });
       await notify(req, 'Guest checked in', `${b.guest_name} · ${b.unit_number}`);
     } else if (kind === 'departures' && status === 'Checked Out') {
       if (b.status !== 'checked_in') throw httpError(409, 'Guest is not checked in');
@@ -210,6 +217,7 @@ router.patch(
          ON CONFLICT (apartment_id) DO UPDATE SET housekeeping_status = 'Dirty', housekeeping_note = 'Departure clean'`,
         [b.apartment_id],
       );
+      await handOverDepositBox(b.apartment_id);
       await notify(req, 'Guest checked out', `${b.guest_name} · ${b.unit_number}`, { link: '/housekeeping' });
     } else {
       throw httpError(400, 'Use status "Checked In" for arrivals or "Checked Out" for departures');

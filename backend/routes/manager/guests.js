@@ -3,6 +3,7 @@
  */
 
 const express = require('express');
+const { finalizeStay, handOverDepositBox } = require('../../services/stayKeys');
 const { db, ah, httpError, isoDate, isoTime, emit, addTimeline, notify, tx, getSetting } = require('./lib');
 const { listGuests, guestRow, fullGuest } = require('./guestData');
 const { conversations, messagesFor, sendStaffMessage } = require('./conversations');
@@ -71,6 +72,7 @@ async function moveGuest(req, res, kind) {
   if (kind === 'in') {
     if (!['confirmed', 'pending'].includes(row.booking_status)) throw httpError(409, `Booking is ${row.booking_status.replace('_', ' ')}, it can't be checked in`);
     await db.query("UPDATE bookings SET status = 'checked_in', checked_in_at = CURRENT_TIMESTAMP, confirmed_at = COALESCE(confirmed_at, CURRENT_TIMESTAMP) WHERE id = $1", [row.booking_id]);
+    await finalizeStay(row.booking_id, { app: req.app });
     await notify(req, 'Guest checked in', `${row.full_name} · ${row.unit_number}`, { link: `/guest360?guest=${row.id}` });
   } else {
     if (row.booking_status !== 'checked_in') throw httpError(409, 'Guest is not checked in');
@@ -83,6 +85,7 @@ async function moveGuest(req, res, kind) {
         [row.apartment_id],
       );
     });
+    await handOverDepositBox(row.apartment_id);
     emit(req, 'housekeeping:updated', { id: row.apartment_id, status: 'Dirty', note: 'Departure clean' });
     await notify(req, 'Guest checked out', `${row.full_name} · ${row.unit_number}`, { link: '/housekeeping' });
   }

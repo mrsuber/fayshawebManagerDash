@@ -13,16 +13,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import QRCode from 'react-native-qrcode-svg';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { dayLabel } from '../../utils/format';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
+import { useLiveEvent } from '../../contexts/LiveContext';
 
 export default function DigitalKeyScreen() {
   const { user } = useAuth();
   const navigation = useNavigation();
+  // Opened from a particular stay (Residence, stay detail): show that stay's key, not just the first one.
+  const wantedBookingId = useRoute()?.params?.bookingId;
   const [activeControl, setActiveControl] = useState(null);
   const [keyData, setKeyData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -56,13 +59,16 @@ export default function DigitalKeyScreen() {
       }
       setError(null);
 
-      const response = await api.get(`/bookings/user/my-keys?user_id=${user.id}`);
+      const response = await api.get('/bookings/user/my-keys');
 
       if (response.success) {
         const { apartments, wellnessJourneys } = response.keys;
 
-        // Get the first (most recent) apartment booking
-        const apartmentBooking = apartments[0];
+        // The stay asked for, else the one in progress, else the next one.
+        const apartmentBooking =
+          apartments.find((a) => wantedBookingId && String(a.bookingId) === String(wantedBookingId)) ||
+          apartments.find((a) => a.status === 'active') ||
+          apartments[0];
 
         // Get the first (most recent) wellness journey booking
         const wellnessJourney = wellnessJourneys[0];
@@ -132,7 +138,11 @@ export default function DigitalKeyScreen() {
     if (user?.id) {
       fetchDigitalKeys();
     }
-  }, [user?.id]);
+  }, [user?.id, wantedBookingId]);
+
+  // The key appears the moment the stay is confirmed (card webhook, or staff receiving mobile money).
+  useLiveEvent('stay:confirmed', () => fetchDigitalKeys(true));
+  useLiveEvent('deposit:updated', () => fetchDigitalKeys(true));
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -268,9 +278,11 @@ export default function DigitalKeyScreen() {
               >
                 <View style={styles.codeHeader}>
                   <Text style={styles.codeLabel}>Door PIN</Text>
-                  <View style={styles.copyBadge}>
-                    <Text style={styles.copyBadgeText}>TAP TO COPY</Text>
-                  </View>
+                  {displayData.depositBox.currentPin ? (
+                    <View style={styles.copyBadge}>
+                      <Text style={styles.copyBadgeText}>TAP TO COPY</Text>
+                    </View>
+                  ) : null}
                 </View>
                 <Text style={styles.codeDisplay}>{displayData.doorCode}</Text>
                 <Text style={styles.codeHint}>Enter on keypad next to door</Text>
@@ -295,7 +307,8 @@ export default function DigitalKeyScreen() {
 
           <TouchableOpacity
             style={styles.depositBoxCard}
-            onPress={() => copyToClipboard(displayData.depositBox.currentPin, 'Deposit Box PIN')}
+            onPress={() => displayData.depositBox.currentPin && copyToClipboard(displayData.depositBox.currentPin, 'Deposit Box PIN')}
+            disabled={!displayData.depositBox.currentPin}
             activeOpacity={0.8}
           >
             <LinearGradient
@@ -327,7 +340,7 @@ export default function DigitalKeyScreen() {
                         styles.depositStatusTextActive,
                     ]}
                   >
-                    {displayData.depositBox.status === 'package_waiting' ? '📦 PACKAGE' : '✓ EMPTY'}
+                    {displayData.depositBox.status === 'package_waiting' ? '📦 PACKAGE' : displayData.depositBox.status === 'not_yet' ? 'RESERVED' : '✓ EMPTY'}
                   </Text>
                 </View>
               </View>
@@ -340,7 +353,11 @@ export default function DigitalKeyScreen() {
                     <Text style={styles.copyBadgeText}>TAP TO COPY</Text>
                   </View>
                 </View>
-                <Text style={styles.depositPinDisplay}>{displayData.depositBox.currentPin}</Text>
+                {displayData.depositBox.currentPin ? (
+                  <Text style={styles.depositPinDisplay}>{displayData.depositBox.currentPin}</Text>
+                ) : (
+                  <Text style={styles.depositInfoText}>Your PIN appears here when your stay begins.</Text>
+                )}
               </View>
 
               {/* Info Message */}

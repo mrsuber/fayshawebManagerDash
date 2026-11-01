@@ -3,6 +3,7 @@ const router = express.Router();
 // The pg Pool itself: confirm/refund use pool.connect() for transactions.
 const { pool } = require('../config/database');
 const { requireStaff } = require('../middleware/auth');
+const { finalizeStay } = require('../services/stayKeys');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // ============================================
@@ -255,6 +256,7 @@ router.post('/:id/confirm', requireStaff, async (req, res) => {
     `, [payment.booking_id]);
 
     await client.query('COMMIT');
+    await finalizeStay(payment.booking_id, { app: req.app });
 
     res.json({
       success: true,
@@ -322,10 +324,13 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
           await pool.query(`
             UPDATE bookings
             SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
-            WHERE id = $1
+            WHERE id = $1 AND status = 'pending'
           `, [paymentResult.rows[0].booking_id]);
+          // (A payment that lands after its hold expired is reinstated by POST /bookings/:id/confirm, which checks the dates.)
 
           console.log('Booking confirmed:', paymentResult.rows[0].booking_id);
+          // Key, deposit box, confirmation email and app notification (the app's own /confirm may race this; both are safe).
+          await finalizeStay(paymentResult.rows[0].booking_id, { app: req.app });
         }
         break;
 

@@ -7,6 +7,8 @@
  *                               or overwritten.
  *   node db/setup.js --demo     Also load sample residences, guests, stays and operations data (for trying the
  *                               platform out; not for production).
+ *                               Then apply any new db/migrations/*.sql (each once; this is how an existing
+ *                               production database gets new tables and columns).
  *   node db/setup.js --reset    Drop everything first (refused when NODE_ENV=production).
  *
  * The first super administrator is SEED_ADMIN_EMAIL (default admin@fayshaa.com) with SEED_ADMIN_PASSWORD, or a
@@ -50,6 +52,8 @@ async function main() {
       await client.query(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
     }
 
+    await runMigrations(client);
+
     await client.query('BEGIN');
     await base.load(client);
     const admin = await ensureSuperAdmin(client);
@@ -75,6 +79,30 @@ async function main() {
     process.exitCode = 1;
   } finally {
     await client.end();
+  }
+}
+
+/**
+ * Applies db/migrations/*.sql in name order, each once, each in its own transaction (recorded in schema_migrations).
+ * Every migration is written to be safe on a database built from the current schema.sql as well as an older one.
+ */
+async function runMigrations(client) {
+  await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (name VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  const dir = path.join(__dirname, 'migrations');
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort() : [];
+  const done = new Set((await client.query('SELECT name FROM schema_migrations')).rows.map((r) => r.name));
+  for (const file of files) {
+    if (done.has(file)) continue;
+    console.log(`Applying migration ${file}…`);
+    await client.query('BEGIN');
+    try {
+      await client.query(fs.readFileSync(path.join(dir, file), 'utf8'));
+      await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw new Error(`Migration ${file} failed: ${e.message}`);
+    }
   }
 }
 

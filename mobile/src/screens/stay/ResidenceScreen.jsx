@@ -89,7 +89,7 @@ export default function ResidenceScreen({ navigation }) {
       ) : null}
 
       <View style={s.actions}>
-        <Action icon="key-outline" label="Digital key" onPress={() => navigation.navigate('DigitalKey')} disabled={stay.status === 'pending'} />
+        <Action icon="key-outline" label="Digital key" onPress={() => navigation.navigate('DigitalKey', { bookingId: stay.id })} disabled={stay.status === 'pending'} />
         <Action icon="home-outline" label="Smart home" onPress={() => navigation.navigate('SmartHome')} disabled={!inHouse} />
         <Action icon="chatbubble-ellipses-outline" label="Concierge" onPress={() => navigation.navigate('Main', { screen: 'Concierge' })} />
       </View>
