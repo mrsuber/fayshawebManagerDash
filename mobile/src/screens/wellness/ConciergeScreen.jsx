@@ -98,6 +98,12 @@ const ImageAttachment = ({ fullUrl, url, name, onPress }) => {
   );
 };
 
+/** One entry per message id (the first copy wins). */
+const withoutDuplicates = (list) => {
+  const seen = new Set();
+  return list.filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)));
+};
+
 export default function ConciergeScreen() {
   const { markAllAsRead } = useChat();
   const [messages, setMessages] = useState([]);
@@ -113,7 +119,7 @@ export default function ConciergeScreen() {
     try {
       const response = await api.get('/wellness/concierge/messages?limit=100');
       if (response.success) {
-        setMessages(response.messages);
+        setMessages(withoutDuplicates(response.messages || []));
         setTimeout(() => scrollToBottom(), 100);
 
         // Mark all messages as read after fetching
@@ -151,7 +157,14 @@ export default function ConciergeScreen() {
   // New messages arrive over the app's live connection.
   useLiveEvent('new_message', (message) => {
     if (!message) return;
-    setMessages((prev) => (prev.find((m) => m.id === message.id) ? prev : [...prev, message]));
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === message.id)) return prev;
+      // My own message coming back over the live connection (staff accounts also get the guest feed) before the
+      // send has answered: it replaces the pending copy instead of appearing twice.
+      const pending = message.sender_type === 'user' ? prev.findIndex((m) => m._isOptimistic && m.status === 'sending' && m.message === message.message) : -1;
+      if (pending >= 0) return prev.map((m, i) => (i === pending ? { ...message, status: 'sent' } : m));
+      return [...prev, message];
+    });
     if (message.sender_type === 'concierge') markAllAsRead();
     setTimeout(() => scrollToBottom(), 100);
   });
@@ -299,11 +312,11 @@ export default function ConciergeScreen() {
 
       if (response.success) {
         // ✅ Step 4: Replace optimistic message with real message
-        setMessages(prev => prev.map(m =>
+        setMessages(prev => withoutDuplicates(prev.map(m =>
           m.id === localId
             ? { ...response.message, status: 'sent' }
             : m
-        ));
+        )));
       }
     } catch (error) {
       console.error('❌ Error sending message:', error);
@@ -312,6 +325,21 @@ export default function ConciergeScreen() {
         error: error.error,
         response: error.response?.data
       });
+
+      // No answer (connection dropped or timed out): the server may still have saved the message. Check first,
+      // so a retry does not send it twice.
+      if (error?.offline && !file) {
+        try {
+          const latest = await api.get('/wellness/concierge/messages?limit=100');
+          const saved = latest?.success && latest.messages.find((m) => m.sender_type === 'user' && m.message === text.trim() && new Date(m.created_at) >= new Date(Date.now() - 2 * 60 * 1000));
+          if (saved) {
+            setMessages((prev) => withoutDuplicates([...latest.messages, ...prev.filter((m) => m._isOptimistic && m.id !== localId)]));
+            return;
+          }
+        } catch (e) {
+          // still offline: fall through to the retry option
+        }
+      }
 
       // ✅ Mark message as failed with retry option
       setMessages(prev => prev.map(m =>

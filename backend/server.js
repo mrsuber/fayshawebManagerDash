@@ -223,6 +223,12 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
+// A background task that fails (an alert, a webhook, a push) is logged, not allowed to stop the API: on Node 15+
+// an unhandled rejection exits the process, dropping every request in flight (the apps then report "No connection").
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection (API kept running):', reason && reason.stack ? reason.stack : reason);
+});
+
 const server = app.listen(PORT, () => {
   console.log('');
   console.log('=====================================');

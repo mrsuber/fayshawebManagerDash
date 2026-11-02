@@ -596,54 +596,58 @@ router.post('/concierge/messages', authenticateToken, async (req, res) => {
       JSON.stringify(processedMetadata)
     ]);
 
-    // Emit Socket.IO event to notify admin of new message
-    const io = req.app.get('io');
-    if (io) {
-      const messageData = {
-        ...userMessage.rows[0],
-        metadata: typeof userMessage.rows[0].metadata === 'string'
-          ? JSON.parse(userMessage.rows[0].metadata)
-          : userMessage.rows[0].metadata
-      };
-      // Notify admin of new message from user
-      io.to('admin').emit('new_message', messageData);
-      // FAY OS Communications listens for message:new in its own shape.
-      try {
-        const { messagesFor } = require('./manager/conversations');
-        const latest = (await messagesFor(userId)).find((m) => m.id === userMessage.rows[0].id);
-        if (latest) io.to('staff').emit('message:new', latest);
-      } catch (e) {
-        console.error('Could not relay the guest message to FAY OS:', e.message);
-      }
-    }
-    // A bell notification for the first unread message of a conversation (not one per message).
-    const unread = await db.query("SELECT COUNT(*)::int AS n FROM concierge_messages WHERE user_id = $1 AND sender_type = 'user' AND is_read = false", [userId]);
-    if (unread.rows[0].n === 1) {
-      const who = await db.query('SELECT full_name FROM users WHERE id = $1', [userId]);
-      require('../services/stayKeys').alertManagers(req.app, `Message from ${who.rows[0]?.full_name || 'a guest'}`, message.slice(0, 120), `/comms?conversation=${userId}`);
-    }
-
-    // Send to n8n for AI processing (non-blocking)
-    const userInfo = await db.query('SELECT email, full_name FROM users WHERE id = $1', [userId]);
-    const userData = userInfo.rows[0] || {};
-
-    sendToN8N({
-      userId,
-      userName: userData.full_name || 'Guest',
-      userEmail: userData.email || '',
-      message,
-      messageId: userMessage.rows[0].id,
-      timestamp: userMessage.rows[0].created_at,
-      metadata: processedMetadata,
-      callbackUrl: `${process.env.APP_URL}/api/wellness/admin/concierge/messages`
-    }).catch(error => {
-      console.error('n8n webhook error (non-blocking):', error);
-    });
-
+    // Answer the app as soon as the message is saved; alerts and forwarding follow and can never hold up or
+    // break the reply (a slow step used to leave the app waiting until it reported "No connection").
     res.json({
       success: true,
       message: userMessage.rows[0]
     });
+
+    (async () => {
+      // Emit Socket.IO event to notify admin of new message
+      const io = req.app.get('io');
+      if (io) {
+        const messageData = {
+          ...userMessage.rows[0],
+          metadata: typeof userMessage.rows[0].metadata === 'string'
+            ? JSON.parse(userMessage.rows[0].metadata)
+            : userMessage.rows[0].metadata
+        };
+        // Notify admin of new message from user
+        io.to('admin').emit('new_message', messageData);
+        // FAY OS Communications listens for message:new in its own shape.
+        try {
+          const { messagesFor } = require('./manager/conversations');
+          const latest = (await messagesFor(userId)).find((m) => m.id === userMessage.rows[0].id);
+          if (latest) io.to('staff').emit('message:new', latest);
+        } catch (e) {
+          console.error('Could not relay the guest message to FAY OS:', e.message);
+        }
+      }
+      // A bell notification for the first unread message of a conversation (not one per message).
+      const unread = await db.query("SELECT COUNT(*)::int AS n FROM concierge_messages WHERE user_id = $1 AND sender_type = 'user' AND is_read = false", [userId]);
+      if (unread.rows[0].n === 1) {
+        const who = await db.query('SELECT full_name FROM users WHERE id = $1', [userId]);
+        require('../services/stayKeys').alertManagers(req.app, `Message from ${who.rows[0]?.full_name || 'a guest'}`, message.slice(0, 120), `/comms?conversation=${userId}`).catch(() => {});
+      }
+
+      // Send to n8n for AI processing (non-blocking)
+      const userInfo = await db.query('SELECT email, full_name FROM users WHERE id = $1', [userId]);
+      const userData = userInfo.rows[0] || {};
+
+      sendToN8N({
+        userId,
+        userName: userData.full_name || 'Guest',
+        userEmail: userData.email || '',
+        message,
+        messageId: userMessage.rows[0].id,
+        timestamp: userMessage.rows[0].created_at,
+        metadata: processedMetadata,
+        callbackUrl: `${process.env.APP_URL}/api/wellness/admin/concierge/messages`
+      }).catch(error => {
+        console.error('n8n webhook error (non-blocking):', error);
+      });
+    })().catch((e) => console.error('After-send steps failed for a concierge message:', e.message));
   } catch (error) {
     console.error('Error sending message:', error);
     res.status(500).json({
