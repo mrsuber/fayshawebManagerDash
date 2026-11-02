@@ -146,6 +146,11 @@ router.get('/categories/:id', async (req, res) => {
   }
 });
 
+// Category forms send '' for fields left empty: store NULL for optional numbers, keep required ones valid.
+const NUMERIC_CATEGORY_FIELDS = ['base_price', 'max_guests', 'size_sqm', 'bedrooms', 'bathrooms', 'sort_order'];
+const CATEGORY_COLUMNS = ['name', 'display_name', 'description', 'base_price', 'max_guests', 'size_sqm', 'bedrooms', 'bathrooms', 'features', 'amenities', 'is_active', 'sort_order'];
+const numOrNull = (v) => (v === '' || v === undefined || v === null ? null : v);
+
 // Create apartment category
 router.post('/categories', staffOnly, async (req, res) => {
   try {
@@ -164,6 +169,10 @@ router.post('/categories', staffOnly, async (req, res) => {
       sort_order
     } = req.body;
 
+    if (numOrNull(base_price) === null) {
+      return res.status(400).json({ success: false, message: 'Enter the price per night' });
+    }
+
     const result = await pool.query(`
       INSERT INTO apartment_categories (
         name, display_name, description, base_price, max_guests,
@@ -171,8 +180,8 @@ router.post('/categories', staffOnly, async (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `, [
-      name, display_name, description, base_price, max_guests,
-      size_sqm, bedrooms, bathrooms,
+      name, display_name, description, base_price, numOrNull(max_guests) ?? 2,
+      numOrNull(size_sqm), numOrNull(bedrooms), numOrNull(bathrooms),
       JSON.stringify(features || []),
       JSON.stringify(amenities || []),
       is_active !== false,
@@ -205,15 +214,22 @@ router.put('/categories/:id', staffOnly, async (req, res) => {
     let paramCount = 1;
 
     Object.keys(updates).forEach(key => {
-      if (key !== 'id' && key !== 'created_at' && key !== 'updated_at') {
-        fields.push(`${key} = $${paramCount}`);
+      // Only real columns: the key becomes part of the SQL, so anything else is ignored.
+      if (CATEGORY_COLUMNS.includes(key)) {
         let value = updates[key];
+        if (NUMERIC_CATEGORY_FIELDS.includes(key)) {
+          value = numOrNull(value);
+          // Required columns keep their current value when the field is left empty.
+          if (value === null && (key === 'base_price' || key === 'max_guests')) return;
+          if (value === null && key === 'sort_order') value = 0;
+        }
 
         // Convert arrays to JSON
         if (key === 'features' || key === 'amenities') {
           value = JSON.stringify(value || []);
         }
 
+        fields.push(`${key} = $${paramCount}`);
         values.push(value);
         paramCount++;
       }

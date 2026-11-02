@@ -142,6 +142,9 @@ const FileUploader = ({
       });
 
       xhr.open('POST', uploadEndpoint);
+      // The upload routes are staff-only: send the signed-in user's token.
+      const token = localStorage.getItem('authToken');
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(formData);
 
     } catch (error) {
