@@ -11,6 +11,8 @@ const crypto = require('crypto');
 const db = require('../config/database');
 const { authenticateToken, checkPasswordChangeRequired } = require('../middleware/auth');
 const { slotsFor, hhmm, toMinutes, toTime } = require('../services/wellnessSlots');
+const { newCode, confirmBooking } = require('../services/wellnessBooking');
+const { staffAlert } = require('../services/notify');
 
 const PROPERTY_TZ = process.env.PROPERTY_TZ || 'Africa/Douala';
 
@@ -131,123 +133,165 @@ router.get('/activities/:id', async (req, res) => {
  * POST /api/wellness-unified/book
  * Book any wellness activity during the guest's stay, in a slot with space left.
  */
+/** The guest's current or next confirmed stay, and the days wellness can be booked in it (check-in day to the night before check-out, from today). */
+async function stayWindow(q, userId) {
+  const { rows } = await q.query(
+    `SELECT id, to_char(check_in_date, 'YYYY-MM-DD') AS check_in, to_char(check_out_date, 'YYYY-MM-DD') AS check_out,
+            to_char(GREATEST(check_in_date, (NOW() AT TIME ZONE $2)::date), 'YYYY-MM-DD') AS first_day,
+            to_char(check_out_date - 1, 'YYYY-MM-DD') AS last_day
+       FROM bookings
+      WHERE user_id = $1 AND status IN ('confirmed', 'checked_in') AND check_out_date > (NOW() AT TIME ZONE $2)::date
+      ORDER BY check_in_date LIMIT 1`,
+    [userId, PROPERTY_TZ],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  // A one-night stay still offers its check-in day; a last day before the first means the stay ends today.
+  return { bookingId: r.id, checkIn: r.check_in, checkOut: r.check_out, firstDay: r.first_day, lastDay: r.last_day < r.first_day ? r.first_day : r.last_day };
+}
+
+/**
+ * POST /api/wellness-unified/book
+ * One experience: { activity_id, booking_date, start_time, people?, special_requests? }
+ * Several at once (Recharge: gym + trainer + pool): { booking_date, items: [{ activity_id, start_time }], people?, special_requests? }
+ *
+ * A time the team opened in Availability is confirmed at once; any other offered time becomes a request a manager
+ * confirms in FAY OS. Each booking gets a code the guest shows on arrival.
+ */
 router.post('/book', async (req, res) => {
   const userId = req.user.id;
-  const { activity_id, booking_date, start_time, special_requests } = req.body;
+  const { booking_date, special_requests } = req.body;
+  const people = Math.min(Math.max(parseInt(req.body.people, 10) || 1, 1), 10);
+  const items = Array.isArray(req.body.items) && req.body.items.length
+    ? req.body.items.slice(0, 8)
+    : [{ activity_id: req.body.activity_id, start_time: req.body.start_time }];
 
-  if (!activity_id || !/^\d{4}-\d{2}-\d{2}$/.test(String(booking_date || '')) || !/^\d{2}:\d{2}/.test(String(start_time || ''))) {
-    return res.status(400).json({ success: false, error: 'Activity, booking date (YYYY-MM-DD) and start time (HH:MM) are required' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(booking_date || '')) || items.some((i) => !i || !i.activity_id || !/^\d{2}:\d{2}/.test(String(i.start_time || '')))) {
+    return res.status(400).json({ success: false, error: 'Choose a day and a time for each experience' });
   }
-  const start = hhmm(start_time);
 
   const client = await db.pool.connect();
+  const fail = async (status, error) => {
+    await client.query('ROLLBACK');
+    return res.status(status).json({ success: false, error, message: error });
+  };
   try {
     await client.query('BEGIN');
 
-    // Locking the activity row serialises bookings for it, so two guests cannot take the last place.
-    const activityResult = await client.query('SELECT * FROM wellness_activities WHERE id = $1 AND is_active = true FOR UPDATE', [activity_id]);
-    const activity = activityResult.rows[0];
-    if (!activity) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, error: 'Activity not found' });
+    const stay = await stayWindow(client, userId);
+    if (!stay) return fail(400, 'You need a confirmed stay to book wellness experiences');
+    if (booking_date < stay.firstDay || booking_date > stay.lastDay) {
+      return fail(400, `Wellness can be booked during your stay: choose a day between ${stay.firstDay} and ${stay.lastDay}.`);
     }
+    const now = (await client.query(`SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24:MI') AS now`, [PROPERTY_TZ])).rows[0].now;
+    const group = items.length > 1 ? `G${Date.now().toString(36).toUpperCase()}` : null;
+    const created = [];
 
-    const today = await client.query(`SELECT to_char(NOW() AT TIME ZONE $1, 'YYYY-MM-DD HH24:MI') AS now`, [PROPERTY_TZ]);
-    if (`${booking_date} ${start}` <= today.rows[0].now) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, error: 'Please choose a time in the future' });
-    }
+    for (const item of items) {
+      const start = hhmm(item.start_time);
+      // Locking the activity row serialises bookings for it, so two guests cannot take the last place.
+      const activity = (await client.query('SELECT * FROM wellness_activities WHERE id = $1 AND is_active = true FOR UPDATE', [item.activity_id])).rows[0];
+      if (!activity) return fail(404, 'This experience is no longer offered');
+      const name = activity.display_name || activity.name;
 
-    const stay = await client.query(
-      `SELECT id FROM bookings
-        WHERE user_id = $1 AND status IN ('confirmed', 'checked_in') AND check_in_date <= $2 AND check_out_date > $2
-        ORDER BY check_in_date DESC LIMIT 1`,
-      [userId, booking_date]
-    );
-    if (!stay.rows[0]) {
-      const any = await client.query(
-        `SELECT to_char(check_in_date, 'Mon DD, YYYY') AS check_in, to_char(check_out_date, 'Mon DD, YYYY') AS check_out
-           FROM bookings WHERE user_id = $1 AND status IN ('confirmed', 'checked_in') AND check_out_date >= CURRENT_DATE
-          ORDER BY check_in_date LIMIT 1`,
-        [userId]
-      );
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        error: any.rows[0]
-          ? `You can book wellness activities during your stay (${any.rows[0].check_in} – ${any.rows[0].check_out}). Please choose a date in that range.`
-          : 'You need a confirmed stay to book wellness activities',
-      });
-    }
-
-    const slot = (await slotsFor(client, activity, booking_date)).find((s) => s.start_time === start);
-    if (!slot) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, error: 'That time is not offered for this activity. Please choose one of the available times.' });
-    }
-    if (!slot.is_available) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ success: false, error: slot.open ? 'That time is fully booked. Please choose another time.' : 'That time is closed. Please choose another time.' });
-    }
-    const end = slot.end_time;
-
-    const clash = await client.query(
-      `SELECT activity_name FROM wellness_bookings
-        WHERE user_id = $1 AND booking_date = $2 AND status IN ('upcoming', 'in_progress')
-          AND start_time < $4 AND end_time > $3
-        LIMIT 1`,
-      [userId, booking_date, start, end]
-    );
-    if (clash.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ success: false, error: `You already have ${clash.rows[0].activity_name} at that time` });
-    }
-
-    // Journeys open with a PIN at the door.
-    const pin = activity.requires_access_pin ? String(crypto.randomInt(1000, 10000)) : null;
-    const qr = pin ? `FAYSHAA-WELLNESS-${activity.id}-${userId}-${Date.now()}` : null;
-
-    const bookingResult = await client.query(
-      `INSERT INTO wellness_bookings (
-         apartment_booking_id, user_id, activity_id, activity_name, activity_type,
-         booking_date, start_time, end_time, total_duration, activity_pin, qr_code, keys_generated_at, special_requests, amount_paid
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $10::varchar IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END, $12, 0)
-       RETURNING *`,
-      [stay.rows[0].id, userId, activity.id, activity.display_name || activity.name, activity.type, booking_date, start, end,
-        activity.duration, pin, qr, special_requests || null]
-    );
-    const booking = bookingResult.rows[0];
-
-    if (activity.has_stages) {
-      const stages = await client.query('SELECT * FROM wellness_activity_stages WHERE activity_id = $1 ORDER BY stage_number', [activity.id]);
-      let at = toMinutes(start);
-      for (const stage of stages.rows) {
-        await client.query(
-          `INSERT INTO wellness_booking_stages (booking_id, stage_id, stage_number, stage_name, scheduled_start, scheduled_end)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [booking.id, stage.id, stage.stage_number, stage.name, toTime(at), toTime(Math.min(at + stage.duration, 24 * 60 - 1))]
-        );
-        at += stage.duration;
+      if (`${booking_date} ${start}` <= now) return fail(400, `${name}: please choose a time in the future`);
+      const ahead = Number(activity.book_ahead_hours) || 0;
+      if (ahead > 0) {
+        const soon = (await client.query(`SELECT to_char(NOW() AT TIME ZONE $1 + make_interval(hours => $2), 'YYYY-MM-DD HH24:MI') AS t`, [PROPERTY_TZ, ahead])).rows[0].t;
+        if (`${booking_date} ${start}` < soon) return fail(400, `${name} needs ${ahead} hour${ahead > 1 ? 's' : ''} notice. Please choose a later time.`);
       }
-    }
 
-    // A priced activity is added to the guest's bill for the stay.
-    if (Number(activity.base_price) > 0) {
-      await client.query(
-        `INSERT INTO folio_charges (guest_id, booking_id, description, category, amount, source_type, source_id)
-         VALUES ($1, $2, $3, 'Wellness', $4, 'wellness_booking', $5)`,
-        [userId, stay.rows[0].id, `${activity.display_name || activity.name} — ${booking_date} ${start}`, activity.base_price, booking.id]
+      const slot = (await slotsFor(client, activity, booking_date)).find((s) => s.start_time === start);
+      if (!slot) return fail(400, `${name}: that time is not offered. Please choose one of the times shown.`);
+      if (!slot.open) return fail(409, `${name}: that time is closed. Please choose another time.`);
+      if (slot.remaining < people) return fail(409, slot.remaining ? `${name}: only ${slot.remaining} place${slot.remaining > 1 ? 's' : ''} left at that time.` : `${name}: that time is fully booked. Please choose another time.`);
+      const end = slot.end_time;
+
+      // The guest cannot be in two places at once (this includes the other experiences in this request).
+      const clash = await client.query(
+        `SELECT activity_name FROM wellness_bookings
+          WHERE user_id = $1 AND booking_date = $2 AND status IN ('requested', 'upcoming', 'in_progress')
+            AND start_time < $4 AND end_time > $3 LIMIT 1`,
+        [userId, booking_date, start, end],
       );
+      if (clash.rows[0]) return fail(409, `${name} overlaps ${clash.rows[0].activity_name} at that time. Please choose another time.`);
+
+      const code = await newCode(client);
+      let booking = (await client.query(
+        `INSERT INTO wellness_bookings (
+           apartment_booking_id, user_id, activity_id, activity_name, activity_type, booking_date, start_time, end_time,
+           total_duration, special_requests, amount_paid, status, booking_code, group_ref, people, room
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'requested', $11, $12, $13, $14)
+         RETURNING *`,
+        [stay.bookingId, userId, activity.id, name, activity.type, booking_date, start, end, activity.duration,
+          special_requests || null, code, group, people, activity.location ? String(activity.location).slice(0, 100) : null],
+      )).rows[0];
+
+      if (activity.has_stages) {
+        const stages = await client.query('SELECT * FROM wellness_activity_stages WHERE activity_id = $1 ORDER BY stage_number', [activity.id]);
+        let at = toMinutes(start);
+        for (const stage of stages.rows) {
+          await client.query(
+            `INSERT INTO wellness_booking_stages (booking_id, stage_id, stage_number, stage_name, scheduled_start, scheduled_end)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [booking.id, stage.id, stage.stage_number, stage.name, toTime(at), toTime(Math.min(at + stage.duration, 24 * 60 - 1))],
+          );
+          at += stage.duration;
+        }
+      }
+
+      // A time the team opened is confirmed now; otherwise it waits for a manager.
+      if (slot.slot_id) booking = await confirmBooking(client, booking, activity, null);
+      created.push({ ...booking, instant: !!slot.slot_id });
     }
 
     await client.query('COMMIT');
-    res.status(201).json({ success: true, message: 'Booking created successfully', booking });
+
+    const requests = created.filter((b) => b.status === 'requested');
+    if (requests.length) {
+      const who = (await db.query('SELECT full_name FROM users WHERE id = $1', [userId])).rows[0];
+      staffAlert(req.app, {
+        title: `Wellness request · ${who?.full_name || 'Guest'}`,
+        body: `${requests.map((b) => `${b.activity_name} ${hhmm(b.start_time)}`).join(', ')} on ${booking_date}: confirm or decline`,
+        link: `/wellness?view=bookings&id=${requests[0].id}`,
+        level: 'action',
+        category: 'wellness',
+        dedupeKey: `wellness-request:${requests[0].id}`,
+      }).catch(() => {});
+    }
+    const io = req.app.get('io');
+    if (io) io.to('staff').emit('wellness:updated', { ids: created.map((b) => b.id) });
+
+    const pending = requests.length;
+    res.status(201).json({
+      success: true,
+      message: pending === created.length
+        ? 'Request sent. The team will confirm it shortly; you will be notified.'
+        : pending
+          ? 'Booked. Some times need the team’s confirmation; you will be notified.'
+          : 'Booked and confirmed.',
+      booking: created[0],
+      bookings: created,
+    });
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Book error:', error);
     res.status(500).json({ success: false, error: 'Failed to create booking' });
   } finally {
     client.release();
+  }
+});
+
+/**
+ * GET /api/wellness-unified/stay
+ * The days wellness can be booked: the guest's current or next stay, from today.
+ */
+router.get('/stay', async (req, res) => {
+  try {
+    res.json({ success: true, stay: await stayWindow(db, req.user.id) });
+  } catch (error) {
+    console.error('Stay window error:', error);
+    res.status(500).json({ success: false, error: 'Failed to load your stay' });
   }
 });
 
@@ -261,15 +305,20 @@ router.get('/activities/:id/availability', async (req, res) => {
     const activity = activityResult.rows[0];
     if (!activity) return res.status(404).json({ success: false, error: 'Activity not found' });
 
+    // By default, the days of the guest's stay (that is all they can book); ?date=&days= asks for other days.
+    const stay = await stayWindow(db, req.user.id);
+    const asked = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? req.query.date : null;
+    if (!asked && !stay) return res.json({ success: true, activity_id: activity.id, activity_name: activity.name, stay: null, availability: [] });
+    const first = asked || stay.firstDay;
+    const last = asked ? null : stay.lastDay;
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 7, 1), 31);
-    const first = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? req.query.date : null;
     const dates = await db.query(
-      `SELECT to_char(d, 'YYYY-MM-DD') AS day FROM generate_series(COALESCE($1::date, (NOW() AT TIME ZONE $2)::date), COALESCE($1::date, (NOW() AT TIME ZONE $2)::date) + ($3::int - 1), '1 day') d`,
-      [first, PROPERTY_TZ, days]
+      `SELECT to_char(d, 'YYYY-MM-DD') AS day FROM generate_series($1::date, LEAST(COALESCE($2::date, $1::date + ($3::int - 1)), $1::date + 30), '1 day') d`,
+      [first, last, days]
     );
     const mine = await db.query(
       `SELECT activity_name, to_char(booking_date, 'YYYY-MM-DD') AS day, start_time, end_time FROM wellness_bookings
-        WHERE user_id = $1 AND status IN ('upcoming', 'in_progress') AND booking_date BETWEEN $2::date AND $3::date`,
+        WHERE user_id = $1 AND status IN ('requested', 'upcoming', 'in_progress') AND booking_date BETWEEN $2::date AND $3::date`,
       [req.user.id, dates.rows[0].day, dates.rows[dates.rows.length - 1].day]
     );
 
@@ -287,13 +336,15 @@ router.get('/activities/:id/availability', async (req, res) => {
           remaining: slot.remaining,
           capacity: slot.capacity,
           is_available: slot.is_available && !clash && !past,
+          // Opened by the team in Availability: confirmed at once. Otherwise the booking is a request to confirm.
+          instant: !!slot.slot_id,
           conflicting_booking: clash ? clash.activity_name : null,
           duration: activity.duration,
         });
       }
     }
 
-    res.json({ success: true, activity_id: activity.id, activity_name: activity.name, availability });
+    res.json({ success: true, activity_id: activity.id, activity_name: activity.name, stay, availability });
   } catch (error) {
     console.error('Get availability error:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch availability' });
@@ -358,7 +409,7 @@ router.patch('/bookings/:id/cancel', async (req, res) => {
     const result = await db.query(
       `UPDATE wellness_bookings
           SET status = 'cancelled', cancellation_reason = $1, cancelled_at = CURRENT_TIMESTAMP
-        WHERE id = $2 AND user_id = $3 AND status = 'upcoming'
+        WHERE id = $2 AND user_id = $3 AND status IN ('upcoming', 'requested')
         RETURNING *`,
       [req.body.cancellation_reason || null, req.params.id, req.user.id]
     );

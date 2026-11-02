@@ -23,6 +23,7 @@ const suites = [
   ['Booking flow', 'test/e2e/bookings.js'],
   ['Platform write paths', 'test/e2e/platform.js'],
   ['v2.1: confirmation, events, operations, assets, currencies', 'test/e2e/v21.js'],
+  ['Wellness booking: requests, codes, check-in', 'test/e2e/wellness.js'],
 ];
 
 let failed = 0;

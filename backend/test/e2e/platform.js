@@ -122,8 +122,11 @@ const login = async (e, p) => (await call('POST', '/auth/login', { emailOrUserna
   expect('Second guest same 1-person slot refused (409/400)', await call('POST', '/wellness-unified/book', { activity_id: massage.id, booking_date: day(1), start_time: free.start_time }, other), [400, 409]);
   expect('Off-grid time refused (400)', await call('POST', '/wellness-unified/book', { activity_id: massage.id, booking_date: day(1), start_time: '10:17' }, guest), 400);
   const journey = (await call('GET', '/wellness-unified/activities?type=journey', undefined, guest)).body.activities.find((a) => a.category === 'restore');
-  b = expect('Guest books Restore journey (PIN)', await call('POST', '/wellness-unified/book', { activity_id: journey.id, booking_date: day(2), start_time: '14:00' }, guest), 201);
-  if (!b.booking?.activity_pin) { failures++; console.log('FAIL journey has no PIN'); }
+  // A time the team did not open is a request; confirming it in FAY OS issues the journey PIN.
+  b = expect('Guest requests Restore journey', await call('POST', '/wellness-unified/book', { activity_id: journey.id, booking_date: day(2), start_time: '14:00' }, guest), 201);
+  if (b.booking?.status !== 'requested' || b.booking?.activity_pin) { failures++; console.log('FAIL journey request should wait for confirmation, without a PIN'); }
+  const confirmed = expect('Manager confirms the journey', await call('POST', `/manager/wellness/bookings/${b.booking.id}/confirm`, {}, mgr));
+  if (!confirmed.pin) { failures++; console.log('FAIL journey has no PIN once confirmed'); }
   const keys = (await call('GET', '/bookings/user/my-keys', undefined, guest)).body.keys;
   if (!keys.wellnessJourneys.length) { failures++; console.log('FAIL journey key not in my-keys'); }
   expect('Guest cancels massage', await call('PATCH', `/wellness-unified/bookings/${wb.id}/cancel`, { cancellation_reason: 'Changed plans' }, guest));

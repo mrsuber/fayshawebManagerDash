@@ -48,3 +48,9 @@ export const wellnessCatalog = () => get('/wellness/catalog', undefined, []);
 export const createWellness = (data) => post('/wellness/catalog', data);
 export const updateWellness = (id, data) => withMock(() => api.patch(`/wellness/catalog/${id}`, data), null);
 export const deleteWellness = (id) => withMock(() => api.delete(`/wellness/catalog/${id}`), { deleted: true });
+
+// Wellness bookings: requests to confirm, codes, check-in.
+export const wellnessBookings = (status, date) => get('/wellness/bookings', { status, date }, { items: [], counts: {} });
+export const wellnessByCode = (code) => withMock(() => api.get(`/wellness/bookings/code/${encodeURIComponent(code)}`), null);
+export const wellnessAction = (id, action, body = {}) => post(`/wellness/bookings/${id}/${action}`, body);
+export const wellnessCheckIn = (code) => post('/wellness/check-in', { code });

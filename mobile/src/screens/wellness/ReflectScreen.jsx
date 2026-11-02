@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS } from '../../constants/theme';
 import { MOOD_DATA } from '../../constants/wellnessData';
 import BookingModalUnified from '../../components/BookingModalUnified';
+import ServicePicker from '../../components/ServicePicker';
 import PremiumModal from '../../components/PremiumModal';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
 
@@ -121,10 +122,7 @@ export default function ReflectScreen({ navigation }) {
   const handleBookingModalClose = (bookingConfirmed) => {
     setBookingModalVisible(false);
 
-    if (bookingConfirmed) {
-      // Show premium success modal
-      setSuccessModalVisible(true);
-    }
+    // The booking window shows the result itself (confirmed or on request, with each code).
   };
 
   const heroTranslate = scrollY.interpolate({
@@ -251,89 +249,9 @@ export default function ReflectScreen({ navigation }) {
           )}
 
           <View style={styles.experiencesSection}>
-            <Text style={styles.experiencesTitle}>ALL EXPERIENCES</Text>
-
-            {moodData.activities.slice(1).map((activity, index) => {
-              // Try to find matching backend service
-              const matchingService = reflectServices.find(
-                s => s.name && activity.name.toLowerCase().includes(s.name.toLowerCase().split(' ')[0])
-              );
-
-              return (
-                <View key={index} style={styles.activityCardContainer}>
-                  <TouchableOpacity
-                    style={styles.activityCard}
-                    onPress={() => handleActivityPress(activity, matchingService)}
-                    activeOpacity={0.85}
-                  >
-                    <ImageBackground
-                      source={activity.img}
-                      style={styles.activityImage}
-                      imageStyle={styles.activityImageStyle}
-                    >
-                      <LinearGradient
-                        colors={[
-                          'rgba(13, 13, 13, 0.2)',
-                          'rgba(13, 13, 13, 0.8)',
-                        ]}
-                        style={styles.activityGradient}
-                      >
-                        <View style={styles.activityContent}>
-                          <Text style={styles.activityName}>{activity.name}</Text>
-                          <Text style={[styles.activityTime, { color: REFLECT_COLORS.accent }]}>
-                            {activity.time}
-                          </Text>
-                        </View>
-
-                        {matchingService ? (
-                          <TouchableOpacity
-                            style={[styles.activityChevron, styles.activityBookButton, {
-                              backgroundColor: `${REFLECT_COLORS.primary}`,
-                              borderColor: `${REFLECT_COLORS.primary}`
-                            }]}
-                            onPress={() => handleBookIndividualService(matchingService)}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={[styles.activityChevronText, { color: COLORS.background, fontSize: 11, fontWeight: '700' }]}>
-                              BOOK
-                            </Text>
-                          </TouchableOpacity>
-                        ) : (
-                          <View style={[styles.activityChevron, {
-                            backgroundColor: `${REFLECT_COLORS.primary}33`,
-                            borderColor: `${REFLECT_COLORS.primary}66`
-                          }]}>
-                            <Text style={[styles.activityChevronText, { color: REFLECT_COLORS.primary }]}>
-                              ›
-                            </Text>
-                          </View>
-                        )}
-                      </LinearGradient>
-                    </ImageBackground>
-                    <View style={[styles.cardAccent, { backgroundColor: REFLECT_COLORS.primary }]} />
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
+            {/* The mood's experiences from the catalogue: book one or several together. */}
+            <ServicePicker category="reflect" accent={REFLECT_COLORS.primary} accent2={REFLECT_COLORS.secondary || REFLECT_COLORS.primary} fallbackImage={moodData.img} />
           </View>
-
-          <TouchableOpacity
-            style={styles.bookButton}
-            onPress={handleBookSession}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={[REFLECT_COLORS.primary, REFLECT_COLORS.secondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.bookButtonGradient}
-            >
-              <Text style={styles.bookButtonText}>BOOK A SESSION</Text>
-              <View style={styles.bookButtonIcon}>
-                <Text style={styles.bookButtonIconText}>→</Text>
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
 
           <View style={styles.bottomSpacing} />
         </View>

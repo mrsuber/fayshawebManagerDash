@@ -2,6 +2,7 @@ import moment from 'moment';
 import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tabs, Toolbar } from '../components/kit';
+import Bookings from './wellness/Bookings';
 import Catalogue from './wellness/Catalogue';
 import { guestsApi } from '../api';
 import FormDialog from '../components/FormDialog';
@@ -357,16 +358,16 @@ function WellnessToday() {
   );
 }
 
-/** Wellness & Spa: today's operations, and the catalogue of experiences the app offers (editable). */
+/** Wellness & Spa: today's operations, bookings (requests to confirm, check-in by code), and the editable catalogue. */
 export default function Wellness() {
   const [params, setParams] = useSearchParams();
-  const view = params.get('view') === 'catalogue' ? 'catalogue' : 'today';
+  const view = ['catalogue', 'bookings'].includes(params.get('view')) ? params.get('view') : 'today';
   return (
     <div className="stack">
       <Toolbar>
-        <Tabs value={view} onChange={(v) => setParams(v === 'today' ? {} : { view: v })} options={[['today', 'Today'], ['catalogue', 'Catalogue']]} />
+        <Tabs value={view} onChange={(v) => setParams(v === 'today' ? {} : { view: v })} options={[['today', 'Today'], ['bookings', 'Bookings'], ['catalogue', 'Catalogue']]} />
       </Toolbar>
-      {view === 'catalogue' ? <Catalogue /> : <WellnessToday />}
+      {view === 'catalogue' ? <Catalogue /> : view === 'bookings' ? <Bookings /> : <WellnessToday />}
     </div>
   );
 }

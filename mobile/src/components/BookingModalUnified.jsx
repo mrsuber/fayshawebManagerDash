@@ -1,9 +1,14 @@
 /**
- * BookingModalUnified
- * Unified booking modal for ALL wellness activities (journeys + services)
+ * BookingModalUnified: books one wellness experience (a journey like Restore, or a service) or several together
+ * (Recharge: gym + personal trainer + pool).
+ *
+ * Days come from the guest's stay. Each time shows whether it is confirmed at once (the team opened it) or sent as a
+ * request the team confirms. After booking, the guest sees each booking's code: they show it on arrival.
+ *
+ * Props: activity (one) or activities (several), onClose(bookedOrNot), isReschedule.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,386 +19,301 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS } from '../constants/theme';
 import wellnessUnifiedService from '../services/wellnessUnifiedService';
 
-export default function BookingModalUnified({ visible, onClose, activity, isReschedule = false }) {
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [selectedTime, setSelectedTime] = useState(null);
-  const [isBooking, setIsBooking] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [bookingDetails, setBookingDetails] = useState(null);
-  const [availabilityData, setAvailabilityData] = useState([]);
-  const [isLoadingAvailability, setIsLoadingAvailability] = useState(false);
-
-  // Fetch availability when modal opens or activity changes
-  useEffect(() => {
-    if (visible && activity) {
-      fetchAvailability();
-    }
-  }, [visible, activity]);
-
-  const fetchAvailability = async () => {
-    if (!activity || !activity.id) return;
-
-    try {
-      setIsLoadingAvailability(true);
-      console.log('📡 [UNIFIED] Fetching availability for activity:', activity.id);
-
-      const availability = await wellnessUnifiedService.getAvailability(
-        activity.id,
-        null, // Start from today
-        7     // Next 7 days
-      );
-
-      console.log('📅 [UNIFIED] Fetched availability:', availability.length, 'slots');
-      setAvailabilityData(availability || []);
-    } catch (error) {
-      console.error('❌ [UNIFIED] Error fetching availability:', error);
-      Alert.alert('Error', 'Failed to load availability. Please try again.');
-      setAvailabilityData([]);
-    } finally {
-      setIsLoadingAvailability(false);
-    }
+const dayLabel = (iso) => {
+  const d = new Date(`${iso}T12:00:00`);
+  return {
+    day: d.toLocaleDateString('en-US', { weekday: 'short' }),
+    date: d.getDate(),
+    month: d.toLocaleDateString('en-US', { month: 'short' }),
+    full: d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
   };
+};
+const timeLabel = (hhmm) => {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+const addMinutes = (hhmm, minutes) => {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  const t = h * 60 + m + Number(minutes || 0);
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+};
 
-  // Reset state when modal closes
+export default function BookingModalUnified({ visible, onClose, activity, activities, isReschedule = false }) {
+  const list = useMemo(() => (activities && activities.length ? activities : activity ? [activity] : []), [activity, activities]);
+  const several = list.length > 1;
+
+  const [loading, setLoading] = useState(false);
+  const [stay, setStay] = useState(undefined); // undefined = loading, null = no stay
+  const [slots, setSlots] = useState({}); // activityId → availability[]
+  const [date, setDate] = useState(null);
+  const [times, setTimes] = useState({}); // activityId → 'HH:MM'
+  const [people, setPeople] = useState(1);
+  const [note, setNote] = useState('');
+  const [booking, setBooking] = useState(false);
+  const [done, setDone] = useState(null); // { message, bookings }
+
+  useEffect(() => {
+    if (!visible || !list.length) return;
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const results = await Promise.all(list.map((a) => wellnessUnifiedService.getAvailabilityFull(a.id)));
+        if (!alive) return;
+        setStay(results[0]?.stay || null);
+        setSlots(Object.fromEntries(list.map((a, i) => [a.id, results[i]?.availability || []])));
+      } catch (error) {
+        Alert.alert('Could not load times', error.message || 'Please try again.');
+        setStay(null);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [visible, list]);
+
+  // The stay's days, in order (the server only returns days the guest can book).
+  const days = useMemo(() => {
+    const all = new Set();
+    Object.values(slots).forEach((arr) => arr.forEach((s) => all.add(s.date)));
+    return [...all].sort();
+  }, [slots]);
+
+  useEffect(() => {
+    if (days.length && !days.includes(date)) {
+      // First day with at least one free time for every chosen experience, else the first day.
+      const good = days.find((d) => list.every((a) => (slots[a.id] || []).some((s) => s.date === d && s.is_available)));
+      setDate(good || days[0]);
+      setTimes({});
+    }
+  }, [days]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reset = () => {
+    setDate(null);
+    setTimes({});
+    setPeople(1);
+    setNote('');
+    setBooking(false);
+    setDone(null);
+    setSlots({});
+    setStay(undefined);
+  };
   const handleClose = (success = false) => {
-    setSelectedDate(null);
-    setSelectedTime(null);
-    setIsBooking(false);
-    setShowSuccessModal(false);
-    setBookingDetails(null);
-    setAvailabilityData([]);
+    reset();
     onClose(success);
   };
 
-  // Generate available dates (today + next 6 days = 7 days total)
-  const availableDates = [];
-  for (let i = 0; i < 7; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() + i);
-
-    // Format date as YYYY-MM-DD in local timezone
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const dateString = `${year}-${month}-${day}`;
-
-    availableDates.push({
-      id: i + 1,
-      day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-      date: date.getDate(),
-      month: date.toLocaleDateString('en-US', { month: 'short' }),
-      fullDate: date.toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric'
-      }),
-      dateObject: date,
-      dateString: dateString,
-    });
-  }
-
-  // Get time slots for selected date from availability data
-  const getTimeSlotsForDate = (date) => {
-    if (!date || !availabilityData.length) return [];
-
-    // Filter slots for the selected date
-    const slotsForDate = availabilityData.filter(slot => {
-      return slot.date === date.dateString;
+  // A time overlapping another chosen experience is not offered (the guest cannot be in two places).
+  const clashes = (activityId, slot) =>
+    list.some((a) => {
+      if (a.id === activityId || !times[a.id]) return false;
+      const start = times[a.id];
+      const end = addMinutes(start, a.duration);
+      return slot.start_time < end && slot.end_time > start;
     });
 
-    // Transform to UI format
-    return slotsForDate.map((slot, index) => ({
-      id: `${slot.date}-${slot.start_time}-${index}`,
-      time: slot.label,
-      value: slot.start_time,
-      available: slot.is_available,
-      conflictingBooking: slot.conflicting_booking,
-    }));
-  };
+  const ready = date && list.every((a) => times[a.id]);
+  const chosenSlots = list.map((a) => (slots[a.id] || []).find((s) => s.date === date && s.start_time === times[a.id])).filter(Boolean);
+  const anyRequest = chosenSlots.some((s) => !s.instant);
 
-  const availableTimeSlots = selectedDate ? getTimeSlotsForDate(selectedDate) : [];
-
-  const handleConfirmBooking = async () => {
-    if (!selectedDate || !selectedTime || !activity) {
-      Alert.alert('Error', 'Please select both date and time');
-      return;
-    }
-
-    setIsBooking(true);
+  const confirm = async () => {
+    if (!ready) return;
+    setBooking(true);
     try {
-      console.log('📤 [UNIFIED] Booking activity:', {
-        activity_id: activity.id,
-        activity_name: activity.name,
-        booking_date: selectedDate.dateString,
-        start_time: selectedTime.value,
-      });
-
       const response = await wellnessUnifiedService.bookActivity({
-        activity_id: activity.id,
-        booking_date: selectedDate.dateString,
-        start_time: selectedTime.value,
-        special_requests: '',
+        booking_date: date,
+        items: list.map((a) => ({ activity_id: a.id, start_time: times[a.id] })),
+        people,
+        special_requests: note.trim() || undefined,
       });
-
-      console.log('📥 [UNIFIED] Booking response:', response);
-
-      if (response.success) {
-        // Close the modal and notify parent of success
-        // Use handleClose to properly reset all state
-        handleClose(true);
-      } else {
-        throw new Error(response.error || 'Booking failed');
-      }
+      setDone({ message: response.message, bookings: response.bookings || [response.booking] });
     } catch (error) {
-      console.error('Booking error:', error);
-      const errorMessage = error.error || error.message || 'Unable to create booking';
-      Alert.alert('Booking Failed', errorMessage);
-      setIsBooking(false);
+      Alert.alert('Booking not made', error.message || error.error || 'Please try again.');
+    } finally {
+      setBooking(false);
     }
   };
+
+  const title = isReschedule ? 'Choose a new time' : several ? 'Book your session' : 'Book';
+  const subtitle = list.map((a) => a.display_name || a.name).join(' · ');
 
   return (
-    <>
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={() => handleClose(false)}
-    >
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={() => handleClose(!!done)}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
-          {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <Text style={styles.headerTitle}>
-                {isReschedule ? 'Reschedule Activity' : 'Book Activity'}
-              </Text>
-              <Text style={styles.headerSubtitle}>
-                {activity?.name || 'Wellness Activity'}
-              </Text>
+              <Text style={styles.headerTitle}>{done ? (done.bookings.some((b) => b.status === 'requested') ? 'Request sent' : 'You are booked') : title}</Text>
+              <Text style={styles.headerSubtitle} numberOfLines={2}>{subtitle || 'Wellness'}</Text>
             </View>
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => handleClose(false)}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={styles.closeButton} onPress={() => handleClose(!!done)} activeOpacity={0.8}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Content */}
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Activity Info */}
-            <View style={styles.activityCard}>
-              <View style={styles.activityIconBox}>
-                <Text style={styles.activityIcon}>{activity?.icon || '✨'}</Text>
-              </View>
-              <View style={styles.activityInfo}>
-                <Text style={styles.activityLabel}>Duration</Text>
-                <Text style={styles.activityValue}>
-                  {activity?.duration || 60} minutes
-                </Text>
-                {activity?.type === 'journey' && activity.total_stages && (
-                  <Text style={styles.activityStages}>
-                    {activity.total_stages} stages
-                  </Text>
-                )}
-              </View>
-            </View>
-
-            {/* Access Info */}
-            {activity && (
-              <View style={styles.accessInfoBox}>
-                <Text style={styles.accessInfoIcon}>
-                  {activity.type === 'journey' ? '🔑' : '🔓'}
-                </Text>
-                <Text style={styles.accessInfoText}>
-                  {activity.type === 'journey'
-                    ? 'A journey PIN will be sent to your Digital Key for accessing each stage.'
-                    : 'Use your apartment door PIN to access this facility.'}
-                </Text>
-              </View>
-            )}
-
-            {/* Select Date */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>SELECT DATE</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                nestedScrollEnabled={true}
-                contentContainerStyle={styles.datesScroll}
-              >
-                {availableDates.map((dateOption) => (
-                  <TouchableOpacity
-                    key={dateOption.id}
-                    style={[
-                      styles.dateCard,
-                      selectedDate?.id === dateOption.id && styles.dateCardSelected,
-                    ]}
-                    onPress={() => setSelectedDate(dateOption)}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.dateDay,
-                        selectedDate?.id === dateOption.id && styles.dateDaySelected,
-                      ]}
-                    >
-                      {dateOption.day}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.dateNumber,
-                        selectedDate?.id === dateOption.id && styles.dateNumberSelected,
-                      ]}
-                    >
-                      {dateOption.date}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.dateMonth,
-                        selectedDate?.id === dateOption.id && styles.dateMonthSelected,
-                      ]}
-                    >
-                      {dateOption.month}
-                    </Text>
-                  </TouchableOpacity>
+          <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {done ? (
+              <View>
+                <Text style={styles.doneMessage}>{done.message}</Text>
+                {done.bookings.map((b) => (
+                  <View key={b.id} style={styles.codeCard}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.codeName}>{b.activity_name}</Text>
+                      <Text style={styles.codeWhen}>{dayLabel(String(b.booking_date).slice(0, 10)).full} · {timeLabel(String(b.start_time).slice(0, 5))}</Text>
+                      <Text style={[styles.codeStatus, b.status === 'requested' ? styles.codeStatusWait : styles.codeStatusOk]}>
+                        {b.status === 'requested' ? 'Waiting for the team to confirm' : 'Confirmed'}
+                      </Text>
+                    </View>
+                    <View style={styles.codeBox}>
+                      <Text style={styles.codeLabel}>YOUR CODE</Text>
+                      <Text style={styles.codeValue}>{b.booking_code}</Text>
+                    </View>
+                  </View>
                 ))}
-              </ScrollView>
-            </View>
-
-            {/* Select Time */}
-            {selectedDate && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>SELECT TIME</Text>
-                {isLoadingAvailability ? (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="small" color="#7fae8a" />
-                    <Text style={styles.loadingText}>Loading availability...</Text>
-                  </View>
-                ) : availableTimeSlots.length === 0 ? (
-                  <View style={styles.noSlotsContainer}>
-                    <Text style={styles.noSlotsText}>No available time slots for this date</Text>
-                  </View>
-                ) : (
-                  <View style={styles.timeGrid}>
-                    {availableTimeSlots.map((slot) => (
-                      <TouchableOpacity
-                        key={slot.id}
-                        style={[
-                          styles.timeSlot,
-                          !slot.available && styles.timeSlotDisabled,
-                          selectedTime?.id === slot.id && styles.timeSlotSelected,
-                        ]}
-                        onPress={() => slot.available && setSelectedTime(slot)}
-                        activeOpacity={0.8}
-                        disabled={!slot.available}
-                      >
-                        <Text
-                          style={[
-                            styles.timeSlotText,
-                            !slot.available && styles.timeSlotTextDisabled,
-                            selectedTime?.id === slot.id && styles.timeSlotTextSelected,
-                          ]}
-                        >
-                          {slot.time}
-                        </Text>
-                        {!slot.available && slot.conflictingBooking && (
-                          <Text style={styles.bookedText}>
-                            {slot.conflictingBooking}
-                          </Text>
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
+                <Text style={styles.doneHint}>
+                  Show your code when you arrive. {done.bookings.some((b) => b.status === 'requested') ? 'You will be notified as soon as the team confirms. ' : ''}All your sessions are in Bookings.
+                </Text>
               </View>
-            )}
-
-            {/* Summary */}
-            {selectedDate && selectedTime && (
-              <View style={styles.summaryCard}>
-                <LinearGradient
-                  colors={['rgba(127, 174, 138, 0.15)', 'rgba(74, 124, 89, 0.1)']}
-                  style={styles.summaryGradient}
-                >
-                  <Text style={styles.summaryTitle}>Booking Summary</Text>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Activity:</Text>
-                    <Text style={styles.summaryValue}>{activity?.name}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Date:</Text>
-                    <Text style={styles.summaryValue}>{selectedDate.fullDate}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Time:</Text>
-                    <Text style={styles.summaryValue}>{selectedTime.time}</Text>
-                  </View>
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Duration:</Text>
-                    <Text style={styles.summaryValue}>{activity?.duration} min</Text>
-                  </View>
-                </LinearGradient>
+            ) : loading || stay === undefined ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#7fae8a" />
+                <Text style={styles.loadingText}>Finding times during your stay…</Text>
               </View>
+            ) : !stay ? (
+              <View style={styles.noSlotsContainer}>
+                <Text style={styles.noSlotsText}>Wellness can be booked once you have a confirmed stay. Book a stay, or ask the concierge.</Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.stayLine}>Your stay · {dayLabel(stay.checkIn).full} – {dayLabel(stay.checkOut).full}</Text>
+
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>DAY</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled contentContainerStyle={styles.datesScroll}>
+                    {days.map((d) => {
+                      const l = dayLabel(d);
+                      const on = d === date;
+                      return (
+                        <TouchableOpacity key={d} style={[styles.dateCard, on && styles.dateCardSelected]} onPress={() => { setDate(d); setTimes({}); }} activeOpacity={0.8}>
+                          <Text style={[styles.dateDay, on && styles.dateDaySelected]}>{l.day}</Text>
+                          <Text style={[styles.dateNumber, on && styles.dateNumberSelected]}>{l.date}</Text>
+                          <Text style={[styles.dateMonth, on && styles.dateMonthSelected]}>{l.month}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                {list.map((a) => {
+                  const daySlots = (slots[a.id] || []).filter((s) => s.date === date);
+                  return (
+                    <View key={a.id} style={styles.section}>
+                      <Text style={styles.sectionTitle}>{several ? (a.display_name || a.name).toUpperCase() : 'TIME'}</Text>
+                      <Text style={styles.activityMeta}>
+                        {a.duration} min{a.type === 'journey' && a.total_stages ? ` · ${a.total_stages} stages` : ''}{a.location ? ` · ${a.location}` : ''}
+                      </Text>
+                      {daySlots.length === 0 ? (
+                        <Text style={styles.noSlotsText}>No times this day. Try another day.</Text>
+                      ) : (
+                        <View style={styles.timeGrid}>
+                          {daySlots.map((slot) => {
+                            const blocked = !slot.is_available || clashes(a.id, slot);
+                            const on = times[a.id] === slot.start_time;
+                            return (
+                              <TouchableOpacity
+                                key={`${a.id}-${slot.start_time}`}
+                                style={[styles.timeSlot, blocked && styles.timeSlotDisabled, on && styles.timeSlotSelected]}
+                                onPress={() => !blocked && setTimes((t) => ({ ...t, [a.id]: on ? undefined : slot.start_time }))}
+                                disabled={blocked}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[styles.timeSlotText, blocked && styles.timeSlotTextDisabled, on && styles.timeSlotTextSelected]}>{timeLabel(slot.start_time)}</Text>
+                                <Text style={[styles.slotTag, on && styles.timeSlotTextSelected]}>
+                                  {slot.conflicting_booking ? slot.conflicting_booking : !slot.is_available ? 'Full' : slot.instant ? 'Instant' : 'On request'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>PEOPLE</Text>
+                  <View style={styles.peopleRow}>
+                    <TouchableOpacity style={styles.stepper} onPress={() => setPeople((p) => Math.max(1, p - 1))}><Text style={styles.stepperText}>−</Text></TouchableOpacity>
+                    <Text style={styles.peopleValue}>{people}</Text>
+                    <TouchableOpacity style={styles.stepper} onPress={() => setPeople((p) => Math.min(6, p + 1))}><Text style={styles.stepperText}>+</Text></TouchableOpacity>
+                    <Text style={styles.peopleHint}>{people > 1 ? 'Booked together' : 'Just me'}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>ANYTHING WE SHOULD KNOW</Text>
+                  <TextInput
+                    style={styles.noteInput}
+                    value={note}
+                    onChangeText={setNote}
+                    placeholder="Preferences, injuries, pregnancy, a female therapist…"
+                    placeholderTextColor={COLORS.textTertiary}
+                    multiline
+                    maxLength={500}
+                  />
+                </View>
+
+                {ready ? (
+                  <View style={styles.accessInfoBox}>
+                    <Text style={styles.accessInfoIcon}>{anyRequest ? '⏳' : '✓'}</Text>
+                    <Text style={styles.accessInfoText}>
+                      {anyRequest
+                        ? 'Some times are on request: the team confirms them shortly and you are notified. Every booking gets a code to show on arrival.'
+                        : 'These times are confirmed as soon as you book. You will get a code to show on arrival.'}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
             )}
           </ScrollView>
 
-          {/* Footer */}
           <View style={styles.footer}>
-            <TouchableOpacity
-              style={[
-                styles.confirmButton,
-                (!selectedDate || !selectedTime || isBooking) && styles.confirmButtonDisabled,
-              ]}
-              onPress={handleConfirmBooking}
-              activeOpacity={0.85}
-              disabled={!selectedDate || !selectedTime || isBooking}
-            >
-              <LinearGradient
-                colors={
-                  selectedDate && selectedTime && !isBooking
-                    ? ['#7fae8a', '#4a7c59']
-                    : ['rgba(127, 174, 138, 0.3)', 'rgba(74, 124, 89, 0.3)']
-                }
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.confirmButtonGradient}
-              >
-                {isBooking ? (
-                  <View style={styles.loadingContainer}>
+            {done ? (
+              <TouchableOpacity style={styles.confirmButton} onPress={() => handleClose(true)} activeOpacity={0.85}>
+                <LinearGradient colors={['#7fae8a', '#4a7c59']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.confirmButtonGradient}>
+                  <Text style={styles.confirmButtonText}>DONE</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={[styles.confirmButton, (!ready || booking) && styles.confirmButtonDisabled]} onPress={confirm} activeOpacity={0.85} disabled={!ready || booking}>
+                <LinearGradient
+                  colors={ready && !booking ? ['#7fae8a', '#4a7c59'] : ['rgba(127, 174, 138, 0.3)', 'rgba(74, 124, 89, 0.3)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.confirmButtonGradient}
+                >
+                  {booking ? (
                     <ActivityIndicator size="small" color={COLORS.background} />
-                    <Text style={[styles.confirmButtonText, { marginLeft: 8 }]}>
-                      {isReschedule ? 'RESCHEDULING...' : 'BOOKING...'}
+                  ) : (
+                    <Text style={[styles.confirmButtonText, !ready && styles.confirmButtonTextDisabled]}>
+                      {!ready ? (several ? 'CHOOSE A TIME FOR EACH' : 'CHOOSE A TIME') : anyRequest ? 'SEND REQUEST' : 'CONFIRM BOOKING'}
                     </Text>
-                  </View>
-                ) : (
-                  <Text
-                    style={[
-                      styles.confirmButtonText,
-                      (!selectedDate || !selectedTime) && styles.confirmButtonTextDisabled,
-                    ]}
-                  >
-                    {isReschedule ? 'CONFIRM RESCHEDULE' : 'CONFIRM BOOKING'}
-                  </Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
     </Modal>
-    </>
   );
 }
 
@@ -801,4 +721,24 @@ const styles = StyleSheet.create({
     color: COLORS.background,
     letterSpacing: 0.8,
   },
+  stayLine: { color: COLORS.textSecondary, fontSize: 13, marginBottom: 6, fontFamily: FONTS?.body },
+  activityMeta: { color: COLORS.textTertiary, fontSize: 12, marginBottom: 10, marginTop: -6 },
+  slotTag: { fontSize: 10, color: COLORS.textTertiary, marginTop: 2, letterSpacing: 0.5 },
+  peopleRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  stepper: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(127, 174, 138, 0.5)', alignItems: 'center', justifyContent: 'center' },
+  stepperText: { color: '#7fae8a', fontSize: 20 },
+  peopleValue: { color: COLORS.text, fontSize: 18, minWidth: 20, textAlign: 'center' },
+  peopleHint: { color: COLORS.textTertiary, fontSize: 13 },
+  noteInput: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 12, padding: 12, color: COLORS.text, minHeight: 70, textAlignVertical: 'top' },
+  doneMessage: { color: COLORS.text, fontSize: 15, lineHeight: 22, marginBottom: 16 },
+  doneHint: { color: COLORS.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 8 },
+  codeCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(127, 174, 138, 0.35)', backgroundColor: 'rgba(127, 174, 138, 0.08)', marginBottom: 10 },
+  codeName: { color: COLORS.text, fontSize: 16, fontWeight: '600' },
+  codeWhen: { color: COLORS.textSecondary, fontSize: 13, marginTop: 2 },
+  codeStatus: { fontSize: 12, marginTop: 6, letterSpacing: 0.3 },
+  codeStatusOk: { color: '#7fae8a' },
+  codeStatusWait: { color: '#e8b84a' },
+  codeBox: { alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.35)' },
+  codeLabel: { color: COLORS.textTertiary, fontSize: 9, letterSpacing: 1.5 },
+  codeValue: { color: '#e8d3a2', fontSize: 18, letterSpacing: 2, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), marginTop: 2 },
 });

@@ -137,10 +137,7 @@ export default function RestoreScreen({ navigation }) {
   const handleBookingModalClose = (bookingConfirmed) => {
     setBookingModalVisible(false);
 
-    if (bookingConfirmed) {
-      // Show premium success modal
-      setSuccessModalVisible(true);
-    }
+    // The booking window shows the result itself (confirmed or on request, with each code).
   };
 
   // Parallax effect for hero image

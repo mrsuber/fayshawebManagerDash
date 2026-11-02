@@ -33,6 +33,7 @@ router.use(require('./frontdesk'));
 router.use(require('./quality'));
 router.use(require('./assets'));
 router.use(require('./wellnessCatalog'));
+router.use(require('./wellnessBookings'));
 router.post('/attachments', require('../../services/attachments').handler);
 router.use(departments.router);
 router.use(operations);

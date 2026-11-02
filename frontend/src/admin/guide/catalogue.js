@@ -117,10 +117,10 @@ export const FEATURES = [
     does: ['Book experiences and airport / city rides', 'See the bill and balance'],
   },
   {
-    surface: 'app', area: 'Wellness', name: 'Wellness moods and journeys', where: 'Wellness tab', status: 'partial',
-    does: ['Restore, Recharge, Reflect, Explore; book services and multi-stage journeys from the catalogue managed in FAY OS', 'Journey PINs in the digital key'],
-    limits: ['Some screens still show fixed text and sample wellness metrics (sleep 90 %, mood “Calm”)'],
-    improve: ['Build every wellness screen from the catalogue (photos, stages, places)', 'Remove the sample metrics or connect a real source (wearables)'],
+    surface: 'app', area: 'Wellness', name: 'Wellness moods, journeys and booking', where: 'Wellness tab', status: 'partial',
+    does: ['Restore, Recharge, Reflect, Explore', 'Restore is a journey (a series of stages) booked as one; Recharge, Reflect and Explore list their experiences from the FAY OS catalogue: tick one or several (gym, personal trainer, pool…) and book them together, each with its own time', 'Only the days of the guest’s stay are offered; each time shows Instant (opened by the team, confirmed at once) or On request (the team confirms)', 'Number of people and notes for the team (preferences, injuries…)', 'Every booking gets a code (W7K3Q9A) shown in Bookings: the guest shows it on arrival; journeys also get a PIN once confirmed', 'Notified when a request is confirmed or declined; requests can be cancelled'],
+    limits: ['The top of each mood screen (hero and featured journey) still uses built-in text and photos', 'Some screens still show sample wellness metrics'],
+    improve: ['Build the mood heroes from the catalogue too', 'Show the code as a QR the team scans', 'Remove the sample metrics or connect a real source (wearables)'],
   },
   {
     surface: 'app', area: 'Events', name: 'Plan an event and My events', where: 'Welcome → Plan an event; Profile → My events', status: 'live',
@@ -201,9 +201,10 @@ export const FEATURES = [
     improve: ['Attach invoices and manuals', 'Suppliers directory with lead times', 'QR labels on equipment to open its record from a phone'],
   },
   {
-    surface: 'fayos', area: 'Wellness', name: 'Wellness today and catalogue', where: 'Wellness (Today, Catalogue)', status: 'live',
-    does: ['Today’s wellness operations', 'Catalogue: every service and journey with photos, gallery, stages (each with room, floor, photo, PIN), location, access, hours, booking notice, equipment lent'],
-    limits: ['The Today view still has some built-in venue and treatment lists'],
+    surface: 'fayos', area: 'Wellness', name: 'Wellness today, bookings and catalogue', where: 'Wellness (Today, Bookings, Catalogue)', status: 'live',
+    does: ['Today’s wellness operations', 'Bookings: requests to confirm (at the time asked or another) or decline with a reason, the guest is notified; check in by the guest’s code (the booking moves to Arrived); completed and no-show', 'Times opened in HQ → Wellness catalogue → Availability are confirmed automatically when a guest books them; other times arrive as requests and ring the bell', 'Catalogue: every service and journey with photos, gallery, stages (each with room, floor, photo, PIN), location, access, hours, booking notice, equipment lent'],
+    limits: ['The Today view still has some built-in venue and treatment lists', 'Opening slots is done in HQ (v1 wellness screens), not yet in FAY OS'],
+    improve: ['Open availability from FAY OS with a weekly template', 'Assign a therapist to each booking', 'Scan the code as a QR from a tablet at the spa desk'],
   },
   {
     surface: 'fayos', area: 'Dining', name: 'Dining', where: 'Dining', status: 'live',

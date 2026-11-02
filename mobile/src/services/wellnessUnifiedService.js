@@ -51,6 +51,12 @@ const wellnessUnifiedService = {
    * @param {number} days - Number of days to fetch (default 7)
    * @returns {Promise<Array>} Available time slots with conflict info
    */
+  /** { stay, availability } for an experience: by default the days of the guest's stay. */
+  getAvailabilityFull: async (activityId) => {
+    const data = await api.get(`/wellness-unified/activities/${activityId}/availability`);
+    return { stay: data.stay || null, availability: data.availability || [] };
+  },
+
   getAvailability: async (activityId, date = null, days = 7) => {
     try {
       const params = new URLSearchParams();

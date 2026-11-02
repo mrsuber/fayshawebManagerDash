@@ -8,6 +8,7 @@ import {
   ImageBackground,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -173,10 +174,13 @@ export default function BookingsScreen({ navigation }) {
           name: booking.activity_name, // UPDATED: use activity_name from unified system
           category: categoryMap[booking.activity_category] || booking.activity_category, // UPDATED: use activity_category
           status: booking.status === 'confirmed' ? 'upcoming' : booking.status,
+          code: booking.booking_code,
+          pin: booking.activity_pin,
+          declineReason: booking.decline_reason,
           date: dateDisplay,
           time: timeDisplay,
           duration: durationDisplay,
-          location: 'Wellness Club', // Default location
+          location: booking.room || 'Wellness',
           image: categoryImageMap[booking.activity_category] || WELLNESS_IMAGES.spa, // UPDATED: use activity_category
         };
       });
@@ -202,8 +206,16 @@ export default function BookingsScreen({ navigation }) {
     }
   };
 
+  const STATUS_LABEL = { requested: 'AWAITING CONFIRMATION', upcoming: 'CONFIRMED', in_progress: 'ARRIVED', declined: 'NOT CONFIRMED', no_show: 'MISSED' };
   const getStatusColor = (status) => {
     switch (status) {
+      case 'requested':
+        return '#c9962e';
+      case 'declined':
+      case 'no_show':
+        return '#E63946';
+      case 'in_progress':
+        return '#7fae8a';
       case 'active':
         return '#7fae8a';
       case 'upcoming':
@@ -243,21 +255,13 @@ export default function BookingsScreen({ navigation }) {
     setUnifiedBookingModalVisible(false);
     setSelectedActivity(null);
 
-    if (success) {
-      // Refresh bookings
-      fetchBookings();
-      setSuccessModalVisible(true);
-    }
+    if (success) fetchBookings(); // the booking window already showed the result and the codes
   };
 
   const handleBookingModalClose = (bookingConfirmed) => {
     setBookingModalVisible(false);
 
-    if (bookingConfirmed) {
-      setSuccessModalVisible(true);
-      // Refresh bookings after successful booking
-      fetchBookings();
-    }
+    if (bookingConfirmed) fetchBookings();
   };
 
   const handleCancelBooking = async (booking) => {
@@ -484,7 +488,7 @@ export default function BookingsScreen({ navigation }) {
             ]}
           >
             <Text style={styles.wellnessStatusText}>
-              {booking.status.toUpperCase()}
+              {STATUS_LABEL[booking.status] || booking.status.toUpperCase()}
             </Text>
           </View>
         </LinearGradient>
@@ -513,7 +517,19 @@ export default function BookingsScreen({ navigation }) {
           </View>
         </View>
 
-        {booking.status === 'upcoming' && (
+        {booking.code && !['cancelled', 'declined'].includes(booking.status) ? (
+          <View style={styles.codeRow}>
+            <Text style={styles.codeRowLabel}>YOUR CODE</Text>
+            <Text style={styles.codeRowValue}>{booking.code}</Text>
+            {booking.pin ? <Text style={styles.codeRowPin}>PIN {booking.pin}</Text> : null}
+          </View>
+        ) : null}
+        {booking.status === 'requested' ? (
+          <Text style={styles.requestNote}>The team confirms this time shortly; you will be notified.</Text>
+        ) : null}
+        {booking.status === 'declined' && booking.declineReason ? <Text style={styles.requestNote}>{booking.declineReason}</Text> : null}
+
+        {(booking.status === 'upcoming' || booking.status === 'requested') && (
           <View style={styles.wellnessActions}>
             <TouchableOpacity
               style={styles.wellnessActionButton}
@@ -1084,4 +1100,9 @@ const styles = StyleSheet.create({
     color: COLORS.background,
     fontWeight: '300',
   },
+  codeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: 'rgba(200, 164, 93, 0.08)', borderWidth: 1, borderColor: 'rgba(200, 164, 93, 0.25)' },
+  codeRowLabel: { color: COLORS.textTertiary, fontSize: 10, letterSpacing: 1.5 },
+  codeRowValue: { color: '#e8d3a2', fontSize: 17, letterSpacing: 2, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), flex: 1 },
+  codeRowPin: { color: COLORS.textSecondary, fontSize: 13 },
+  requestNote: { color: COLORS.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 10 },
 });

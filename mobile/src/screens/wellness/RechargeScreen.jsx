@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS } from '../../constants/theme';
 import { MOOD_DATA } from '../../constants/wellnessData';
 import BookingModalUnified from '../../components/BookingModalUnified';
+import ServicePicker from '../../components/ServicePicker';
 import PremiumModal from '../../components/PremiumModal';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
 
@@ -143,10 +144,7 @@ export default function RechargeScreen({ navigation }) {
   const handleBookingModalClose = (bookingConfirmed) => {
     setBookingModalVisible(false);
 
-    if (bookingConfirmed) {
-      // Show premium success modal
-      setSuccessModalVisible(true);
-    }
+    // The booking window shows the result itself (confirmed or on request, with each code).
   };
 
   const heroTranslate = scrollY.interpolate({
@@ -273,110 +271,9 @@ export default function RechargeScreen({ navigation }) {
           )}
 
           <View style={styles.experiencesSection}>
-            <Text style={styles.experiencesTitle}>ALL EXPERIENCES</Text>
-
-            {/* Show hardcoded UI activities for information */}
-            {moodData.activities.slice(1).map((activity, index) => {
-              // Try to find matching backend service with improved matching
-              const activityNameLower = activity.name.toLowerCase();
-              const matchingService = rechargeServices.find(s => {
-                if (!s.name) return false;
-                const serviceName = s.name.toLowerCase();
-
-                // Exact match
-                if (serviceName === activityNameLower) return true;
-
-                // Partial match (either contains the other)
-                if (serviceName.includes(activityNameLower) || activityNameLower.includes(serviceName)) return true;
-
-                // Keyword matching for common variations
-                if ((activityNameLower.includes('personal') || activityNameLower.includes('trainer')) &&
-                    (serviceName.includes('personal') || serviceName.includes('trainer') || serviceName.includes('training'))) {
-                  return true;
-                }
-                if ((activityNameLower.includes('gym') || activityNameLower.includes('training')) &&
-                    (serviceName.includes('gym') || serviceName.includes('training') || serviceName.includes('fitness'))) {
-                  return true;
-                }
-
-                return false;
-              });
-
-              return (
-                <View key={index} style={styles.activityCardContainer}>
-                  <TouchableOpacity
-                    style={styles.activityCard}
-                    onPress={() => handleActivityPress(activity, matchingService)}
-                    activeOpacity={0.85}
-                  >
-                    <ImageBackground
-                      source={activity.img}
-                      style={styles.activityImage}
-                      imageStyle={styles.activityImageStyle}
-                    >
-                      <LinearGradient
-                        colors={[
-                          'rgba(13, 13, 13, 0.2)',
-                          'rgba(13, 13, 13, 0.8)',
-                        ]}
-                        style={styles.activityGradient}
-                      >
-                        <View style={styles.activityContent}>
-                          <Text style={styles.activityName}>{activity.name}</Text>
-                          <Text style={[styles.activityTime, { color: RECHARGE_COLORS.accent }]}>
-                            {activity.time}
-                          </Text>
-                        </View>
-
-                        {matchingService ? (
-                          <TouchableOpacity
-                            style={[styles.activityChevron, styles.activityBookButton, {
-                              backgroundColor: `${RECHARGE_COLORS.primary}`,
-                              borderColor: `${RECHARGE_COLORS.primary}`
-                            }]}
-                            onPress={() => handleBookIndividualService(matchingService)}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={[styles.activityChevronText, { color: COLORS.background, fontSize: 11, fontWeight: '700' }]}>
-                              BOOK
-                            </Text>
-                          </TouchableOpacity>
-                        ) : (
-                          <View style={[styles.activityChevron, {
-                            backgroundColor: `${RECHARGE_COLORS.primary}33`,
-                            borderColor: `${RECHARGE_COLORS.primary}66`
-                          }]}>
-                            <Text style={[styles.activityChevronText, { color: RECHARGE_COLORS.primary }]}>
-                              ›
-                            </Text>
-                          </View>
-                        )}
-                      </LinearGradient>
-                    </ImageBackground>
-                    <View style={[styles.cardAccent, { backgroundColor: RECHARGE_COLORS.primary }]} />
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
+            {/* The mood's experiences from the catalogue: book one or several together. */}
+            <ServicePicker category="recharge" accent={RECHARGE_COLORS.primary} accent2={RECHARGE_COLORS.secondary || RECHARGE_COLORS.primary} fallbackImage={moodData.img} />
           </View>
-
-          <TouchableOpacity
-            style={styles.bookButton}
-            onPress={handleBookSession}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={[RECHARGE_COLORS.primary, RECHARGE_COLORS.secondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.bookButtonGradient}
-            >
-              <Text style={styles.bookButtonText}>BOOK A SESSION</Text>
-              <View style={styles.bookButtonIcon}>
-                <Text style={styles.bookButtonIconText}>→</Text>
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
 
           <View style={styles.bottomSpacing} />
         </View>

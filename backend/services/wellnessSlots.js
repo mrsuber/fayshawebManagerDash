@@ -7,7 +7,8 @@
  */
 
 const STANDARD_STARTS = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '18:00'];
-const LIVE = ['upcoming', 'in_progress', 'completed'];
+// Bookings that hold a place: a request holds it until a manager answers.
+const LIVE = ['requested', 'upcoming', 'in_progress', 'completed'];
 
 const toMinutes = (t) => {
   const [h, m] = String(t).split(':').map(Number);

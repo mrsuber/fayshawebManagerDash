@@ -146,22 +146,7 @@ export default function DetailScreen({ route, navigation }) {
   const handleBookingModalClose = (bookingConfirmed) => {
     setBookingModalVisible(false);
 
-    if (bookingConfirmed) {
-      Alert.alert(
-        'Booking Confirmed!',
-        `Your ${title} booking has been scheduled. Check your Digital Key for access details.`,
-        [
-          {
-            text: 'View Bookings',
-            onPress: () => navigation.navigate('Bookings'),
-          },
-          {
-            text: 'OK',
-            style: 'cancel',
-          },
-        ]
-      );
-    }
+    // The booking window shows the result itself (confirmed or on request, with each code).
   };
 
   return (
