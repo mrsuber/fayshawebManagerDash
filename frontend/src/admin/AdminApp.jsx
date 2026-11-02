@@ -13,6 +13,7 @@ import './hq.css';
 import { visibleNav } from './nav';
 import Approvals from './pages/Approvals';
 import Audit from './pages/Audit';
+import Guide from './pages/Guide';
 import Finance from './pages/Finance';
 import Overview from './pages/Overview';
 import Properties from './pages/Properties';
@@ -185,6 +186,7 @@ export default function AdminApp() {
             {allow('staff') && <Route path="staff" element={<Staff />} />}
             {allow('roles') && <Route path="roles" element={<Roles />} />}
             {allow('audit') && <Route path="audit" element={<Audit />} />}
+            {me.legacy && <Route path="guide" element={<Guide />} />}
             {allow('properties') && <Route path="properties" element={<Properties />} />}
             {allow('hr') && <Route path="hr/:tab?" element={<LegacyHub base="hr" tabs={HUBS.hr} />} />}
             {allow('website') && <Route path="website/:tab?" element={<LegacyHub base="website" tabs={HUBS.website} />} />}

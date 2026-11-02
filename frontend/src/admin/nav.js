@@ -40,6 +40,7 @@ export const NAV = [
     group: 'Governance',
     items: [
       { to: 'audit', label: 'Audit log', icon: 'history', area: 'audit', title: 'Audit log', sub: 'Who changed what, and when' },
+      { to: 'guide', label: 'Platform guide', icon: 'menu_book', legacy: true, title: 'Platform guide', sub: 'Everything Faysha does — website, app, FAY OS, HQ — and what to improve next' },
     ],
   },
 ];
