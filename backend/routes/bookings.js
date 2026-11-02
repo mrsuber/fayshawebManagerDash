@@ -929,6 +929,7 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
          AND wb.status IN ('upcoming', 'in_progress')
          AND wb.booking_date >= CURRENT_DATE
          AND wb.activity_pin IS NOT NULL
+         AND a.access_mode = 'pin'   -- keys only for experiences that open with a PIN (older bookings got PINs for every journey)
        ORDER BY wb.booking_date, wb.start_time
     `, [user_id]);
 
