@@ -120,7 +120,11 @@ router.get(
          SELECT 'p' || p.id, COALESCE(p.paid_at, p.created_at), 'Payment received – ' || p.amount || ' ' || p.currency || ' (' || p.payment_method || ')', 'Billing'
            FROM payments p JOIN bookings b ON b.id = p.booking_id WHERE b.user_id = $1 AND p.status = 'completed'
          UNION ALL
-         SELECT 'w' || id, created_at, 'Booked – ' || activity_name, 'Wellness' FROM wellness_bookings WHERE user_id = $1
+         SELECT 'w' || id, created_at,
+                CASE WHEN created_by IS NOT NULL THEN 'Wellness booked by the team – ' WHEN confirmed_by IS NOT NULL OR status IN ('requested', 'declined') THEN 'Wellness requested – ' ELSE 'Wellness booked – ' END
+                || activity_name || ' ' || to_char(booking_date, 'DD Mon') || ' ' || to_char(start_time, 'HH24:MI') || COALESCE(' (code ' || booking_code || ')', ''),
+                'Wellness'
+           FROM wellness_bookings WHERE user_id = $1
          UNION ALL
          SELECT 'd' || id, created_at, 'Table booked – ' || restaurant_name || ' ' || to_char(reservation_time, 'HH24:MI'), 'Dining' FROM dining_reservations WHERE guest_id = $1
          UNION ALL

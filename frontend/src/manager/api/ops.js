@@ -54,3 +54,5 @@ export const wellnessBookings = (status, date) => get('/wellness/bookings', { st
 export const wellnessByCode = (code) => withMock(() => api.get(`/wellness/bookings/code/${encodeURIComponent(code)}`), null);
 export const wellnessAction = (id, action, body = {}) => post(`/wellness/bookings/${id}/${action}`, body);
 export const wellnessCheckIn = (code) => post('/wellness/check-in', { code });
+export const wellnessZones = () => get('/wellness/zones', undefined, []);
+export const createWellnessBooking = (data) => post('/wellness/bookings', data);

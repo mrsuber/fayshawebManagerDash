@@ -80,6 +80,36 @@ const login = async (e, p) => (await call('POST', '/auth/login', { emailOrUserna
   r = await call('PATCH', `/wellness-unified/bookings/${gb.id}/cancel`, { cancellation_reason: 'Changed my mind' }, g);
   check('a request can be cancelled by the guest', r.body.booking && r.body.booking.status === 'cancelled', r);
 
+  // Keys: only experiences that open with a PIN (Restore), one per booking, with their stages.
+  const restoreReq = (await call('POST', '/wellness-unified/book', { activity_id: restore, booking_date: d2, start_time: '10:00' }, g)).body.booking;
+  r = await call('POST', `/manager/wellness/bookings/${restoreReq.id}/confirm`, {}, m);
+  check('a confirmed Restore journey gets a PIN', /^\d{4}$/.test(r.body.pin || ''), r);
+  r = await call('POST', '/wellness-unified/book', { activity_id: id('Reflect'), booking_date: d2, start_time: '18:00' }, g);
+  const reflectReq = r.body.booking;
+  r = await call('POST', `/manager/wellness/bookings/${reflectReq.id}/confirm`, {}, m);
+  check('Reflect (no PIN access) is confirmed without a key', r.body.status === 'upcoming' && !r.body.pin, r);
+  r = await call('GET', '/bookings/user/my-keys', null, g);
+  const keys = r.body.keys.wellnessJourneys;
+  check('Digital key: one key, for Restore, with its stages', keys.length === 1 && keys[0].bookingId === restoreReq.id && keys[0].stages.length === 3 && keys[0].code === restoreReq.booking_code, keys);
+
+  // Staff book at the desk: confirmed at once, with a code.
+  const guestId = (await call('GET', '/wellness-unified/my-bookings', null, g)).body.bookings[0].user_id;
+  r = await call('POST', '/manager/wellness/bookings', { guestId, activityId: id('Steam Room'), date: d2, start: '13:00' }, m);
+  check('staff booking is confirmed with a code', r.status === 201 && r.body.status === 'upcoming' && /^W/.test(r.body.code), r);
+
+  // After the session the guest rates it; the rating shows in FAY OS and the journey.
+  r = await call('GET', '/guest/ratings/pending', null, g);
+  check('a completed session can be rated', r.body.some((p) => p.context === 'wellness' && p.contextId === tb.id), r.body);
+  r = await call('POST', '/guest/ratings', { context: 'wellness', contextId: tb.id, rating: 4, comment: 'Great trainer' }, g);
+  check('rating saved', r.status === 201, r);
+  r = await call('POST', '/guest/ratings', { context: 'wellness', contextId: restoreReq.id, rating: 5 }, g);
+  check('a session not completed cannot be rated', r.status === 404, r);
+  r = await call('GET', '/manager/wellness/bookings?status=all', null, m);
+  check('FAY OS shows the rating on the booking', r.body.items.find((i) => i.id === tb.id)?.rating === 4, r.body.items.find((i) => i.id === tb.id));
+  r = await call('GET', `/manager/guests/${guestId}/timeline`, null, m);
+  const timeline = JSON.stringify(r.body);
+  check('guest journey: requested, confirmed, arrived, completed, rated', ['Wellness requested – Personal Trainer', 'Wellness booked by the team – Steam Room', 'Wellness confirmed – Personal Trainer', `Arrived for Personal Trainer – code ${tb.booking_code}`, 'Completed Personal Trainer', 'Rated Personal Trainer ★★★★☆'].every((t) => timeline.includes(t)), timeline.slice(0, 600));
+
   console.log(failures ? `\n${failures} FAILED` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => {

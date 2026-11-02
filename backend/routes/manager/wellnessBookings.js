@@ -23,14 +23,16 @@ const TZ = process.env.PROPERTY_TZ || 'Africa/Douala';
 
 const SELECT = `
   SELECT b.*, u.full_name AS guest_name, u.phone AS guest_phone, a.category, a.location, a.floor, a.access_mode, a.base_price,
-         a.currency, ap.unit_number AS residence, c.full_name AS confirmed_by_name, k.full_name AS checked_in_by_name
+         a.currency, ap.unit_number AS residence, c.full_name AS confirmed_by_name, k.full_name AS checked_in_by_name,
+         sr.rating AS guest_rating, sr.comment AS guest_comment
     FROM wellness_bookings b
     JOIN users u ON u.id = b.user_id
     LEFT JOIN wellness_activities a ON a.id = b.activity_id
     LEFT JOIN bookings st ON st.id = b.apartment_booking_id
     LEFT JOIN apartments ap ON ap.id = st.apartment_id
     LEFT JOIN users c ON c.id = b.confirmed_by
-    LEFT JOIN users k ON k.id = b.checked_in_by`;
+    LEFT JOIN users k ON k.id = b.checked_in_by
+    LEFT JOIN staff_ratings sr ON sr.context = 'wellness' AND sr.context_id = b.id`;
 
 const toItem = (r) => ({
   id: r.id,
@@ -62,6 +64,8 @@ const toItem = (r) => ({
   confirmedBy: r.confirmed_by_name,
   checkedInAt: isoTime(r.checked_in_at),
   checkedInBy: r.checked_in_by_name,
+  rating: r.guest_rating || null,
+  ratingComment: r.guest_comment || null,
 });
 
 async function one(q, id) {
@@ -71,6 +75,10 @@ async function one(q, id) {
 }
 
 const changed = (req, item) => emit(req, 'wellness:updated', { ids: [item.id] });
+
+/** Every step of a wellness booking appears in the guest's journey (FAY OS → Guest Journey / Guest 360). */
+const journey = (q, b, title, by) =>
+  addTimeline(q, b.user_id || b.guestId, title, 'Wellness', { bookingId: b.apartment_booking_id || null, performedBy: by || null }).catch((e) => console.error('Guest journey entry failed:', e.message));
 
 router.get(
   '/wellness/bookings',
@@ -150,7 +158,7 @@ router.post(
       }
       const fresh = (await q.query('SELECT * FROM wellness_bookings WHERE id = $1', [b.id])).rows[0];
       await confirmBooking(q, fresh, activity, req.user.id);
-      await addTimeline(q, b.user_id, `Wellness confirmed – ${b.activity_name}`, 'Wellness', { performedBy: req.user.id });
+      await addTimeline(q, b.user_id, `Wellness confirmed – ${b.activity_name} (code ${b.booking_code})`, 'Wellness', { performedBy: req.user.id });
       return toItem(await one(q, b.id));
     });
     resolve(req.app, `wellness-request:${item.id}`).catch(() => {});
@@ -176,7 +184,9 @@ router.post(
     );
     if (!rows.length) throw httpError(409, 'Only a request can be declined; cancel a confirmed booking instead');
     await dropCharge(db, rows[0].id);
-    const item = toItem(await one(db, rows[0].id));
+    const row = await one(db, rows[0].id);
+    const item = toItem(row);
+    await journey(db, row, `Wellness declined – ${row.activity_name}${reason ? ` (${reason})` : ''}`, req.user.id);
     resolve(req.app, `wellness-request:${item.id}`).catch(() => {});
     notifyGuest(req.app, item.guestId, {
       title: `${item.activity} could not be confirmed`,
@@ -201,8 +211,11 @@ async function checkIn(req, id) {
       WHERE id = $1`,
     [id, req.user.id],
   );
-  const item = toItem(await one(db, id));
+  const row = await one(db, id);
+  await journey(db, row, `Arrived for ${row.activity_name} – code ${row.booking_code}`, req.user.id);
+  const item = toItem(row);
   changed(req, item);
+  notifyGuest(req.app, item.guestId, { title: `Welcome to ${item.activity}`, body: 'You are checked in. Enjoy.', event: 'wellness:arrived', data: { bookingId: item.id, screen: 'Bookings' } }).catch(() => {});
   return item;
 }
 
@@ -228,11 +241,95 @@ for (const [action, status, from] of [['complete', 'completed', ['upcoming', 'in
         [req.params.id, status, from],
       );
       if (!rows.length) throw httpError(409, 'This booking cannot be changed that way now');
-      const item = toItem(await one(db, rows[0].id));
+      const row = await one(db, rows[0].id);
+      await journey(db, row, `${status === 'completed' ? 'Completed' : 'Missed'} ${row.activity_name}`, req.user.id);
+      const item = toItem(row);
+      // Right after the session, ask the guest how it was (the rating joins their journey).
+      if (status === 'completed') {
+        notifyGuest(req.app, item.guestId, { title: `How was ${item.activity}?`, body: 'Tap to rate your session — it takes a second.', event: 'rating:ask', data: { screen: 'Rate' } }).catch(() => {});
+      }
       changed(req, item);
       res.json(item);
     }),
   );
 }
+
+/** Wellness places (HQ → Wellness catalogue → Zones), with their photos, for the Wellness dashboard. */
+router.get(
+  '/wellness/zones',
+  ah(async (req, res) => {
+    const { rows } = await db.query('SELECT id, name, subtitle, description, image_url, features FROM wellness_zones WHERE is_active = true ORDER BY id');
+    res.json(rows.map((z) => ({ id: z.id, name: z.name, subtitle: z.subtitle, description: z.description, image: z.image_url, features: z.features || [] })));
+  }),
+);
+
+/**
+ * POST /wellness/bookings  { guestId, activityId, date, start, people?, notes? }
+ * Staff book for a guest (at the desk, by phone): confirmed at once, with a code. The time must be free in the
+ * experience's capacity; it does not need to be opened in Availability.
+ */
+router.post(
+  '/wellness/bookings',
+  ah(async (req, res) => {
+    const { guestId, activityId, date, start } = req.body || {};
+    const people = Math.min(Math.max(parseInt(req.body.people, 10) || 1, 1), 10);
+    if (!guestId || !activityId || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !/^\d{2}:\d{2}$/.test(String(start || ''))) {
+      throw httpError(400, 'Choose the guest, the experience, the day and the time');
+    }
+    const { newCode } = require('../../services/wellnessBooking');
+    const { toMinutes, toTime, LIVE } = require('../../services/wellnessSlots');
+    const id = await tx(async (q) => {
+      const a = (await q.query('SELECT * FROM wellness_activities WHERE id = $1 FOR UPDATE', [activityId])).rows[0];
+      if (!a) throw httpError(404, 'Experience not found');
+      const end = endOf(start, a.duration);
+      if (!end) throw httpError(400, 'That time runs past midnight');
+      const taken = (await q.query(
+        `SELECT COALESCE(SUM(people), 0)::int AS n FROM wellness_bookings WHERE activity_id = $1 AND booking_date = $2 AND status = ANY($5)
+            AND start_time < $4 AND end_time > $3`,
+        [a.id, date, start, end, LIVE],
+      )).rows[0].n;
+      if (taken + people > (a.max_capacity || 1)) throw httpError(409, `${a.display_name || a.name} is full at ${start} (${taken}/${a.max_capacity || 1})`);
+      const clash = (await q.query(
+        `SELECT activity_name FROM wellness_bookings WHERE user_id = $1 AND booking_date = $2 AND status IN ('requested', 'upcoming', 'in_progress')
+            AND start_time < $4 AND end_time > $3 LIMIT 1`,
+        [guestId, date, start, end],
+      )).rows[0];
+      if (clash) throw httpError(409, `The guest already has ${clash.activity_name} at that time`);
+      const stay = (await q.query(
+        `SELECT id FROM bookings WHERE user_id = $1 AND status IN ('confirmed', 'checked_in') AND check_in_date <= $2 AND check_out_date >= $2 ORDER BY check_in_date DESC LIMIT 1`,
+        [guestId, date],
+      )).rows[0];
+      let b = (await q.query(
+        `INSERT INTO wellness_bookings (apartment_booking_id, user_id, activity_id, activity_name, activity_type, booking_date, start_time, end_time,
+           total_duration, special_requests, amount_paid, status, booking_code, people, room, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'requested', $11, $12, $13, $14) RETURNING *`,
+        [stay ? stay.id : null, guestId, a.id, a.display_name || a.name, a.type, date, start, end, a.duration, req.body.notes || null,
+          await newCode(q), people, a.location ? String(a.location).slice(0, 100) : null, req.user.id],
+      )).rows[0];
+      if (a.has_stages) {
+        const stages = await q.query('SELECT * FROM wellness_activity_stages WHERE activity_id = $1 ORDER BY stage_number', [a.id]);
+        let at = toMinutes(start);
+        for (const st of stages.rows) {
+          await q.query(
+            `INSERT INTO wellness_booking_stages (booking_id, stage_id, stage_number, stage_name, scheduled_start, scheduled_end) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [b.id, st.id, st.stage_number, st.name, toTime(at), toTime(Math.min(at + st.duration, 24 * 60 - 1))],
+          );
+          at += st.duration;
+        }
+      }
+      b = await confirmBooking(q, b, a, req.user.id);
+      return b.id;
+    });
+    const item = toItem(await one(db, id));
+    notifyGuest(req.app, item.guestId, {
+      title: `${item.activity} is booked`,
+      body: `${item.date} at ${item.start}. Your code: ${item.code}${item.pin ? ` · PIN ${item.pin}` : ''}`,
+      event: 'wellness:confirmed',
+      data: { bookingId: item.id, screen: 'Bookings' },
+    }).catch(() => {});
+    changed(req, item);
+    res.status(201).json(item);
+  }),
+);
 
 module.exports = router;

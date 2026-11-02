@@ -129,6 +129,7 @@ export default function WellnessBookings() {
                   <td>
                     <Pill tone={STATUS[b.status]?.[1]}>{STATUS[b.status]?.[0] || b.status}</Pill>
                     {b.declineReason ? <div className="sub">{b.declineReason}</div> : null}
+                    {b.rating ? <div className="sub" style={{ color: b.rating <= 2 ? 'var(--red-soft)' : 'var(--gold)' }} title={b.ratingComment || ''}>{'★'.repeat(b.rating)}{'☆'.repeat(5 - b.rating)}{b.ratingComment ? ` “${b.ratingComment.slice(0, 40)}”` : ''}</div> : null}
                   </td>
                   <td>
                     <div className="kit-actions" style={{ justifyContent: 'flex-end' }}>

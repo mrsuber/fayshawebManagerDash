@@ -34,7 +34,8 @@ const cleanCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
  * stay's bill (once), status 'upcoming'. Returns the updated row.
  */
 async function confirmBooking(q, booking, activity, byUserId = null) {
-  const needsPin = activity && (activity.requires_access_pin || activity.access_mode === 'pin');
+  // A key (PIN) only for experiences whose rooms open with one: Access = PIN in the catalogue.
+  const needsPin = activity && activity.access_mode === 'pin';
   const pin = booking.activity_pin || (needsPin ? String(crypto.randomInt(1000, 10000)) : null);
   const qr = booking.qr_code || (pin ? `FAYSHAA-WELLNESS-${booking.activity_id}-${booking.user_id}-${Date.now()}` : null);
   const { rows } = await q.query(

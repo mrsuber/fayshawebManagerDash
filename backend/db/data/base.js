@@ -238,10 +238,11 @@ async function load(client) {
     const total = j.stages.reduce((sum, stage) => sum + stage[2], 0);
     const { rows } = await client.query(
       `INSERT INTO wellness_activities (type, category, name, display_name, description, icon, duration, requires_staff,
-                                        requires_access_pin, max_capacity, has_stages, total_stages, display_order, benefits)
-       VALUES ('journey', $1, $2, $2, $3, $4, $5, true, true, $6, true, $7, $8, $9)
+                                        requires_access_pin, max_capacity, has_stages, total_stages, display_order, benefits, access_mode)
+       VALUES ('journey', $1, $2, $2, $3, $4, $5, true, $10, $6, true, $7, $8, $9, CASE WHEN $10 THEN 'pin' ELSE 'none' END)
        ON CONFLICT (name, category) DO NOTHING RETURNING id`,
-      [j.category, j.name, j.description, j.icon, total, j.capacity, j.stages.length, j.order, j.benefits]
+      // Only Restore's rooms open with a PIN (a key in the Digital key); change it per experience in the catalogue.
+      [j.category, j.name, j.description, j.icon, total, j.capacity, j.stages.length, j.order, j.benefits, j.category === 'restore']
     );
     if (!rows[0]) continue;
     for (const [i, [name, description, duration, icon, type]] of j.stages.entries()) {

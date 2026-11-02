@@ -71,15 +71,13 @@ test('Maintenance turns a device alert into a work order', async () => {
   await waitFor(async () => expect((await collectionsApi.list('maintenanceAlerts'))[0].status).toBe('Converted'));
 });
 
-test('Wellness refuses a clashing booking', async () => {
+test('Wellness shows today, the bookings to confirm and the catalogue', async () => {
   renderWithProviders(<Wellness />);
-  await screen.findByText("Today's Schedule (8)");
-  await userEvent.click(screen.getByRole('button', { name: /New Booking/ }));
-  const start = screen.getByLabelText(/^Start/);
-  await userEvent.clear(start);
-  await userEvent.type(start, '09:30');
-  await userEvent.click(screen.getByRole('button', { name: 'Book' }));
-  expect(await screen.findByText(/Treatment Room 1 is booked 09:00–10:00/)).toBeInTheDocument();
+  expect(await screen.findByText(/^Today ·/, { selector: '.card-title' })).toBeInTheDocument();
+  expect(screen.getByText('Coming up', { selector: '.card-title' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /New booking/ })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('tab', { name: /Bookings/ }));
+  expect(await screen.findByPlaceholderText(/Guest’s code/)).toBeInTheDocument();
 });
 
 test('Dining seats a reservation and the floor plan follows', async () => {

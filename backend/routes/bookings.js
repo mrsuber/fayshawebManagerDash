@@ -919,7 +919,10 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
     const wellnessBookings = await pool.query(`
       SELECT wb.id AS booking_id, wb.activity_pin, wb.qr_code, to_char(wb.booking_date, 'YYYY-MM-DD') AS booking_date,
              to_char(wb.start_time, 'HH24:MI') AS start_time, wb.total_duration, wb.activity_name, a.description,
-             wb.booking_date = CURRENT_DATE AS is_today
+             wb.booking_date = CURRENT_DATE AS is_today, wb.booking_code,
+             (SELECT COALESCE(json_agg(json_build_object('number', bs.stage_number, 'name', bs.stage_name, 'start', to_char(bs.scheduled_start, 'HH24:MI'),
+                                                         'status', bs.status) ORDER BY bs.stage_number), '[]')
+                FROM wellness_booking_stages bs WHERE bs.booking_id = wb.id) AS stages
         FROM wellness_bookings wb
         LEFT JOIN wellness_activities a ON a.id = wb.activity_id
        WHERE wb.user_id = $1
@@ -933,6 +936,8 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
       bookingId: booking.booking_id,
       journeyName: booking.activity_name,
       journeyPIN: booking.activity_pin,
+      code: booking.booking_code,
+      stages: booking.stages || [],
       qrCode: booking.qr_code,
       date: booking.booking_date,
       time: booking.start_time,

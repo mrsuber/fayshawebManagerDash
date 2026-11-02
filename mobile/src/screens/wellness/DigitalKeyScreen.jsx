@@ -18,7 +18,6 @@ import { dayLabel } from '../../utils/format';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import wellnessUnifiedService from '../../services/wellnessUnifiedService';
 import { useLiveEvent } from '../../contexts/LiveContext';
 
 export default function DigitalKeyScreen() {
@@ -31,25 +30,7 @@ export default function DigitalKeyScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [journeyBookings, setJourneyBookings] = useState([]); // NEW: Multiple journey bookings
 
-  // Fetch journey bookings with PINs
-  useEffect(() => {
-    const loadJourneyBookings = async () => {
-      try {
-        const bookings = await wellnessUnifiedService.getJourneyBookingsWithPINs();
-        console.log('📍 Loaded journey bookings with PINs:', bookings);
-        setJourneyBookings(bookings || []);
-      } catch (error) {
-        console.error('Error loading journey bookings:', error);
-        setJourneyBookings([]);
-      }
-    };
-
-    if (user?.id) {
-      loadJourneyBookings();
-    }
-  }, [user?.id]);
 
   // Fetch digital keys from backend
   const fetchDigitalKeys = async (isRefreshing = false) => {
@@ -70,8 +51,6 @@ export default function DigitalKeyScreen() {
           apartments.find((a) => a.status === 'active') ||
           apartments[0];
 
-        // Get the first (most recent) wellness journey booking
-        const wellnessJourney = wellnessJourneys[0];
 
         if (apartmentBooking) {
           // Format the data to match the existing UI structure
@@ -89,23 +68,16 @@ export default function DigitalKeyScreen() {
             concierge: '+237 651 841 003',
             inHouse: apartmentBooking.status === 'active',
             // Wellness Journey (if exists)
-            restoreJourney: wellnessJourney ? {
-              active: true,
-              date: new Date(wellnessJourney.date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-              }),
-              time: new Date(`2000-01-01T${wellnessJourney.time}`).toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-              }),
-              pin: wellnessJourney.journeyPIN,
-              stages: [
-                { id: 1, name: 'Massage Therapy', completed: false },
-                { id: 2, name: 'Steam Room', completed: false },
-                { id: 3, name: 'Cold Plunge', completed: false },
-              ],
-            } : null,
+            // Keys for experiences whose rooms open with a PIN (a journey like Restore), one per booking.
+            journeys: (wellnessJourneys || []).map((j) => ({
+              id: j.bookingId,
+              name: j.journeyName,
+              code: j.code,
+              pin: j.journeyPIN,
+              date: new Date(`${j.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+              time: new Date(`2000-01-01T${j.time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+              stages: (j.stages || []).map((st) => ({ id: st.number, name: st.name, start: st.start, completed: st.status === 'completed' })),
+            })),
             // Deposit Box
             depositBox: {
               boxNumber: apartmentBooking.depositBox.number,
@@ -197,7 +169,7 @@ export default function DigitalKeyScreen() {
     checkOut: null,
     emergencyContact: '+237 653 255 547',
     concierge: '+237 651 841 003',
-    restoreJourney: null,
+    journeys: [],
     depositBox: null,
   };
 
@@ -385,160 +357,63 @@ export default function DigitalKeyScreen() {
           </View>
         )}
 
-        {/* Restore Journey PIN - Only show if user has active booking */}
-        {displayData.restoreJourney?.active && (
-          <View style={styles.section}>
+        {/* Wellness keys: one card per journey whose rooms open with a PIN. Other wellness bookings have a code in Bookings, not a key. */}
+        {(displayData.journeys || []).map((j) => (
+          <View key={j.id} style={styles.section}>
             <View style={styles.journeySectionHeader}>
-              <Text style={styles.sectionTitle}>RESTORE JOURNEY</Text>
+              <Text style={styles.sectionTitle}>{String(j.name).toUpperCase()} JOURNEY</Text>
               <View style={styles.journeyTimeBadge}>
                 <Text style={styles.journeyTimeText}>
-                  {displayData.restoreJourney.date} • {displayData.restoreJourney.time}
+                  {j.date} • {j.time}
                 </Text>
               </View>
             </View>
 
-            {/* Journey PIN Card */}
-            <TouchableOpacity
-              style={styles.journeyPinCard}
-              onPress={() => copyToClipboard(displayData.restoreJourney.pin, 'Journey PIN')}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={['rgba(127, 174, 138, 0.2)', 'rgba(74, 124, 89, 0.25)']}
-                style={styles.journeyPinGradient}
-              >
+            <TouchableOpacity style={styles.journeyPinCard} onPress={() => copyToClipboard(j.pin, `${j.name} PIN`)} activeOpacity={0.8}>
+              <LinearGradient colors={['rgba(127, 174, 138, 0.2)', 'rgba(74, 124, 89, 0.25)']} style={styles.journeyPinGradient}>
                 <View style={styles.journeyPinHeader}>
                   <View style={styles.journeyIconBox}>
                     <Text style={styles.journeyIcon}>✦</Text>
                   </View>
                   <View style={styles.journeyPinInfo}>
                     <Text style={styles.journeyPinLabel}>Journey Access PIN</Text>
-                    <Text style={styles.journeyPinSubtext}>
-                      Use this PIN at each stage entrance
-                    </Text>
+                    <Text style={styles.journeyPinSubtext}>Use this PIN at each stage entrance</Text>
                   </View>
                   <View style={styles.copyBadge}>
                     <Text style={styles.copyBadgeText}>TAP TO COPY</Text>
                   </View>
                 </View>
 
-                <Text style={styles.journeyPinDisplay}>{displayData.restoreJourney.pin}</Text>
+                <Text style={styles.journeyPinDisplay}>{j.pin}</Text>
 
-                {/* Journey Stages Progress */}
-                <View style={styles.journeyStages}>
-                  {displayData.restoreJourney.stages.map((stage, index) => (
-                    <View key={stage.id} style={styles.stageProgressRow}>
-                      {/* Stage Number */}
-                      <View
-                        style={[
-                          styles.stageNumberCircle,
-                          stage.completed && styles.stageNumberCircleCompleted,
-                        ]}
-                      >
-                        {stage.completed ? (
-                          <Text style={styles.stageCheckmark}>✓</Text>
-                        ) : (
-                          <Text
-                            style={[
-                              styles.stageNumberText,
-                              stage.completed && styles.stageNumberTextCompleted,
-                            ]}
-                          >
-                            {stage.id}
-                          </Text>
-                        )}
+                {j.stages.length ? (
+                  <View style={styles.journeyStages}>
+                    {j.stages.map((stage, index) => (
+                      <View key={stage.id} style={styles.stageProgressRow}>
+                        <View style={[styles.stageNumberCircle, stage.completed && styles.stageNumberCircleCompleted]}>
+                          {stage.completed ? (
+                            <Text style={styles.stageCheckmark}>✓</Text>
+                          ) : (
+                            <Text style={styles.stageNumberText}>{stage.id}</Text>
+                          )}
+                        </View>
+                        <Text style={[styles.stageName, stage.completed && styles.stageNameCompleted]}>
+                          {stage.name}
+                          {stage.start ? <Text style={styles.journeyPinSubtext}>{`  ${stage.start}`}</Text> : null}
+                        </Text>
+                        {index < j.stages.length - 1 && <View style={styles.stageConnectionLine} />}
                       </View>
-
-                      {/* Stage Name */}
-                      <Text
-                        style={[
-                          styles.stageName,
-                          stage.completed && styles.stageNameCompleted,
-                        ]}
-                      >
-                        {stage.name}
-                      </Text>
-
-                      {/* Connection Line */}
-                      {index < displayData.restoreJourney.stages.length - 1 && (
-                        <View style={styles.stageConnectionLine} />
-                      )}
-                    </View>
-                  ))}
-                </View>
+                    ))}
+                  </View>
+                ) : null}
 
                 <Text style={styles.journeyPinFooter}>
-                  Your progress is automatically tracked as you enter each stage
+                  {j.code ? `Booking code ${j.code} · show it at the spa desk on arrival` : 'Show your booking code at the spa desk on arrival'}
                 </Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
-        )}
-
-        {/* NEW: Wellness Journey PINs - Show all active journey bookings */}
-        {journeyBookings.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>WELLNESS JOURNEY ACCESS</Text>
-            {journeyBookings.map((journey, idx) => {
-              const journeyDate = new Date(journey.booking_date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-              });
-              const timeMatch = journey.start_time?.match(/(\d+):(\d+)/);
-              let journeyTime = journey.start_time;
-              if (timeMatch) {
-                const [, hours, minutes] = timeMatch;
-                const hour = parseInt(hours);
-                const ampm = hour >= 12 ? 'PM' : 'AM';
-                const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
-                journeyTime = `${displayHour}:${minutes} ${ampm}`;
-              }
-
-              return (
-                <View key={journey.id} style={idx > 0 ? { marginTop: 16 } : null}>
-                  <View style={styles.journeySectionHeader}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#7fae8a', marginBottom: 8 }}>
-                      {journey.activity_name}
-                    </Text>
-                    <View style={styles.journeyTimeBadge}>
-                      <Text style={styles.journeyTimeText}>
-                        {journeyDate} • {journeyTime}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.journeyPinCard}
-                    onPress={() => copyToClipboard(journey.activity_pin, `${journey.activity_name} PIN`)}
-                    activeOpacity={0.8}
-                  >
-                    <LinearGradient
-                      colors={['rgba(127, 174, 138, 0.2)', 'rgba(74, 124, 89, 0.25)']}
-                      style={styles.journeyPinGradient}
-                    >
-                      <View style={styles.journeyPinHeader}>
-                        <View style={styles.journeyIconBox}>
-                          <Text style={styles.journeyIcon}>✦</Text>
-                        </View>
-                        <View style={styles.journeyPinInfo}>
-                          <Text style={styles.journeyPinLabel}>Journey PIN</Text>
-                          <Text style={styles.journeyPinSubtext}>
-                            Tap to copy access code
-                          </Text>
-                        </View>
-                        <View style={styles.copyBadge}>
-                          <Text style={styles.copyBadgeText}>TAP TO COPY</Text>
-                        </View>
-                      </View>
-
-                      <Text style={styles.journeyPinDisplay}>{journey.activity_pin}</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
-          </View>
-        )}
+        ))}
 
         {/* WiFi Credentials (set per property on the server) */}
         {keyData?.wifi?.ssid ? (

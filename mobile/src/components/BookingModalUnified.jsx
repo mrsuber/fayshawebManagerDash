@@ -162,14 +162,25 @@ export default function BookingModalUnified({ visible, onClose, activity, activi
           <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             {done ? (
               <View>
-                <Text style={styles.doneMessage}>{done.message}</Text>
+                <View style={styles.doneHero}>
+                  <LinearGradient
+                    colors={done.bookings.some((b) => b.status === 'requested') ? ['rgba(232,184,74,0.25)', 'rgba(232,184,74,0.08)'] : ['rgba(127,174,138,0.3)', 'rgba(74,124,89,0.1)']}
+                    style={styles.doneHalo}
+                  >
+                    <Text style={[styles.doneGlyph, { color: done.bookings.some((b) => b.status === 'requested') ? '#e8b84a' : '#7fae8a' }]}>
+                      {done.bookings.some((b) => b.status === 'requested') ? '◷' : '✓'}
+                    </Text>
+                  </LinearGradient>
+                  <Text style={styles.doneTitle}>{done.bookings.some((b) => b.status === 'requested') ? 'Your request is with our team' : 'Your time is reserved'}</Text>
+                </View>
+                <Text style={[styles.doneMessage, { textAlign: 'center' }]}>{done.message}</Text>
                 {done.bookings.map((b) => (
                   <View key={b.id} style={styles.codeCard}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.codeName}>{b.activity_name}</Text>
                       <Text style={styles.codeWhen}>{dayLabel(String(b.booking_date).slice(0, 10)).full} · {timeLabel(String(b.start_time).slice(0, 5))}</Text>
                       <Text style={[styles.codeStatus, b.status === 'requested' ? styles.codeStatusWait : styles.codeStatusOk]}>
-                        {b.status === 'requested' ? 'Waiting for the team to confirm' : 'Confirmed'}
+                        {b.status === 'requested' ? 'Waiting for the team to confirm' : b.activity_pin ? `Confirmed · key in your Digital key (PIN ${b.activity_pin})` : 'Confirmed'}
                       </Text>
                     </View>
                     <View style={styles.codeBox}>
@@ -741,4 +752,8 @@ const styles = StyleSheet.create({
   codeBox: { alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.35)' },
   codeLabel: { color: COLORS.textTertiary, fontSize: 9, letterSpacing: 1.5 },
   codeValue: { color: '#e8d3a2', fontSize: 18, letterSpacing: 2, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), marginTop: 2 },
+  doneHero: { alignItems: 'center', marginBottom: 18, marginTop: 4 },
+  doneHalo: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  doneGlyph: { fontSize: 38 },
+  doneTitle: { color: COLORS.text, fontSize: 22, textAlign: 'center', fontFamily: FONTS?.heading || undefined },
 });
