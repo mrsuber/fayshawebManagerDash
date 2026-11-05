@@ -3,6 +3,7 @@ import moment from 'moment';
 import { useState } from 'react';
 
 import { serviceRequestsApi } from '../api';
+import AssignPicker from '../components/AssignPicker';
 import FormDialog from '../components/FormDialog';
 import { Bar, Card, Chip, Donut, Field, Icon, KpiGrid, conic } from '../components/ui';
 import useGuestOptions from '../hooks/useGuestOptions';
@@ -27,27 +28,27 @@ const RANGES = [
 const SLA = { High: 15, Normal: 30, Low: 60 };
 const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0);
 
-/** Status history shown in Request Details, derived from the request. */
+/** What happened to the request, from its real timestamps. */
 function updatesFor(r) {
-  const created = moment(r.createdAt);
-  const rows = [
-    { t: created.format('HH:mm'), d: 'Request created', by: 'FAY', c: '#e8b84a' },
-    { t: created.clone().add(2, 'minutes').format('HH:mm'), d: `Assigned to ${r.department}`, by: 'System', c: '#e8b84a' },
-  ];
-  if (r.status !== 'New') rows.push({ t: created.clone().add(4, 'minutes').format('HH:mm'), d: `${r.status === 'Completed' ? 'Completed' : r.status} · ${r.department}`, by: 'Team', c: STATUS_COLOR[r.status] });
-  if (r.status !== 'Completed') rows.push({ t: '—', d: 'Completion & guest confirmation', by: 'Pending', c: '#3a3f48' });
+  if (!r) return [];
+  const at = (iso) => (iso ? moment(iso).format('HH:mm') : '—');
+  const rows = [{ t: at(r.createdAt), d: 'Request received', by: r.guestName ? 'Guest' : 'Team', c: '#e8b84a' }];
+  if (r.assignedTo) rows.push({ t: at(r.assignedAt), d: `Assigned to ${r.assignedTo.name}`, by: 'Manager', c: '#e8b84a' });
+  if (r.startedAt || r.acknowledgedAt) rows.push({ t: at(r.startedAt || r.acknowledgedAt), d: 'Work started', by: r.assignedTo?.name || 'Team', c: '#2f6fe8' });
+  if (r.completedAt) rows.push({ t: at(r.completedAt), d: r.resolution ? `Done: ${r.resolution}` : 'Done', by: r.assignedTo?.name || 'Team', c: '#1f9d55' });
+  if (r.verifiedAt) rows.push({ t: at(r.verifiedAt), d: 'Checked', by: r.verifiedBy || 'Manager', c: '#1f9d55' });
+  if (r.rating) rows.push({ t: '', d: `Guest rating ${'★'.repeat(r.rating)}${r.ratingComment ? ` — “${r.ratingComment}”` : ''}`, by: 'Guest', c: '#e8b84a' });
+  if (r.status !== 'Completed' && r.status !== 'Cancelled') rows.push({ t: '—', d: r.assignedTo ? 'Waiting to be done' : 'Waiting to be assigned', by: 'Pending', c: '#3a3f48' });
   return rows;
 }
 
-const BARS = [
-  [24, 30],
-  [25, 52],
-  [26, 40],
-  [27, 22],
-  [28, 48],
-  [29, 26],
-  [30, 44],
-].map(([d, v]) => ({ d: `Nov ${d}`, h: `${(v / 60) * 100}%` }));
+/** Minutes from request to first action (started, or done), for requests that have one. */
+const responseMinutes = (r) => {
+  const first = r.startedAt || r.acknowledgedAt || r.completedAt;
+  return first ? Math.max(0, moment(first).diff(moment(r.createdAt), 'minutes')) : null;
+};
+const avg = (xs) => (xs.length ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : null);
+
 const COLS = '50px 46px 76px 1.2fr 1.2fr 56px 92px 1fr';
 
 export default function ServiceRequests() {
@@ -74,7 +75,7 @@ export default function ServiceRequests() {
     loc: r.location,
     pri: r.priority,
     s: r.status,
-    team: r.department,
+    team: r.assignedTo ? r.assignedTo.name : r.department,
   }));
   const rows = all.filter((r) => (cat === 0 || r.team === CATS[cat]) && (!query || `${r.id} ${r.guest} ${r.cat} ${r.loc} ${r.team}`.toLowerCase().includes(query)));
   const cur = rows.find((r) => r.i === sel) ?? rows[0];
@@ -89,8 +90,14 @@ export default function ServiceRequests() {
     { icon: 'verified', c: '#3fd283', n: count('Completed'), l: 'Completed', d: `${pct(count('Completed'), total)}% done` },
     { icon: 'pause_circle', c: '#9b7bf0', n: count('On Hold'), l: 'On Hold' },
     { icon: 'report', c: '#ff6b6b', n: count('Escalated'), l: 'Escalated', dc: '#ff6b6b' },
-    { icon: 'timer', c: '#5b8ff0', n: '24 min', l: 'Avg Response', d: '↓ 35%' },
+    { icon: 'timer', c: '#5b8ff0', n: (() => { const m = avg(inRange.map(responseMinutes).filter((x) => x !== null)); return m === null ? '—' : `${m} min`; })(), l: 'Avg Response', d: 'request → first action' },
   ];
+  // Average response per day over the last 7 days, from the real requests.
+  const BARS = [...Array(7)].map((_, i) => {
+    const d = moment().startOf('day').subtract(6 - i, 'days');
+    const m = avg((data || []).filter((r) => moment(r.createdAt).isSame(d, 'day')).map(responseMinutes).filter((x) => x !== null));
+    return { d: d.format('MMM D'), m, h: m === null ? '0%' : `${Math.min(100, (m / 60) * 100)}%` };
+  });
   const legend = ['Completed', 'In Progress', 'New', 'Scheduled', 'On Hold', 'Escalated'].map((l) => ({ l, n: count(l), c: STATUS_COLOR[l] })).filter((x) => x.n);
   const active = inRange.filter((r) => r.status !== 'Completed');
   const teams = DEPARTMENTS.map((dept) => {
@@ -260,8 +267,30 @@ export default function ServiceRequests() {
               <Field label="Priority">
                 <span style={{ color: PC[cur.pri] }}>{cur.pri}</span>
               </Field>
-              <Field label="Assigned To">{cur.team}</Field>
+              <Field label="Assigned To">
+                <AssignPicker
+                  department={curRaw?.department}
+                  value={curRaw?.assignedTo?.id}
+                  disabled={curRaw?.status === 'Completed' || curRaw?.status === 'Cancelled'}
+                  onChange={(assignedTo) =>
+                    serviceRequestsApi
+                      .update(cur.i, { assignedTo })
+                      .then((r) => {
+                        const updated = r?.data || r;
+                        upsert(updated);
+                        toast(updated.assignedTo ? `Assigned to ${updated.assignedTo.name} — they are notified` : 'Unassigned');
+                      })
+                      .catch((e) => toast(e.message, 'error'))
+                  }
+                />
+              </Field>
             </div>
+            {curRaw?.resolution ? <Field label="What was done">{curRaw.resolution}</Field> : null}
+            {curRaw?.status === 'Completed' && !curRaw?.verifiedAt ? (
+              <button type="button" className="fay-btn-outline" onClick={() => setField(cur.i, { verified: true, status: 'Completed' }, 'Checked — thank you')}>
+                <Icon name="fact_check" size={18} /> Mark as checked
+              </button>
+            ) : null}
             <span style={{ fontSize: 13, color: 'var(--dim)' }}>Updates</span>
             {updatesFor(curRaw).map((u, i) => (
               <div key={i} style={{ display: 'grid', gridTemplateColumns: '14px 44px 1fr auto', gap: 10, alignItems: 'center', fontSize: 13 }}>
@@ -339,9 +368,9 @@ export default function ServiceRequests() {
             <div
               style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 120, borderBottom: '1px solid rgba(255,255,255,.1)', position: 'relative' }}
             >
-              <div style={{ position: 'absolute', left: 0, right: 0, bottom: '50%', borderTop: '1px dashed var(--gold)' }} />
+              <div style={{ position: 'absolute', left: 0, right: 0, bottom: '50%', borderTop: '1px dashed var(--gold)' }} title="30 minutes" />
               {BARS.map((b) => (
-                <div key={b.d} className="col" style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                <div key={b.d} className="col" title={b.m === null ? 'No requests' : `${b.m} min`} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
                   <div style={{ width: '100%', borderRadius: '3px 3px 0 0', background: 'var(--blue)', height: b.h }} />
                 </div>
               ))}

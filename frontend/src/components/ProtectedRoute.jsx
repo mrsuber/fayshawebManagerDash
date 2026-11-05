@@ -29,9 +29,17 @@ const ProtectedRoute = ({ children, allowPasswordChange = false, requiredRole = 
   }
 
   // Role check. 'admin' = Faysha HQ (super administrators and roles granted an HQ area);
-  // 'manager' = the FAY OS operations dashboard (managers and super administrators).
+  // 'manager' = the FAY OS operations dashboard (managers and super administrators); 'team' = My work (/work),
+  // open to every signed-in team member.
   if (requiredRole) {
-    const allowed = requiredRole === 'admin' ? canOpenHq(user) : requiredRole === 'manager' ? ['manager', 'superadmin'].includes(user?.role) : user?.role === requiredRole;
+    const allowed =
+      requiredRole === 'admin'
+        ? canOpenHq(user)
+        : requiredRole === 'manager'
+          ? ['manager', 'superadmin'].includes(user?.role)
+          : requiredRole === 'team'
+            ? Boolean(user && user.role !== 'guest')
+            : user?.role === requiredRole;
     if (!allowed) {
       const home = homeFor(user);
       return <Navigate to={home && home !== location.pathname ? home : '/login'} replace />;

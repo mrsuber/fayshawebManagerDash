@@ -1,6 +1,7 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField } from '@mui/material';
 import moment from 'moment';
 import { useState } from 'react';
+import AssignPicker from '../components/AssignPicker';
 import FormDialog from '../components/FormDialog';
 import { Avatar, Bar, Card, Chip, Icon, KpiGrid } from '../components/ui';
 import ViewAllDialog from '../components/ViewAllDialog';
@@ -222,6 +223,25 @@ export default function Maintenance() {
             </DialogTitle>
             <DialogContent>
               <div className="col" style={{ gap: 16, paddingTop: 8 }}>
+                <label className="col" style={{ gap: 6, fontSize: 13, color: 'var(--muted)' }}>
+                  Assigned to (sees it in My work and is notified)
+                  <AssignPicker
+                    department="Maintenance"
+                    allowSuggest={false}
+                    value={open.assignedTo}
+                    onChange={(assignedTo) => {
+                      const id = assignedTo;
+                      orders.update(open.id, { assignedTo: id }, id ? `${open.number} assigned — they are notified` : `${open.number} unassigned`);
+                      setOpen({ ...open, assignedTo: id });
+                    }}
+                  />
+                </label>
+                {open.completionNotes ? (
+                  <div style={{ fontSize: 14 }}>
+                    <span style={{ color: 'var(--dim)', fontSize: 12 }}>What was done</span>
+                    <div>{open.completionNotes}{open.cost ? ` · ${Number(open.cost).toLocaleString('en-US')} XAF` : ''}</div>
+                  </div>
+                ) : null}
                 {[
                   ['status', 'Status', STATUSES],
                   ['priority', 'Priority', Object.keys(PC)],

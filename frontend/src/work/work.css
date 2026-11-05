@@ -1,0 +1,34 @@
+/* My work (/work): one column, made for a phone, in the FAY OS colours. Scoped to body.faywork. */
+body.faywork { background: var(--bg); color: var(--text); font-family: var(--sans); margin: 0; }
+body.faywork .work-shell { max-width: 760px; margin: 0 auto; padding: 18px 16px 60px; display: flex; flex-direction: column; gap: 16px; }
+body.faywork .work-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+body.faywork .work-brand { font-family: 'Cinzel', var(--serif); letter-spacing: 0.4em; color: var(--gold); font-size: 13px; }
+body.faywork .work-head h1 { font-family: var(--serif); font-weight: 400; font-size: 34px; margin: 2px 0; }
+body.faywork .work-head__actions { display: flex; gap: 8px; align-items: center; }
+body.faywork .work-head__actions .fay-btn-outline { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-strong); color: var(--text); text-decoration: none; background: transparent; cursor: pointer; }
+body.faywork .sub { color: var(--muted); font-size: 13px; line-height: 1.5; }
+body.faywork .work-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+body.faywork .work-stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+body.faywork .work-stat strong { font-size: 24px; font-family: var(--serif); color: var(--gold); font-weight: 500; }
+body.faywork .work-stat span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+body.faywork .work-stat small { font-size: 11px; color: var(--dim); }
+body.faywork .work-section { display: flex; flex-direction: column; gap: 10px; }
+body.faywork .work-section h2 { display: flex; gap: 8px; align-items: center; font-family: var(--serif); font-weight: 400; font-size: 22px; margin: 10px 0 0; }
+body.faywork .work-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+body.faywork .work-card--urgent { border-color: rgba(255, 107, 107, 0.5); }
+body.faywork .work-card--done { opacity: 0.6; }
+body.faywork .work-card__top { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 13px; }
+body.faywork .work-card__title { margin: 0; font-size: 17px; }
+body.faywork .work-card__notes { margin: 0; color: var(--muted); font-size: 14px; white-space: pre-wrap; }
+body.faywork .work-pill { font-size: 11.5px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--hq-gold-line, rgba(232,184,74,.35)); color: var(--gold); text-transform: capitalize; white-space: nowrap; }
+body.faywork .work-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+body.faywork .work-actions .btn-gold, body.faywork .work-checkin .btn-gold { padding: 10px 16px; font-size: 14px; }
+body.faywork .work-actions .fay-btn-outline { padding: 9px 14px; border-radius: 6px; border: 1px solid var(--border-strong); background: transparent; color: var(--text); cursor: pointer; font-size: 14px; }
+body.faywork .work-form { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+body.faywork .kit-input { width: 100%; box-sizing: border-box; background: var(--input-bg); border: 1px solid var(--border-strong); color: var(--text); border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 15px; }
+body.faywork .work-checkin { display: flex; gap: 8px; align-items: center; background: var(--surface); border: 1px dashed var(--hq-gold-line, rgba(232,184,74,.35)); border-radius: 14px; padding: 10px 12px; }
+body.faywork .work-checkin input { letter-spacing: 0.15em; text-transform: uppercase; }
+body.faywork .work-alert { padding: 10px 14px; border-radius: 10px; background: rgba(63, 210, 131, 0.12); border: 1px solid rgba(63, 210, 131, 0.4); font-size: 14px; display: flex; justify-content: space-between; gap: 10px; }
+body.faywork .work-alert--error { background: rgba(255, 107, 107, 0.12); border-color: rgba(255, 107, 107, 0.45); }
+body.faywork .work-alert button { background: none; border: 0; color: inherit; font-size: 18px; cursor: pointer; }
+body.faywork .work-empty { text-align: center; padding: 50px 10px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 8px; }

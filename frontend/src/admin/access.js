@@ -13,10 +13,11 @@ export function canOpenHq(user) {
   return HQ_AREAS.some(granted) || granted('pages') || granted('content');
 }
 
-/** Where a signed-in user starts: managers in FAY OS, HQ roles in HQ, everyone else nowhere (the apps). */
+/** Where a signed-in user starts: managers in FAY OS, HQ roles in HQ, the rest of the team in My work; guests use the app. */
 export function homeFor(user) {
   if (!user) return null;
   if (user.role === 'manager') return '/manager';
   if (canOpenHq(user)) return '/admin';
+  if (user.role !== 'guest') return '/work';
   return null;
 }

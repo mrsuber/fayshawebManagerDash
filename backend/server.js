@@ -141,6 +141,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/visit', require('./routes/visit')); // public visitor pass (link shared by a resident)
 app.use('/api/guest', require('./routes/guest/operations')); // ratings, loans, visitor passes
 app.use('/api/guest', guestRoutes);
+app.use('/api/work', require('./routes/work')); // My work: each team member's assigned requests, sessions, work orders
 
 // Serve uploaded files
 // Public media (residence photos, chat images): readable from the website, the dashboards and the app on any origin.

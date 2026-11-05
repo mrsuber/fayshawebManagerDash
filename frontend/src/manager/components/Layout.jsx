@@ -72,6 +72,10 @@ export default function Layout() {
               </Link>
             );
           })}
+          <a href="/work" className="nav-item hov-nav" title="Work assigned to you">
+            <Icon name="task_alt" size={22} color="#d8d1c4" />
+            <span>My work</span>
+          </a>
         </nav>
         <div className="sidebar-foot">
           <span className="serif" style={{ fontSize: 20, lineHeight: 1.15, color: '#f3ede2' }}>

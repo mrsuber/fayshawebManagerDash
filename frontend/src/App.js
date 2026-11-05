@@ -29,6 +29,8 @@ const ChangePassword = lazy(() => import('./pages/admin/ChangePassword'));
 
 // Manager dashboard (FAY OS): its own bundle, loaded only when someone opens /manager.
 const ManagerApp = lazy(() => import('./manager/ManagerApp'));
+// My work: each team member's assigned requests, wellness sessions, work orders and events.
+const WorkApp = lazy(() => import('./work/WorkApp'));
 const managerMocks = process.env.NODE_ENV !== 'production' && process.env.REACT_APP_USE_MOCKS === 'true';
 
 function App() {
@@ -63,6 +65,18 @@ function App() {
                   </Suspense>
                 </ProtectedRoute>
               )
+            }
+          />
+
+          {/* My work — every team member */}
+          <Route
+            path="/work"
+            element={
+              <ProtectedRoute requiredRole="team">
+                <Suspense fallback={null}>
+                  <WorkApp />
+                </Suspense>
+              </ProtectedRoute>
             }
           />
 

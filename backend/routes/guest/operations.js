@@ -43,8 +43,8 @@ router.get(
          SELECT 'dining', d.id, d.restaurant_name || ' · ' || to_char(d.reservation_date, 'DD Mon'), NULL, d.completed_at
            FROM dining_reservations d WHERE d.guest_id = $1 AND d.status = 'completed' AND d.completed_at > NOW() - INTERVAL '14 days'
          UNION ALL
-         SELECT 'wellness', w.id, w.activity_name || ' · ' || to_char(w.booking_date, 'DD Mon'), NULL, w.updated_at
-           FROM wellness_bookings w WHERE w.user_id = $1 AND w.status = 'completed' AND w.updated_at > NOW() - INTERVAL '14 days'
+         SELECT 'wellness', w.id, w.activity_name || ' · ' || to_char(w.booking_date, 'DD Mon'), ws.full_name, w.updated_at
+           FROM wellness_bookings w LEFT JOIN users ws ON ws.id = w.staff_id WHERE w.user_id = $1 AND w.status = 'completed' AND w.updated_at > NOW() - INTERVAL '14 days'
          UNION ALL
          SELECT 'loan', l.id, i.name, NULL, l.returned_at
            FROM loans l JOIN loan_items i ON i.id = l.item_id WHERE l.user_id = $1 AND l.status = 'returned' AND l.returned_at > NOW() - INTERVAL '14 days'
@@ -73,7 +73,7 @@ router.post(
     const owner = {
       request: `SELECT r.booking_id, r.assigned_to AS staff_id, s.full_name AS staff_name, r.department FROM service_requests r LEFT JOIN users s ON s.id = r.assigned_to WHERE r.id = $1 AND r.guest_id = $2`,
       dining: `SELECT d.booking_id, d.server_id AS staff_id, s.full_name AS staff_name, 'Dining' AS department FROM dining_reservations d LEFT JOIN users s ON s.id = d.server_id WHERE d.id = $1 AND d.guest_id = $2`,
-      wellness: `SELECT w.apartment_booking_id AS booking_id, NULL::int AS staff_id, NULL AS staff_name, 'Wellness' AS department FROM wellness_bookings w WHERE w.id = $1 AND w.user_id = $2 AND w.status = 'completed'`,
+      wellness: `SELECT w.apartment_booking_id AS booking_id, w.staff_id, s.full_name AS staff_name, 'Wellness' AS department FROM wellness_bookings w LEFT JOIN users s ON s.id = w.staff_id WHERE w.id = $1 AND w.user_id = $2 AND w.status = 'completed'`,
       loan: `SELECT l.booking_id, l.handled_by AS staff_id, s.full_name AS staff_name, 'Concierge' AS department FROM loans l LEFT JOIN users s ON s.id = l.handled_by WHERE l.id = $1 AND l.user_id = $2`,
       stay: `SELECT b.id AS booking_id, NULL::int AS staff_id, NULL AS staff_name, 'Front Office' AS department FROM bookings b WHERE b.id = $1 AND b.user_id = $2`,
       housekeeping: `SELECT b.id AS booking_id, NULL::int AS staff_id, rc.cleaned_by AS staff_name, 'Housekeeping' AS department FROM bookings b LEFT JOIN residence_controls rc ON rc.apartment_id = b.apartment_id WHERE b.id = $1 AND b.user_id = $2`,
