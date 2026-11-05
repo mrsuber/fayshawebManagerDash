@@ -705,11 +705,11 @@ router.post('/:id/confirm', async (req, res) => {
     }
 
     if (!isStaff) {
-      if (!payment_intent_id || !process.env.STRIPE_SECRET_KEY) {
+      const stripe = payment_intent_id ? await require('../services/payments/stripe').getStripe() : null;
+      if (!payment_intent_id || !stripe) {
         return res.status(402).json({ success: false, message: 'Payment is required to confirm this booking' });
       }
       try {
-        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
         const intent = await stripe.paymentIntents.retrieve(payment_intent_id);
         if (intent.status !== 'succeeded' || String(intent.metadata?.booking_id) !== String(booking.id)) {
           return res.status(402).json({ success: false, message: 'Payment has not been completed for this booking' });
@@ -737,7 +737,7 @@ router.post('/:id/confirm', async (req, res) => {
       if (e.code !== '23P01') throw e;
       // The nights were taken while the card payment was pending: refund it.
       try {
-        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        const stripe = await require('../services/payments/stripe').requireStripe();
         await stripe.refunds.create({ payment_intent: payment_intent_id });
         await pool.query(`UPDATE payments SET status = 'refunded', refunded_at = CURRENT_TIMESTAMP, refund_amount = amount, refund_reason = $2 WHERE stripe_payment_intent_id = $1`, [payment_intent_id, 'Dates no longer available']);
       } catch (refundError) {

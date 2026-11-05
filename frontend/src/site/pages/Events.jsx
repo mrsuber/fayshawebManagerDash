@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getEventQuote, getStories, respondToEventQuote, sendEventRequest } from '../api';
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
+import { eventDeposit, getEventQuote, getStories, respondToEventQuote, sendEventRequest } from '../api';
 import { Loading } from '../components/ui';
 import { IMG } from '../data';
 import { useLang } from '../i18n';
@@ -305,6 +307,118 @@ export function EventQuote() {
       ) : (
         <div className={`fs-alert ${q.status === 'accepted' ? 'fs-alert--ok' : ''}`} style={{ marginTop: 20 }}>{t(`events.state_${q.status}`)}</div>
       )}
+      {q.status === 'accepted' ? <DepositPay token={token} /> : null}
     </section>
+  );
+}
+
+const stripeLoads = {};
+const stripeFor = (key) => (key ? (stripeLoads[key] = stripeLoads[key] || loadStripe(key)) : null);
+
+/** Pay the deposit of an accepted proposal: card (Stripe) or MTN / Orange money; the event is confirmed at once. */
+function DepositPay({ token }) {
+  const { t } = useLang();
+  const [info, setInfo] = useState(null);
+  const load = () => eventDeposit.get(token).then(setInfo).catch(() => setInfo(false));
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  if (!info) return null;
+  if (!(info.due > 0)) {
+    return info.paid > 0 ? <div className="fs-alert fs-alert--ok" style={{ marginTop: 20 }}>{t('events.depositPaid')} {fmt(info.paid, info.currency)}</div> : null;
+  }
+  if (!info.card && !info.mobileMoney?.automatic) return <p className="fs-muted" style={{ marginTop: 20 }}>{t('events.depositOffline')}</p>;
+  return (
+    <Elements stripe={info.card ? stripeFor(info.card.publishableKey) : null}>
+      <DepositForm token={token} info={info} onPaid={load} />
+    </Elements>
+  );
+}
+
+function DepositForm({ token, info, onPaid }) {
+  const { t } = useLang();
+  const stripe = useStripe();
+  const elements = useElements();
+  const methods = [...(info.card ? [['card', t('book.card')]] : []), ...(info.mobileMoney?.automatic ? [['mtn', t('book.mtn')], ['orange', t('book.orange')]] : [])];
+  const [method, setMethod] = useState(methods[0][0]);
+  const [phone, setPhone] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const r = await eventDeposit.status(token, waiting);
+        if (r.status === 'completed') {
+          setWaiting(null);
+          onPaid();
+        } else if (r.status === 'failed') {
+          setWaiting(null);
+          setError(r.message || t('book.momoDeclined'));
+        }
+      } catch {
+        // keep waiting
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
+
+  const pay = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      if (method === 'card') {
+        if (!stripe || !elements) throw new Error(t('book.cardMissing'));
+        const intent = await eventDeposit.startCard(token);
+        const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(intent.client_secret, { payment_method: { card: elements.getElement(CardElement) } });
+        if (stripeError) throw new Error(stripeError.message);
+        await eventDeposit.confirmCard(token, paymentIntent.id);
+        onPaid();
+      } else {
+        const r = await eventDeposit.startMobileMoney(token, { provider: method, phone });
+        setWaiting(r.payment_id);
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fs-card" style={{ padding: 'clamp(22px, 4vw, 44px)', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <h2 className="fs-h3" style={{ margin: 0 }}>{t('events.payDeposit')} · {fmt(info.due, info.currency)}</h2>
+      {waiting ? (
+        <div className="fs-alert" role="status">{t('book.approve')} — {t('book.approveNote')}</div>
+      ) : (
+        <>
+          <div className="fs-chips" role="group" aria-label={t('book.payment')}>
+            {methods.map(([id, label]) => (
+              <button key={id} type="button" className="fs-chip fs-chip--soft" aria-pressed={method === id} onClick={() => setMethod(id)} style={{ minHeight: 48 }}>{label}</button>
+            ))}
+          </div>
+          {method === 'card' ? (
+            <div className="fs-stripe">
+              <CardElement options={{ hidePostalCode: true, style: { base: { color: '#ece6da', fontSize: '16px', fontFamily: 'Jost, sans-serif', '::placeholder': { color: '#5c6270' }, iconColor: '#e8b84a' }, invalid: { color: '#ff6b6b' } } }} />
+            </div>
+          ) : (
+            <label className="fs-field">
+              {t('book.momoNumber')} ({method === 'mtn' ? 'MTN' : 'Orange'})
+              <input className="fs-input" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+237 6__ ___ ___" />
+            </label>
+          )}
+          {error ? <div className="fs-alert fs-alert--error" role="alert">{error}</div> : null}
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" className="fs-btn fs-btn--gold" disabled={busy || (method !== 'card' && phone.replace(/\D/g, '').length < 8)} onClick={pay}>
+              {busy ? t('book.working') : method === 'card' ? `${t('book.pay')} · ${fmt(info.due, info.currency)}` : t('book.request')}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

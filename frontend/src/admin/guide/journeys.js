@@ -47,7 +47,7 @@ export const JOURNEYS = [
         steps: [
           { who: 'Guest', where: 'Website /residences · App → Book a stay', status: 'live', text: 'Chooses dates and guests; sees which residences are free and the price for the whole stay, in their currency.', check: 'Pick dates: only free residences appear and the total matches nights × price.' },
           { who: 'Guest', where: 'Website /book · App → Book a stay', status: 'live', text: 'Enters their details and accepts the published terms of stay. A guest account is created automatically with the booking.', check: 'The terms shown are the version published in FAY OS → Content.' },
-          { who: 'Guest', where: 'Payment step', status: 'setup', text: 'Pays by card (Stripe) or MTN / Orange mobile money. The residence is held 60 minutes for a card, 48 hours for mobile money.', check: 'Card payment needs the Stripe keys in HQ → Settings → Payments.' },
+          { who: 'Guest', where: 'Payment step', status: 'setup', text: 'Pays by card (Stripe) or MTN / Orange mobile money, approved on their phone. The residence is held 60 minutes for a card, 48 hours for mobile money.', check: 'Needs the keys in HQ → Settings → Payments. Without mobile money keys (development) payments are simulated and confirm after a few seconds.' },
           { who: 'System', where: 'Server', status: 'live', text: 'Once paid, the stay is confirmed: one gate QR and door PIN, the deposit box handed over with a new PIN, one confirmation email with first sign-in details, a notification in the app.', check: 'One email only, even if the payment is confirmed twice.' },
           { who: 'System', where: 'Server (every minute)', status: 'live', text: 'An unpaid booking is released when its hold runs out so the residence can be sold again.', check: 'A card booking left unpaid for an hour disappears from the calendar.' },
         ],
@@ -86,7 +86,7 @@ export const JOURNEYS = [
           { who: 'Manager', where: 'FAY OS → Events', status: 'live', text: 'Picks up the request and names the event lead.', check: 'Coming: the lead is notified when assigned.' },
           { who: 'Manager', where: 'FAY OS → Events → Proposal', status: 'live', text: 'Builds a proposal from presets with discount, tax and deposit, and sends it; opening is tracked.' },
           { who: 'Guest', where: 'Proposal link · App → My events', status: 'live', text: 'Reads the proposal online and accepts with their name, or declines.' },
-          { who: 'Guest', where: 'Proposal link', status: 'coming', text: 'Pays the deposit online by card or mobile money; the event is confirmed automatically.' },
+          { who: 'Guest', where: 'Proposal link', status: 'setup', text: 'Pays the deposit online by card or mobile money; the event is confirmed automatically and the team is told.', check: 'Uses the same payment keys as bookings.' },
           { who: 'Manager', where: 'FAY OS → Events', status: 'live', text: 'Records deposits paid by hand, completes the event and writes its story for the journal.' },
         ],
       },
@@ -181,8 +181,8 @@ export const JOURNEYS = [
       {
         title: 'Setting up',
         steps: [
-          { who: 'HQ', where: 'HQ → Settings → Payments', status: 'coming', text: 'The super administrator pastes the PayWithCAMSOL keys (mobile money) and the Stripe keys (cards). They are stored encrypted; only the last 4 characters are ever shown.' },
-          { who: 'HQ', where: 'HQ → Settings → Payments', status: 'coming', text: '“Test connection” checks the keys without charging anything; test or live keys are recognised automatically.' },
+          { who: 'HQ', where: 'HQ → Settings → Payments', status: 'live', text: 'The super administrator pastes the PayWithCAMSOL keys (mobile money) and the Stripe keys (cards). They are stored encrypted; only the last 4 characters are ever shown; they apply at once.', check: 'Finance can see the status; only a super administrator can change the keys.' },
+          { who: 'HQ', where: 'HQ → Settings → Payments', status: 'live', text: '“Test connection” checks the keys without charging anything; test or live keys are recognised automatically, and the webhook addresses are shown to copy.' },
           { who: 'Manager', where: 'FAY OS → Settings → Currencies', status: 'live', text: 'Chooses the currencies offered and their rates; prices are shown converted and marked ≈.' },
         ],
       },
@@ -190,10 +190,10 @@ export const JOURNEYS = [
         title: 'Getting paid',
         steps: [
           { who: 'Guest', where: 'Website /book · App', status: 'setup', text: 'Pays by card; the payment is checked with Stripe before the stay is confirmed.' },
-          { who: 'Guest', where: 'Website /book · App', status: 'partial', text: 'Pays by MTN or Orange money: today staff confirm when the money arrives (HQ → Finance → Mark received).', check: 'Coming: the guest approves on their phone and PayWithCAMSOL confirms it automatically.' },
+          { who: 'Guest', where: 'Website /book · App', status: 'setup', text: 'Pays by MTN or Orange money: approves on their phone and the stay is confirmed automatically (PayWithCAMSOL webhook, or a check every 30 seconds). The page updates by itself.', check: 'Without PayWithCAMSOL keys in production, staff confirm when the money arrives (HQ → Finance → Mark received).' },
           { who: 'Guest', where: 'App → My bill', status: 'live', text: 'Dining, wellness and experiences are charged to the stay; the bill shows the balance.' },
           { who: 'Front desk', where: 'FAY OS → Guest 360 / Reservations', status: 'live', text: 'Takes the balance by card, cash, bank transfer or card terminal.' },
-          { who: 'Guest', where: 'Event proposal link', status: 'coming', text: 'Pays an event deposit online.' },
+          { who: 'Guest', where: 'Event proposal link', status: 'setup', text: 'Pays an event deposit online by card or mobile money; the event is confirmed.' },
         ],
       },
       {

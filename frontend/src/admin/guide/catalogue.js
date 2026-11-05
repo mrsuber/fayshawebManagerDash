@@ -34,9 +34,9 @@ export const FEATURES = [
   },
   {
     surface: 'website', area: 'Stay', name: 'Booking and payment', where: '/book', status: 'setup',
-    does: ['Guest details, terms of stay (the published version), card (Stripe) or MTN / Orange mobile money', 'A guest account is created automatically; sign-in details, the digital key and the gate QR code arrive by email once paid', 'An unpaid card booking holds the residence 60 minutes; mobile money 48 hours'],
-    limits: ['Card payments need Stripe keys', 'Mobile money is confirmed by staff (no gateway connected yet)'],
-    improve: ['Connect a local payment aggregator (CinetPay, Campay, Notch Pay) for automatic mobile money', 'Apple Pay / Google Pay', 'Promo codes'],
+    does: ['Guest details, terms of stay (the published version), card (Stripe) or MTN / Orange mobile money (PayWithCAMSOL), approved on the phone and confirmed automatically', 'A guest account is created automatically; sign-in details, the digital key and the gate QR code arrive by email once paid', 'An unpaid card booking holds the residence 60 minutes; mobile money 48 hours'],
+    limits: ['Needs the payment keys in HQ → Settings → Payments (without mobile money keys, staff confirm by hand)'],
+    improve: ['Apple Pay / Google Pay', 'Promo codes'],
   },
   {
     surface: 'website', area: 'Stay', name: 'Prices in several currencies', where: 'Header currency selector', status: 'live',
@@ -46,7 +46,7 @@ export const FEATURES = [
   {
     surface: 'website', area: 'Events', name: 'Events and proposals', where: '/events, /events/quote/:link', status: 'live',
     does: ['Presentation of events at Faysha and a 4-step request: occasion, spaces and food, services and budget, contact', 'The client receives a tailored proposal by email, opens it online and accepts with their name or declines'],
-    improve: ['Online deposit payment from the proposal page', 'Downloadable PDF proposal', 'Gallery of event spaces with capacities'],
+    improve: ['Downloadable PDF proposal', 'Gallery of event spaces with capacities', 'Pay the balance online after the deposit'],
   },
   {
     surface: 'website', area: 'Events', name: 'Journal (success stories)', where: '/stories', status: 'setup',
@@ -217,7 +217,7 @@ export const FEATURES = [
   {
     surface: 'fayos', area: 'Events', name: 'Events', where: 'Events', status: 'live',
     does: ['Pipeline from request to completed event; proposal builder with presets, discount, tax and deposit; send, track opening and answer; record payments; write the story'],
-    improve: ['Banquet event order (BEO) for the kitchen and team', 'Calendar of event spaces to avoid double booking', 'Online deposit payment'],
+    improve: ['Banquet event order (BEO) for the kitchen and team', 'Calendar of event spaces to avoid double booking'],
   },
   {
     surface: 'fayos', area: 'Content', name: 'Content', where: 'Content (sidebar)', status: 'live',
@@ -296,7 +296,10 @@ export const FEATURES = [
   },
 
   // ------------------------------------------------------------------ Planned
-  { surface: 'server', area: 'Planned', name: 'Payment aggregator for Cameroon', status: 'planned', does: ['Card and mobile money in one provider, confirmed automatically'] },
+  {
+    surface: 'hq', area: 'Money', name: 'Payment keys', where: 'HQ → Settings → Payments', status: 'live',
+    does: ['Stripe (cards) and PayWithCAMSOL (MTN / Orange money) keys pasted by the super administrator, stored encrypted, never shown again', 'Test connection, test / live recognised, webhook addresses to copy', 'Mobile money confirmed automatically (webhook and a check every 30 seconds); event deposits paid online'],
+  },
   { surface: 'server', area: 'Planned', name: 'Channel manager', status: 'planned', does: ['Booking.com, Airbnb and Expedia calendars synchronised'] },
   { surface: 'server', area: 'Planned', name: 'Revenue management', status: 'planned', does: ['Prices by date, season and occupancy; minimum stays'] },
   { surface: 'app', area: 'Planned', name: 'Staff app', status: 'planned', does: ['Each role sees its own screens: housekeeping, maintenance, dining, concierge, drivers, therapists'] },

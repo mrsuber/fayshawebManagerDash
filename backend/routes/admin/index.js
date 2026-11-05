@@ -160,7 +160,9 @@ router.get(
     if (o.urgent_requests) alerts.push({ level: 'danger', icon: 'priority_high', text: `${o.urgent_requests} urgent guest request${o.urgent_requests > 1 ? 's' : ''} open`, to: 'manager:requests' });
     if (o.alerts) alerts.push({ level: 'warning', icon: 'build', text: `${o.alerts} maintenance alert${o.alerts > 1 ? 's' : ''} open`, to: 'manager:maintenance' });
     if (stale.rows[0].count) alerts.push({ level: 'warning', icon: 'schedule', text: `${stale.rows[0].count} booking${stale.rows[0].count > 1 ? 's' : ''} unpaid for over 24 hours`, to: 'legacy:bookings' });
-    if (!process.env.STRIPE_SECRET_KEY) alerts.push({ level: 'info', icon: 'credit_card_off', text: 'Card payments are not configured (STRIPE_SECRET_KEY)', to: null });
+    const pay = await require('../../services/payments/settings').status();
+    if (!pay.stripe.canCharge) alerts.push({ level: 'info', icon: 'credit_card_off', text: 'Card payments are not set up (Settings → Payments)', to: 'settings' });
+    if (!pay.camsol.canCollect || pay.camsol.mode === 'simulated') alerts.push({ level: 'info', icon: 'phone_iphone', text: pay.camsol.mode === 'simulated' ? 'Mobile money is simulated: add the PayWithCAMSOL keys (Settings → Payments)' : 'Automatic mobile money is not set up (Settings → Payments)', to: 'settings' });
     if (!process.env.SMTP_USER) alerts.push({ level: 'info', icon: 'mail', text: 'Outgoing email is not configured (SMTP_USER)', to: null });
 
     const staffTotal = staff.rows.reduce((n, r) => n + r.count, 0);
@@ -825,6 +827,53 @@ router.patch(
     );
     if (!rowCount) throw httpError(404, 'Property not found');
     return res.json({ ok: true });
+  }),
+);
+
+// ======================================================================
+// Settings → Payments: Stripe (cards) and PayWithCAMSOL (mobile money) keys, stored encrypted.
+// Finance can see the status; only a super administrator can change keys. Keys are never sent back.
+// ======================================================================
+const paymentKeys = require('../../services/payments/settings');
+const onlySuper = (req) => {
+  if (req.user.role !== 'superadmin' || req.user.impersonatedBy) throw httpError(403, 'Only a super administrator can change payment keys');
+};
+
+router.get(
+  '/settings/payments',
+  requireArea('finance'),
+  ah(async (req, res) => res.json({ ...(await paymentKeys.status()), canEdit: req.user.role === 'superadmin' && !req.user.impersonatedBy })),
+);
+
+router.put(
+  '/settings/payments',
+  requireArea('finance'),
+  ah(async (req, res) => {
+    onlySuper(req);
+    const changed = await paymentKeys.save(req.body || {}, req.user.id);
+    res.json({ changed, ...(await paymentKeys.status()), canEdit: true });
+  }),
+);
+
+router.delete(
+  '/settings/payments/:provider',
+  requireArea('finance'),
+  ah(async (req, res) => {
+    onlySuper(req);
+    await paymentKeys.clear(req.params.provider, req.user.id);
+    res.json({ ...(await paymentKeys.status()), canEdit: true });
+  }),
+);
+
+/** POST { provider: 'stripe' | 'camsol' } — checks the keys without charging anything. */
+router.post(
+  '/settings/payments/test',
+  requireArea('finance'),
+  ah(async (req, res) => {
+    const provider = req.body?.provider;
+    if (provider === 'stripe') return res.json(await require('../../services/payments/stripe').checkKeys());
+    if (provider === 'camsol') return res.json(await require('../../services/payments/camsol').checkKeys());
+    throw httpError(400, 'Choose stripe or camsol');
   }),
 );
 

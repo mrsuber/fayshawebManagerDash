@@ -18,6 +18,7 @@ import Finance from './pages/Finance';
 import Overview from './pages/Overview';
 import Properties from './pages/Properties';
 import Roles from './pages/Roles';
+import Settings from './pages/Settings';
 import Staff from './pages/Staff';
 
 // v1 administrator screens, shown inside HQ until each is rebuilt.
@@ -186,6 +187,7 @@ export default function AdminApp() {
             {allow('staff') && <Route path="staff" element={<Staff />} />}
             {allow('roles') && <Route path="roles" element={<Roles />} />}
             {allow('audit') && <Route path="audit" element={<Audit />} />}
+            {allow('finance') && <Route path="settings" element={<Settings />} />}
             {me.legacy && <Route path="guide" element={<Guide />} />}
             {allow('properties') && <Route path="properties" element={<Properties />} />}
             {allow('hr') && <Route path="hr/:tab?" element={<LegacyHub base="hr" tabs={HUBS.hr} />} />}

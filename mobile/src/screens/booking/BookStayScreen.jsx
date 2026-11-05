@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CardField, useStripe } from '@stripe/stripe-react-native';
@@ -6,7 +6,8 @@ import { Screen, Card, Button, Field, PickerField, Stepper, Notice, Checkbox, Ch
 import { COLORS, FONTS } from '../../constants/theme';
 import apiClient, { errorMessage } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { fileUrl, STRIPE_PUBLISHABLE_KEY } from '../../config';
+import { fileUrl } from '../../config';
+import { getPaymentConfig, applyStripeKey } from '../../services/paymentConfig';
 import { addDays, dayLabel, isoDay, nightsBetween, xaf, xafExact } from '../../utils/format';
 import { currencyState } from '../../services/currency';
 
@@ -36,9 +37,42 @@ export default function BookStayScreen({ navigation }) {
   const [cardComplete, setCardComplete] = useState(false);
   const [booking, setBooking] = useState(null);
   const [accountCreated, setAccountCreated] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(null); // 'confirmed' | 'pending' (team confirms) | 'waiting' (approve on the phone)
+  const [momoPayment, setMomoPayment] = useState(null);
+  const [payConfig, setPayConfig] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    getPaymentConfig().then((cfg) => {
+      setPayConfig(cfg);
+      if (!cfg.publishableKey) setMethod((m) => (m === 'card' ? 'mtn' : m));
+    });
+  }, []);
+
+  // While the guest approves mobile money on their phone, the screen checks every 3 seconds and moves on by itself.
+  useEffect(() => {
+    if (result !== 'waiting' || !momoPayment || !booking) return undefined;
+    const started = Date.now();
+    let live = true;
+    const timer = setInterval(async () => {
+      try {
+        const r = await apiClient.get(`/payments/mobile-money/${momoPayment.id}/status`, { params: { booking: booking.booking_number } });
+        if (!live) return;
+        if (r.status === 'completed') setResult('confirmed');
+        else if (r.status === 'failed') {
+          setResult(null);
+          setError(r.message || 'The mobile money payment was not approved. Check the number and try again.');
+        } else if (Date.now() - started > 5 * 60 * 1000) setResult('pending');
+      } catch {
+        // keep waiting
+      }
+    }, 3000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [result, momoPayment, booking]);
 
   const nights = nightsBetween(stay.checkIn, stay.checkOut);
   const total = choice ? choice.price * nights : 0;
@@ -134,7 +168,8 @@ export default function BookStayScreen({ navigation }) {
     const acceptedAt = new Date().toISOString();
     try {
       if (method === 'card') {
-        if (!STRIPE_PUBLISHABLE_KEY) throw new Error('Card payments are not available in this version of the app. Please choose mobile money.');
+        if (!payConfig?.publishableKey) throw new Error('Card payments are not available right now. Please choose mobile money.');
+        await applyStripeKey(payConfig.publishableKey);
         if (!cardComplete) throw new Error('Please complete your card details');
       } else if (!momoPhone.trim()) {
         throw new Error('Enter the mobile money number to charge');
@@ -154,8 +189,9 @@ export default function BookStayScreen({ navigation }) {
         });
         setResult('confirmed');
       } else {
-        await apiClient.post('/payments/mobile-money', { booking_id: b.id, provider: method, phone: momoPhone.trim(), terms_accepted: true, terms_accepted_at: acceptedAt, source: 'app' });
-        setResult('pending');
+        const r = await apiClient.post('/payments/mobile-money', { booking_id: b.id, provider: method, phone: momoPhone.trim(), terms_accepted: true, terms_accepted_at: acceptedAt, source: 'app' });
+        setMomoPayment(r.payment || null);
+        setResult(r.automatic && r.payment ? 'waiting' : 'pending');
       }
     } catch (e) {
       setError(errorMessage(e, 'The payment did not go through. Please try again.'));
@@ -167,6 +203,7 @@ export default function BookStayScreen({ navigation }) {
   // ---------- Confirmation ----------
   if (result) {
     const confirmed = result === 'confirmed';
+    const waiting = result === 'waiting';
     return (
       <Screen>
         <View style={s.done}>
@@ -174,11 +211,13 @@ export default function BookStayScreen({ navigation }) {
             <Ionicons name={confirmed ? 'checkmark' : 'time-outline'} size={34} color={COLORS.background} />
           </View>
           <Eyebrow style={{ textAlign: 'center', marginTop: 22 }}>{booking?.booking_number}</Eyebrow>
-          <Heading size={26} style={{ textAlign: 'center' }}>{confirmed ? 'Your stay is confirmed' : 'Almost there'}</Heading>
+          <Heading size={26} style={{ textAlign: 'center' }}>{confirmed ? 'Your stay is confirmed' : waiting ? 'Approve on your phone' : 'Almost there'}</Heading>
           <Body style={{ textAlign: 'center', marginTop: 12 }}>
             {confirmed
               ? `We look forward to welcoming you on ${dayLabel(stay.checkIn, { weekday: true })}. Your confirmation and digital key are on their way to ${details.email.trim()}.`
-              : `Approve the ${method === 'mtn' ? 'MTN Mobile Money' : 'Orange Money'} payment of ${xafExact(total)} on ${momoPhone}. As soon as it arrives, we confirm your stay and send your digital key to ${details.email.trim()}.`}
+              : waiting
+                ? `Your phone (${momoPhone}) shows a ${method === 'mtn' ? 'MTN Mobile Money' : 'Orange Money'} payment of ${xafExact(total)}. Enter your PIN to approve it — this screen updates by itself.`
+                : `Approve the ${method === 'mtn' ? 'MTN Mobile Money' : 'Orange Money'} payment of ${xafExact(total)} on ${momoPhone}. As soon as it arrives, we confirm your stay and send your digital key to ${details.email.trim()}.`}
           </Body>
           {!isAuthenticated ? (
             <Notice style={{ marginTop: 20 }} icon="person-circle-outline">

@@ -122,4 +122,57 @@ router.post('/quote/:token/respond', async (req, res) => {
   }
 });
 
+// ----------------------------------------------------------------------------------- deposit paid online
+// From the proposal page once accepted: card (Stripe) or MTN / Orange money (PayWithCAMSOL). See services/payments/eventDeposits.js.
+const deposits = require('../services/payments/eventDeposits');
+
+router.get('/quote/:token/deposit', async (req, res) => {
+  try {
+    const q = await deposits.dueFor(req.params.token);
+    const pay = await require('../services/payments/settings').publicConfig();
+    res.json({
+      due: q.due,
+      paid: Number(q.deposit_paid),
+      deposit: Number(q.deposit_amount),
+      currency: q.currency,
+      card: pay.card,
+      mobileMoney: { automatic: pay.mobileMoney.automatic && String(q.currency).toUpperCase() === 'XAF' },
+    });
+  } catch (e) {
+    fail(res, e, 'Could not load the deposit');
+  }
+});
+
+router.post('/quote/:token/deposit/card', async (req, res) => {
+  try {
+    res.json(await deposits.startCard(req.params.token));
+  } catch (e) {
+    fail(res, e, 'Could not start the card payment');
+  }
+});
+
+router.post('/quote/:token/deposit/card/confirm', async (req, res) => {
+  try {
+    res.json(await deposits.confirmCard(req.params.token, req.body?.payment_intent_id, req.app));
+  } catch (e) {
+    fail(res, e, 'Could not confirm the payment');
+  }
+});
+
+router.post('/quote/:token/deposit/mobile-money', async (req, res) => {
+  try {
+    res.json(await deposits.startMobileMoney(req.params.token, { provider: req.body?.provider, phone: req.body?.phone }));
+  } catch (e) {
+    fail(res, e, 'Could not request the mobile money payment');
+  }
+});
+
+router.get('/quote/:token/deposit/:paymentId', async (req, res) => {
+  try {
+    res.json(await deposits.statusOf(req.params.token, req.params.paymentId, req.app));
+  } catch (e) {
+    fail(res, e, 'Could not check the payment');
+  }
+});
+
 module.exports = router;
