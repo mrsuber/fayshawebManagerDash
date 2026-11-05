@@ -60,6 +60,8 @@ app.use(helmet()); // Security headers
 app.use(morgan('combined')); // HTTP request logging
 // Stripe signs the raw request body, so the webhook must see it before express.json() parses it.
 app.use('/api/payments/webhook/stripe', express.raw({ type: 'application/json' }));
+// PayWithCAMSOL signs the raw body too.
+app.use('/api/payments/webhook/camsol', express.raw({ type: '*/*' }));
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies with 50MB limit for image uploads
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies with 50MB limit
 
@@ -242,6 +244,8 @@ const server = app.listen(PORT, () => {
 
 // Unpaid booking holds expire so abandoned checkouts don't block residences (services/bookingHolds.js).
 require('./services/bookingHolds').startHoldSweeper();
+// Automatic mobile money (PayWithCAMSOL): settles payments the webhook hasn't confirmed yet, every 30 seconds.
+require('./services/payments/mobileMoney').startPoller(app);
 
 // Setup Socket.IO for real-time chat
 const { Server } = require('socket.io');

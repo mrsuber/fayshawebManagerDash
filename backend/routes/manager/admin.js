@@ -285,7 +285,8 @@ router.delete(
 
 // ---- Integrations: stored rows plus live status of what this server is configured with ----
 
-function liveIntegrations() {
+async function liveIntegrations() {
+  const pay = await require('../../services/payments/settings').status();
   const firebaseReady = (() => {
     try {
       return Boolean(require('../../config/firebase').getFirebaseApp());
@@ -295,7 +296,8 @@ function liveIntegrations() {
   })();
   return [
     { id: 'smtp', icon: 'mail', name: 'Email (SMTP)', detail: 'Nodemailer · confirmations & invites', status: process.env.SMTP_USER ? 'Connected' : 'Disconnected', managed: true },
-    { id: 'stripe', icon: 'payments', name: 'Payments (Stripe)', detail: 'Card payments & deposits', status: process.env.STRIPE_SECRET_KEY ? (process.env.STRIPE_WEBHOOK_SECRET ? 'Connected' : 'Action needed') : 'Disconnected', managed: true },
+    { id: 'stripe', icon: 'payments', name: 'Cards (Stripe)', detail: 'Card payments · keys in HQ → Settings → Payments', status: pay.stripe.canCharge ? (pay.stripe.verifiesWebhooks && pay.stripe.canShowCardForm ? 'Connected' : 'Action needed') : 'Disconnected', managed: true },
+    { id: 'camsol', icon: 'phone_iphone', name: 'Mobile money (PayWithCAMSOL)', detail: pay.camsol.mode === 'simulated' ? 'Simulated — no keys yet (development)' : 'MTN & Orange · keys in HQ → Settings → Payments', status: pay.camsol.mode === 'simulated' ? 'Action needed' : pay.camsol.canCollect ? (pay.camsol.verifiesWebhooks ? 'Connected' : 'Action needed') : 'Disconnected', managed: true },
     { id: 'firebase', icon: 'notifications_active', name: 'Push Notifications (Firebase)', detail: 'Staff & guest app alerts', status: firebaseReady ? 'Connected' : 'Disconnected', managed: true },
     { id: 'claude', icon: 'smart_toy', name: 'FAY AI (Claude)', detail: 'Answers in the AI Command Center', status: process.env.ANTHROPIC_API_KEY ? 'Connected' : 'Disconnected', managed: true },
   ];
@@ -306,11 +308,11 @@ router.get(
   '/settings/integrations',
   ah(async (req, res) => {
     const { rows } = await db.query('SELECT * FROM integrations ORDER BY id');
-    res.json([...liveIntegrations(), ...rows.map((r) => ({ id: r.id, icon: r.icon, name: r.name, detail: r.detail, status: r.status }))]);
+    res.json([...(await liveIntegrations()), ...rows.map((r) => ({ id: r.id, icon: r.icon, name: r.name, detail: r.detail, status: r.status }))]);
   }),
 );
 router.use('/settings/integrations', (req, res, next) => {
-  if (['smtp', 'stripe', 'firebase', 'claude'].includes(req.path.slice(1))) return next(httpError(400, 'This integration is configured in the server environment'));
+  if (['smtp', 'stripe', 'camsol', 'firebase', 'claude'].includes(req.path.slice(1))) return next(httpError(400, req.path.slice(1) === 'stripe' || req.path.slice(1) === 'camsol' ? 'Payment keys are set in HQ → Settings → Payments' : 'This integration is configured in the server environment'));
   return next();
 });
 router.use('/settings/integrations', integrations);
@@ -551,7 +553,8 @@ const ZERO_DECIMAL = ['xaf', 'xof', 'jpy', 'krw', 'vnd', 'clp', 'pyg', 'ugx', 'r
 router.post(
   '/payments/create-payment-intent',
   ah(async (req, res) => {
-    if (!process.env.STRIPE_SECRET_KEY) throw httpError(503, 'Card payments are not configured (STRIPE_SECRET_KEY)');
+    const stripe = await require('../../services/payments/stripe').getStripe();
+    if (!stripe) throw httpError(503, 'Card payments are not configured (HQ → Settings → Payments)');
     const { reservationId, guestId } = req.body || {};
     let bookingId = reservationId;
     let balance;
@@ -572,7 +575,6 @@ router.post(
       currency = String((await getSetting('property')).currency || 'XAF').slice(0, 3).toLowerCase();
     }
     if (!bookingId || !(balance > 0)) throw httpError(400, 'Nothing to pay on this reservation');
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
     const amount = ZERO_DECIMAL.includes(currency) ? Math.round(balance) : Math.round(balance * 100);
     const intent = await stripe.paymentIntents.create({
       amount,

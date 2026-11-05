@@ -7,10 +7,22 @@ import { paymentsApi } from '../api';
 import config from '../config';
 import { useToast } from '../context/ToastContext';
 
-let stripePromise = null;
-const getStripe = () => {
-  if (!stripePromise && config.stripePublishableKey) stripePromise = loadStripe(config.stripePublishableKey);
-  return stripePromise;
+// The publishable key is set in HQ → Settings → Payments and read from the server; the build-time key is a fallback.
+const stripePromises = {};
+const stripeFor = (key) => {
+  if (!key) return null;
+  if (!stripePromises[key]) stripePromises[key] = loadStripe(key);
+  return stripePromises[key];
+};
+let keyRequest = null;
+const publishableKey = () => {
+  if (!keyRequest) {
+    keyRequest = fetch(`${config.apiUrl.replace(/\/manager$/, '')}/payments/config`)
+      .then((r) => r.json())
+      .then((d) => d?.card?.publishableKey || config.stripePublishableKey || '')
+      .catch(() => config.stripePublishableKey || '');
+  }
+  return keyRequest;
 };
 
 const money = (amount, currency) => new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(amount);
@@ -65,7 +77,11 @@ export default function PaymentDialog({ reservation, onClose }) {
   const open = !!reservation;
   const currency = reservation?.currency || config.currency;
   const amount = reservation?.balanceDue ?? reservation?.totalAmount ?? 0;
-  const enabled = !!getStripe();
+  const [key, setKey] = useState(undefined);
+  useEffect(() => {
+    if (open) publishableKey().then(setKey);
+  }, [open]);
+  const enabled = Boolean(key);
 
   useEffect(() => {
     setClientSecret(null);
@@ -86,7 +102,11 @@ export default function PaymentDialog({ reservation, onClose }) {
           <Typography variant="h4">{money(amount, currency)}</Typography>
         </Box>
       )}
-      {!enabled || error ? (
+      {open && key === undefined ? (
+        <DialogContent sx={{ display: 'grid', placeItems: 'center', minHeight: 120 }}>
+          <CircularProgress />
+        </DialogContent>
+      ) : !enabled || error ? (
         <>
           <DialogContent>
             <Alert severity={enabled ? 'error' : 'info'}>{error || t('payments.notConfigured')}</Alert>
@@ -100,7 +120,7 @@ export default function PaymentDialog({ reservation, onClose }) {
           <CircularProgress />
         </DialogContent>
       ) : (
-        <Elements stripe={getStripe()} options={{ clientSecret, appearance: { theme: 'night', variables: { colorPrimary: '#e8b84a' } } }}>
+        <Elements stripe={stripeFor(key)} options={{ clientSecret, appearance: { theme: 'night', variables: { colorPrimary: '#e8b84a' } } }}>
           <CheckoutForm
             amountLabel={money(amount, currency)}
             onCancel={onClose}

@@ -157,6 +157,21 @@ export async function requestMobileMoney(body) {
   return call(http.post('/payments/mobile-money', body), 'Could not request the mobile money payment');
 }
 
+/** Ways to pay that are open, and the public Stripe key (set in HQ → Settings → Payments). */
+export async function getPaymentConfig() {
+  if (USE_MOCKS) return { card: null, mobileMoney: { automatic: false } };
+  try {
+    return (await http.get('/payments/config')).data;
+  } catch {
+    return { card: null, mobileMoney: { automatic: false } };
+  }
+}
+
+/** While the guest approves a mobile money payment on their phone: pending | completed | failed. */
+export async function getMobileMoneyStatus(paymentId, bookingNumber) {
+  return call(http.get(`/payments/mobile-money/${paymentId}/status`, { params: { booking: bookingNumber } }), 'Could not check the payment');
+}
+
 export async function getPageContent(pageId, language) {
   if (USE_MOCKS) return {};
   try {
@@ -254,6 +269,15 @@ export async function getEventQuote(token) {
 export async function respondToEventQuote(token, body) {
   return call(http.post(`/events/quote/${encodeURIComponent(token)}/respond`, body), 'Could not record your answer');
 }
+
+/** Event deposit paid online once a proposal is accepted (card or mobile money). */
+export const eventDeposit = {
+  get: (token) => call(http.get(`/events/quote/${encodeURIComponent(token)}/deposit`), 'Could not load the deposit'),
+  startCard: (token) => call(http.post(`/events/quote/${encodeURIComponent(token)}/deposit/card`), 'Could not start the card payment'),
+  confirmCard: (token, paymentIntentId) => call(http.post(`/events/quote/${encodeURIComponent(token)}/deposit/card/confirm`, { payment_intent_id: paymentIntentId }), 'Could not confirm the payment'),
+  startMobileMoney: (token, body) => call(http.post(`/events/quote/${encodeURIComponent(token)}/deposit/mobile-money`, body), 'Could not request the mobile money payment'),
+  status: (token, paymentId) => call(http.get(`/events/quote/${encodeURIComponent(token)}/deposit/${paymentId}`), 'Could not check the payment'),
+};
 
 /** A visitor pass shared by a resident (public link). */
 export async function getVisitorPass(token) {

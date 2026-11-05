@@ -1,9 +1,9 @@
 import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  USE_MOCKS, confirmBooking, createBooking, createCardPayment, getAvailability, getResidences, getUnit, requestMobileMoney,
+  USE_MOCKS, confirmBooking, createBooking, createCardPayment, getAvailability, getMobileMoneyStatus, getPaymentConfig, getResidences, getUnit, requestMobileMoney,
 } from '../api';
 import { Icon, Loading, ResidenceImage } from '../components/ui';
 import { displayCurrency } from '../currency';
@@ -13,28 +13,32 @@ import Markdown from '../../components/Markdown';
 import TermsBody from '../legal/TermsBody';
 import useLegal from '../legal/useLegal';
 
-const STRIPE_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || '';
-let stripePromise;
-const getStripe = () => {
-  if (!STRIPE_KEY) return null;
-  if (!stripePromise) stripePromise = loadStripe(STRIPE_KEY);
-  return stripePromise;
+// The publishable key comes from HQ → Settings → Payments (GET /payments/config); the build-time key is a fallback.
+const BUILD_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || '';
+const stripePromises = {};
+const stripeFor = (key) => {
+  if (!key) return null;
+  if (!stripePromises[key]) stripePromises[key] = loadStripe(key);
+  return stripePromises[key];
 };
 
 const STEPS = ['book.step1', 'book.step2', 'book.step3', 'book.step4'];
 
 export default function Book() {
-  const stripe = getStripe();
-  return stripe ? (
-    <Elements stripe={stripe}>
-      <BookFlow cardEnabled />
+  const [config, setConfig] = useState(null);
+  useEffect(() => {
+    getPaymentConfig().then(setConfig);
+  }, []);
+  const key = config?.card?.publishableKey || BUILD_KEY;
+  const stripePromise = useMemo(() => (config ? stripeFor(key) : null), [config, key]);
+  return (
+    <Elements stripe={stripePromise}>
+      <BookFlow cardEnabled={USE_MOCKS || Boolean(config && key)} momoAutomatic={Boolean(config?.mobileMoney?.automatic)} />
     </Elements>
-  ) : (
-    <BookFlow cardEnabled={USE_MOCKS} />
   );
 }
 
-function BookFlow({ cardEnabled }) {
+function BookFlow({ cardEnabled, momoAutomatic }) {
   const { t, lang } = useLang();
   const [params] = useSearchParams();
   const stay = stayFromParams(params);
@@ -51,13 +55,47 @@ function BookFlow({ cardEnabled }) {
   const [method, setMethod] = useState(cardEnabled ? 'card' : 'mtn');
   const [momoPhone, setMomoPhone] = useState('');
   const [booking, setBooking] = useState(null);
-  const [result, setResult] = useState(null); // 'confirmed' | 'pending'
+  const [result, setResult] = useState(null); // 'confirmed' | 'pending' (team confirms) | 'waiting' (approve on the phone)
+  const [momoPayment, setMomoPayment] = useState(null);
+  const methodTouched = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const headRef = useRef(null);
 
-  const stripe = useStripeSafe(cardEnabled && !USE_MOCKS);
-  const elements = useElementsSafe(cardEnabled && !USE_MOCKS);
+  const stripe = useStripe();
+  const elements = useElements();
+
+  // Card becomes available once the payment settings arrive; keep the guest's own choice.
+  useEffect(() => {
+    if (cardEnabled && !methodTouched.current) setMethod('card');
+  }, [cardEnabled]);
+
+  // Waiting for the guest to approve mobile money on their phone: the page updates by itself.
+  useEffect(() => {
+    if (result !== 'waiting' || !momoPayment || !booking) return undefined;
+    const started = Date.now();
+    let live = true;
+    const tick = async () => {
+      try {
+        const r = await getMobileMoneyStatus(momoPayment.id, booking.booking_number);
+        if (!live) return;
+        if (r.status === 'completed') setResult('confirmed');
+        else if (r.status === 'failed') {
+          setResult(null);
+          setStep(2);
+          setError(r.message || t('book.momoDeclined'));
+        } else if (Date.now() - started > 5 * 60 * 1000) setResult('pending');
+      } catch {
+        // keep waiting; the next check may succeed
+      }
+    };
+    const timer = setInterval(tick, 3000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, momoPayment, booking]);
 
   useEffect(() => {
     let live = true;
@@ -147,8 +185,9 @@ function BookFlow({ cardEnabled }) {
         });
         setResult('confirmed');
       } else {
-        await requestMobileMoney({ booking_id: b.id, provider: method, phone: momoPhone, terms_accepted: true, terms_accepted_at: acceptedAt });
-        setResult('pending');
+        const r = await requestMobileMoney({ booking_id: b.id, provider: method, phone: momoPhone, terms_accepted: true, terms_accepted_at: acceptedAt });
+        setMomoPayment(r.payment || null);
+        setResult(r.automatic && r.payment ? 'waiting' : 'pending');
       }
       go(3);
     } catch (e) {
@@ -240,7 +279,7 @@ function BookFlow({ cardEnabled }) {
               <h1 ref={headRef} tabIndex={-1} className="fs-h1" style={{ fontSize: 44, outline: 'none' }}>{t('book.payment')}</h1>
               <div className="fs-chips" role="group" aria-label={t('book.payment')}>
                 {[['card', 'book.card'], ['mtn', 'book.mtn'], ['orange', 'book.orange']].map(([id, key]) => (
-                  <button key={id} type="button" className="fs-chip fs-chip--soft" aria-pressed={method === id} onClick={() => setMethod(id)} style={{ minHeight: 48 }}>
+                  <button key={id} type="button" className="fs-chip fs-chip--soft" aria-pressed={method === id} onClick={() => { methodTouched.current = true; setMethod(id); }} style={{ minHeight: 48 }}>
                     {t(key)}
                   </button>
                 ))}
@@ -274,7 +313,7 @@ function BookFlow({ cardEnabled }) {
                     {t('book.momoNumber')} ({method === 'mtn' ? 'MTN' : 'Orange'})
                     <input className="fs-input" type="tel" value={momoPhone} onChange={(e) => setMomoPhone(e.target.value)} placeholder="+237 6__ ___ ___" />
                   </label>
-                  <span className="fs-muted" style={{ fontSize: 13, lineHeight: 1.6 }}>{t('book.momoNote')}</span>
+                  <span className="fs-muted" style={{ fontSize: 13, lineHeight: 1.6 }}>{momoAutomatic ? t('book.momoNoteAuto') : t('book.momoNote')}</span>
                 </div>
               )}
             </section>
@@ -288,10 +327,12 @@ function BookFlow({ cardEnabled }) {
                 </span>
                 <div>
                   <h1 ref={headRef} tabIndex={-1} className="fs-h1" style={{ fontSize: 44, outline: 'none' }}>
-                    {result === 'confirmed' ? t('book.ready') : t('book.pending')}
+                    {result === 'confirmed' ? t('book.ready') : result === 'waiting' ? t('book.approve') : t('book.pending')}
                   </h1>
                   <p className="fs-muted" style={{ margin: '4px 0 0', fontSize: 14 }}>
-                    {booking?.booking_number} · {result === 'confirmed' ? t('book.sentTo') : t('book.emailLater')} {guest.email}
+                    {result === 'waiting'
+                      ? t('book.approveNote')
+                      : `${booking?.booking_number} · ${result === 'confirmed' ? t('book.sentTo') : t('book.emailLater')} ${guest.email}`}
                   </p>
                 </div>
               </div>
@@ -395,10 +436,4 @@ function BookFlow({ cardEnabled }) {
   );
 }
 
-/* Stripe hooks need <Elements>; without a publishable key the page renders without it. */
-function useStripeSafe(enabled) {
-  return enabled ? useStripe() : null; // eslint-disable-line react-hooks/rules-of-hooks
-}
-function useElementsSafe(enabled) {
-  return enabled ? useElements() : null; // eslint-disable-line react-hooks/rules-of-hooks
-}
+

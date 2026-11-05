@@ -56,11 +56,17 @@ APP_URL=https://fayshaa.com
 CONTACT_EMAIL=            # contact form recipient (defaults to EMAIL_FROM)
 PROPERTY_WIFI_SSID=       # shown with the digital key
 PROPERTY_WIFI_PASSWORD=
-STRIPE_WEBHOOK_SECRET=    # if the Stripe webhook is used
+SETTINGS_ENCRYPTION_KEY=  # a long random secret; encrypts the payment keys saved in HQ → Settings → Payments
 SOCKET_REQUIRE_AUTH=false # keep false until every guest has the new app
 RATE_LIMIT_MAX_REQUESTS=3000   # v1 used 100, which the dashboards exceed within minutes (HTTP 429)
 AUTH_RATE_LIMIT_MAX=30         # sign-in and password attempts per IP per 15 minutes
 ```
+
+**Payment keys** are no longer set here: after the deploy, sign in as super administrator and paste them in
+**HQ → Settings → Payments** (Stripe for cards, PayWithCAMSOL for MTN / Orange money), press *Test connection*, and copy
+the two webhook addresses shown there into the Stripe dashboard and the PayWithCAMSOL webhook settings. Stripe keys
+already in `.env` keep working until keys are saved in Settings. **Set `SETTINGS_ENCRYPTION_KEY` once and never change
+it** (changing it makes the saved keys unreadable — they would have to be pasted again).
 
 **Change `RATE_LIMIT_MAX_REQUESTS` if it is set to 100**, or remove the line (the default is 3000). Optional:
 `CORS_ORIGIN` (extra browser origins; fayshaa.com and www.fayshaa.com are built in), `CARD_HOLD_MINUTES` (default 60)
@@ -129,7 +135,7 @@ Build locally and upload the build (the server doesn't need to build):
 
 ```bash
 cd frontend && npm ci
-REACT_APP_API_URL=/api REACT_APP_STRIPE_PUBLISHABLE_KEY=<publishable key> npm run build
+REACT_APP_API_URL=/api npm run build   # the Stripe publishable key now comes from HQ → Settings → Payments
 rsync -avz -e "ssh -i ~/.ssh/id_rsa_divisionalofficer -p 2222" build/ \
   divisionalofficeruser@76.13.41.99:/home/divisionalofficeruser/fayshaa/frontend/build/
 ```

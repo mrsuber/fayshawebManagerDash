@@ -4,7 +4,11 @@ const router = express.Router();
 const { pool } = require('../config/database');
 const { requireStaff } = require('../middleware/auth');
 const { finalizeStay } = require('../services/stayKeys');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// Keys come from HQ → Settings → Payments (or the environment): see services/payments/settings.js.
+const paymentSettings = require('../services/payments/settings');
+const { getStripe } = require('../services/payments/stripe');
+const mobileMoney = require('../services/payments/mobileMoney');
+const camsol = require('../services/payments/camsol');
 
 // ============================================
 // PAYMENT ROUTES
@@ -60,6 +64,42 @@ router.get('/', requireStaff, async (req, res) => {
   }
 });
 
+// Which ways to pay are open, and the public Stripe key, for the website and the app.
+router.get('/config', async (req, res) => {
+  try {
+    res.json({ success: true, ...(await paymentSettings.publicConfig()) });
+  } catch (error) {
+    console.error('Error reading payment config:', error);
+    res.json({ success: true, card: null, mobileMoney: { automatic: false } });
+  }
+});
+
+// Status of a mobile money payment, asked by the guest's page while they approve it on their phone.
+// The booking number is required with the id so payments can't be looked up one by one.
+router.get('/mobile-money/:id/status', async (req, res) => {
+  try {
+    const found = await pool.query(
+      `SELECT p.id, p.status, p.error_message, b.booking_number, b.status AS booking_status
+         FROM payments p JOIN bookings b ON b.id = p.booking_id
+        WHERE p.id = $1 AND p.payment_method = 'mobile_money'`,
+      [req.params.id]
+    );
+    const p = found.rows[0];
+    if (!p || String(req.query.booking || '') !== p.booking_number) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+    const status = p.status === 'pending' ? await mobileMoney.settle(p.id, req.app) : p.status;
+    const fresh = status === p.status ? p : (await pool.query(
+      `SELECT p.status, p.error_message, b.status AS booking_status FROM payments p JOIN bookings b ON b.id = p.booking_id WHERE p.id = $1`,
+      [p.id]
+    )).rows[0];
+    res.json({ success: true, status: fresh.status, message: fresh.error_message || null, booking_status: fresh.booking_status });
+  } catch (error) {
+    console.error('Error checking mobile money payment:', error);
+    res.status(500).json({ success: false, message: 'Could not check the payment' });
+  }
+});
+
 // Get single payment
 router.get('/:id', requireStaff, async (req, res) => {
   try {
@@ -110,7 +150,9 @@ router.post('/create-intent', async (req, res) => {
     if (booking.status !== 'pending') {
       return res.status(409).json({ success: false, message: booking.status === 'cancelled' ? 'This booking has expired. Please book again.' : 'This booking is already paid' });
     }
-    if (!process.env.STRIPE_SECRET_KEY) {
+    const stripe = await getStripe();
+    const { stripe: stripeKeys } = await paymentSettings.load();
+    if (!stripe) {
       return res.status(503).json({ success: false, message: 'Card payments are not available right now. Please choose mobile money.' });
     }
 
@@ -132,7 +174,7 @@ router.post('/create-intent', async (req, res) => {
     if (open.rows[0]) {
       const intent = await stripe.paymentIntents.retrieve(open.rows[0].stripe_payment_intent_id);
       if (!['succeeded', 'canceled'].includes(intent.status) && Number(intent.amount) === stripeAmount && intent.currency === currency.toLowerCase()) {
-        return res.json({ success: true, payment: open.rows[0], client_secret: intent.client_secret, publishable_key: process.env.STRIPE_PUBLISHABLE_KEY, currency, amount: charged });
+        return res.json({ success: true, payment: open.rows[0], client_secret: intent.client_secret, publishable_key: stripeKeys.publishableKey, currency, amount: charged });
       }
     }
 
@@ -162,7 +204,7 @@ router.post('/create-intent', async (req, res) => {
       success: true,
       payment: paymentResult.rows[0],
       client_secret: paymentIntent.client_secret,
-      publishable_key: process.env.STRIPE_PUBLISHABLE_KEY,
+      publishable_key: stripeKeys.publishableKey,
       currency,
       amount: charged
     });
@@ -172,10 +214,8 @@ router.post('/create-intent', async (req, res) => {
   }
 });
 
-// Request a mobile money payment (MTN Mobile Money / Orange Money) from the website or the guest app.
-// No mobile money gateway is connected yet, so this records a pending payment with the guest's
-// number and their terms acceptance; staff confirm the booking once the money arrives
-// (POST /api/bookings/:id/confirm as staff, or the manager dashboard).
+// Request a mobile money payment (MTN Mobile Money / Orange Money) from the website or the guest app:
+// automatic through PayWithCAMSOL when its keys are set, otherwise confirmed by the team (services/payments/mobileMoney.js).
 const MOBILE_MONEY_PROVIDERS = ['mtn', 'orange'];
 router.post('/mobile-money', async (req, res) => {
   try {
@@ -200,42 +240,26 @@ router.post('/mobile-money', async (req, res) => {
       return res.status(409).json({ success: false, message: 'This booking is no longer awaiting payment' });
     }
 
-    // One mobile money request per booking: asking again updates the number or provider.
-    const details = JSON.stringify({ provider, phone: String(phone).trim(), source: source === 'app' ? 'app' : 'website' });
-    const existing = await pool.query(
-      `UPDATE payments SET payment_metadata = $2, amount = $3
-        WHERE id = (SELECT id FROM payments WHERE booking_id = $1 AND payment_method = 'mobile_money' AND status = 'pending' LIMIT 1)
-        RETURNING id, booking_id, payment_method, amount, currency, status, created_at`,
-      [booking.id, details, booking.final_price]
-    );
-    const paymentResult = existing.rows[0] ? existing : await pool.query(`
-      INSERT INTO payments (booking_id, payment_method, amount, currency, status, payment_metadata)
-      VALUES ($1, 'mobile_money', $2, 'XAF', 'pending', $3)
-      RETURNING id, booking_id, payment_method, amount, currency, status, created_at
-    `, [booking.id, booking.final_price, details]);
-
     await pool.query(
       `UPDATE bookings SET terms_accepted = TRUE, terms_accepted_at = $2,
               terms_version = COALESCE(terms_version, (SELECT version FROM legal_documents WHERE slug = 'terms')) WHERE id = $1`,
       [booking.id, terms_accepted_at || new Date().toISOString()]
     );
 
-    // Someone must check the money arrived and confirm: an action for the team until the stay is confirmed.
-    await require('../services/notify').staffAlert(req.app, {
-      title: `Mobile money to confirm · ${booking.booking_number}`,
-      body: `${booking.guest_name} · ${Number(booking.final_price).toLocaleString('en-US')} XAF · ${provider === 'mtn' ? 'MTN MoMo' : 'Orange Money'} ${String(phone).slice(-4).padStart(String(phone).length, '•')}`,
-      link: `/reservations?booking=${booking.id}`,
-      level: 'action',
-      category: 'payment',
-      dedupeKey: `momo:${booking.id}`,
-    });
+    // One mobile money request per booking: asking again updates the number or provider. With PayWithCAMSOL the
+    // guest approves on their phone and the stay confirms itself; otherwise the team confirms when the money arrives.
+    const result = await mobileMoney.request({ booking, provider, phone, source, app: req.app });
+    const { payment_metadata: _meta, ...payment } = result.payment;
 
     res.json({
       success: true,
-      payment: paymentResult.rows[0],
+      payment,
+      automatic: result.automatic,
+      simulated: result.simulated,
       booking: { id: booking.id, booking_number: booking.booking_number, status: booking.status },
     });
   } catch (error) {
+    if (error.status && error.status < 500) return res.status(error.status).json({ success: false, message: error.message });
     console.error('Error recording mobile money payment:', error);
     res.status(500).json({ success: false, message: 'Failed to record the mobile money payment' });
   }
@@ -304,24 +328,21 @@ router.post('/:id/confirm', requireStaff, async (req, res) => {
 // Handle Stripe webhook
 router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
-    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    const stripe = await getStripe();
+    const signingSecret = (await paymentSettings.load()).stripe.webhookSecret;
+    if (!signingSecret) {
       // Unsigned events could mark any booking as paid, so they are only accepted outside production.
       if (process.env.NODE_ENV === 'production') {
-        console.error('Stripe webhook rejected: STRIPE_WEBHOOK_SECRET is not configured');
+        console.error('Stripe webhook rejected: no webhook signing secret (HQ → Settings → Payments)');
         return res.status(400).send('Webhook signing secret not configured');
       }
-      console.log('Webhook received but STRIPE_WEBHOOK_SECRET not configured (accepted outside production)');
+      console.log('Webhook received without a signing secret (accepted outside production)');
     }
 
     let event;
-
-    if (process.env.STRIPE_WEBHOOK_SECRET) {
-      const sig = req.headers['stripe-signature'];
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
+    if (signingSecret) {
+      // Verifying a signature needs no secret key; a placeholder client does it when cards are not set up yet.
+      event = (stripe || require('stripe')('sk_test_signature_check_only')).webhooks.constructEvent(req.body, req.headers['stripe-signature'], signingSecret);
     } else {
       // Development without a signing secret: the raw body still needs parsing.
       event = Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString('utf8')) : req.body;
@@ -338,15 +359,19 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
           UPDATE payments
           SET status = 'completed', paid_at = CURRENT_TIMESTAMP,
               stripe_charge_id = $2
-          WHERE stripe_payment_intent_id = $1
+          WHERE stripe_payment_intent_id = $1 AND event_request_id IS NULL
         `, [paymentIntent.id, paymentIntent.latest_charge]);
 
         const paymentResult = await pool.query(
-          'SELECT booking_id FROM payments WHERE stripe_payment_intent_id = $1',
+          'SELECT * FROM payments WHERE stripe_payment_intent_id = $1',
           [paymentIntent.id]
         );
 
-        if (paymentResult.rows.length > 0) {
+        if (paymentResult.rows[0]?.event_request_id) {
+          // An event deposit paid from the proposal page.
+          await pool.query('UPDATE payments SET stripe_charge_id = $2 WHERE id = $1', [paymentResult.rows[0].id, paymentIntent.latest_charge]);
+          await require('../services/payments/eventDeposits').recordPaid(paymentResult.rows[0], req.app);
+        } else if (paymentResult.rows.length > 0) {
           await pool.query(`
             UPDATE bookings
             SET status = 'confirmed', confirmed_at = CURRENT_TIMESTAMP
@@ -400,6 +425,28 @@ router.post('/webhook/stripe', express.raw({ type: 'application/json' }), async 
   }
 });
 
+// PayWithCAMSOL webhook: signed with the webhook secret. The body is never trusted — the payment's status is
+// fetched from PayWithCAMSOL again (services/payments/mobileMoney.js#settle). Always answers 200 once verified.
+router.post('/webhook/camsol', express.raw({ type: '*/*' }), async (req, res) => {
+  try {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body || {}));
+    if (!(await camsol.verifyWebhook(raw, req.headers))) return res.status(401).json({ received: false });
+    let body = {};
+    try {
+      body = JSON.parse(raw.toString('utf8'));
+    } catch {
+      body = {};
+    }
+    const data = body.data || body;
+    const id = await mobileMoney.findByGatewayId(data.refillId || data.id || data.reference);
+    if (id) await mobileMoney.settle(id, req.app);
+    res.json({ received: true });
+  } catch (error) {
+    console.error('PayWithCAMSOL webhook error:', error);
+    res.json({ received: true });
+  }
+});
+
 const refundError = (status, message) => Object.assign(new Error(message), { status });
 
 /**
@@ -425,6 +472,8 @@ async function processRefund(id, refundAmount, refundReason) {
         const chargedCurrency = meta.charged_currency || payment.currency || 'XAF';
         const rate = Number(meta.fx_rate) || 1;
         const { toStripeAmount } = require('../services/currency');
+        const stripe = await getStripe();
+        if (!stripe) throw refundError(503, 'Card refunds need the Stripe keys (HQ → Settings → Payments)');
         const refund = await stripe.refunds.create({
           payment_intent: payment.stripe_payment_intent_id,
           amount: refundAmount ? toStripeAmount(chargedCurrency === (payment.currency || 'XAF') ? parseFloat(refundAmount) : parseFloat(refundAmount) / rate, chargedCurrency) : undefined,
