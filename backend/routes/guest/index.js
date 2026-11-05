@@ -224,6 +224,19 @@ router.post(
       ],
     );
     const request = toRequest(rows[0]);
+    // FAY OS → Settings → FAY AI → Auto-assign: the least busy person of the department takes it straight away.
+    try {
+      const assignment = require('../../services/assignment');
+      if (await assignment.autoAssignOn()) {
+        const pick = await assignment.suggest(department);
+        if (pick) {
+          await db.query('UPDATE service_requests SET assigned_to = $2, assigned_at = NOW() WHERE id = $1', [request.id, pick.id]);
+          await assignment.notifyAssignee(req.app, pick.id, { title: `${department} request for you`, body: `${request.title} · ${request.location}${urgent ? ' · urgent' : ''}`, key: `request:${request.id}` });
+        }
+      }
+    } catch (e) {
+      console.error('Auto-assign failed:', e.message);
+    }
     emit(req, 'service-request:created', {
       id: request.id, number: request.number, createdAt: request.createdAt, guestId: req.user.id, guestName: req.user.fullName, title: request.title,
       location: request.location, priority: urgent ? 'High' : 'Normal', status: 'New', department, notes: request.notes,

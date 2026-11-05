@@ -15,7 +15,12 @@ const PRIORITY_OUT = { urgent: 'High', high: 'High', normal: 'Normal', low: 'Low
 const TYPE_OF = { Housekeeping: 'housekeeping', Maintenance: 'maintenance', Dining: 'dining', Wellness: 'wellness', Transportation: 'transport', Experiences: 'experience', Concierge: 'concierge' };
 const DEPT_OF = Object.fromEntries(Object.entries(TYPE_OF).map(([k, v]) => [v, k]));
 
-const SELECT = `SELECT r.*, COALESCE(r.guest_name, u.full_name) AS display_name FROM service_requests r LEFT JOIN users u ON u.id = r.guest_id`;
+const SELECT = `SELECT r.*, COALESCE(r.guest_name, u.full_name) AS display_name, s.full_name AS assignee_name, v.full_name AS verified_by_name,
+                       sr.rating AS guest_rating, sr.comment AS guest_comment
+                  FROM service_requests r LEFT JOIN users u ON u.id = r.guest_id LEFT JOIN users s ON s.id = r.assigned_to
+                  LEFT JOIN users v ON v.id = r.verified_by
+                  LEFT JOIN staff_ratings sr ON sr.context = 'request' AND sr.context_id = r.id`;
+const assignment = require('../../services/assignment');
 
 function toRequest(r) {
   return {
@@ -30,6 +35,16 @@ function toRequest(r) {
     status: STATUS_OUT[r.status] || r.status,
     department: r.department || DEPT_OF[r.request_type] || 'Concierge',
     notes: r.description || '',
+    assignedTo: r.assigned_to ? { id: r.assigned_to, name: r.assignee_name } : null,
+    assignedAt: isoTime(r.assigned_at),
+    acknowledgedAt: isoTime(r.acknowledged_at),
+    startedAt: isoTime(r.started_at),
+    completedAt: isoTime(r.completed_at),
+    resolution: r.resolution_notes || '',
+    verifiedBy: r.verified_by ? r.verified_by_name : null,
+    verifiedAt: isoTime(r.verified_at),
+    rating: r.guest_rating || null,
+    ratingComment: r.guest_comment || null,
   };
 }
 
@@ -97,7 +112,8 @@ router.patch(
   '/:id',
   ah(async (req, res) => {
     const before = await one(req.params.id);
-    const { status, priority, department, location, notes, title } = req.body || {};
+    const { status, priority, department, location, notes, title, resolution, verified } = req.body || {};
+    let { assignedTo } = req.body || {};
     const sets = [];
     const params = [];
     const set = (sql, v) => {
@@ -120,6 +136,23 @@ router.patch(
     if (location !== undefined) set('location', location);
     if (notes !== undefined) set('description', notes);
     if (title !== undefined) set('title', title);
+    if (resolution !== undefined) set('resolution_notes', String(resolution || '').slice(0, 2000) || null);
+    if (verified === true) {
+      if (!['Completed'].includes(status || before.status)) throw httpError(409, 'Check the work once it is done');
+      set('verified_by', req.user.id);
+      sets.push('verified_at = NOW()');
+    }
+    // Assign a person (an id), let Faysha choose ('auto': the least busy in the department), or unassign (null).
+    if (assignedTo !== undefined) {
+      if (assignedTo === 'auto') {
+        const pick = await assignment.suggest(department || before.department);
+        if (!pick) throw httpError(409, `Nobody is in ${department || before.department} yet — add the team in HQ → Staff`);
+        assignedTo = pick.id;
+      }
+      if (assignedTo) await assignment.person(assignedTo);
+      set('assigned_to', assignedTo || null);
+      sets.push(assignedTo ? 'assigned_at = NOW()' : 'assigned_at = NULL');
+    }
     if (sets.length) {
       params.push(req.params.id);
       await db.query(`UPDATE service_requests SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
@@ -132,6 +165,14 @@ router.patch(
         notifyGuest(req.app, request.guestId, { title: `${request.department}`, body: `Your request “${request.title}” ${words[status]}.`, event: 'request:updated', data: { id: request.id, status, screen: 'Requests' } });
       }
       if (status === 'Escalated') await notify(req, 'Request escalated', `${request.title} · ${request.department}`, { link: '/requests' });
+    }
+    if (request.assignedTo && request.assignedTo.id !== before.assignedTo?.id) {
+      await assignment.notifyAssignee(req.app, request.assignedTo.id, {
+        title: `${request.department} request for you`,
+        body: `${request.title} · ${request.location || request.guestName}${request.priority === 'High' ? ' · urgent' : ''}`,
+        key: `request:${request.id}`,
+      });
+      await addTimeline(null, request.guestId, `${request.title} – assigned to ${request.assignedTo.name}`, 'Service Request', { performedBy: req.user.id });
     }
     emit(req, 'service-request:updated', request);
     res.json(request);

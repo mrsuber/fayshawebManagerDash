@@ -44,13 +44,25 @@ router.use(
   '/maintenance/work-orders',
   crud({
     table: 'work_orders',
-    fields: f('number', 'title', 'location', 'priority', 'technician', 'status', 'createdAt'),
-    types: { createdAt: 'timestamp' },
+    fields: { ...f('number', 'title', 'location', 'priority', 'technician', 'status', 'createdAt', 'assignedTo', 'assetId', 'cost', 'completionNotes', 'completedAt'), serviceRequestId: 'service_request_id' },
+    types: { createdAt: 'timestamp', assignedTo: 'number', assetId: 'number', cost: 'number', completedAt: 'timestamp', serviceRequestId: 'number' },
     required: ['title'],
     order: 'created_at DESC',
+    async prepare(req, data) {
+      // Assigning a person also shows their name in the technician column; Completed stamps the time.
+      if (data.assignedTo) data.technician = (await require('../../services/assignment').person(data.assignedTo)).name;
+      if (data.status === 'Completed' && !data.completedAt) data.completedAt = new Date().toISOString();
+    },
     async after(req, item, ctx) {
       await autoNumber('work_orders', 'WO-')(req, item, ctx);
       if (ctx.op === 'create') await notify(req, `New work order ${item.number}`, [item.title, item.location].filter(Boolean).join(' · '), { link: '/maintenance' });
+      if (item.assignedTo && item.assignedTo !== ctx.before?.assignedTo) {
+        await require('../../services/assignment').notifyAssignee(req.app, item.assignedTo, {
+          title: `Work order ${item.number || ''} for you`,
+          body: [item.title, item.location].filter(Boolean).join(' · '),
+          key: `wo:${item.id}`,
+        });
+      }
     },
   }),
 );

@@ -2,6 +2,7 @@ import moment from 'moment';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { opsApi } from '../../api';
+import AssignPicker from '../../components/AssignPicker';
 import { Empty, Pill, Tabs, Toolbar } from '../../components/kit';
 import { Icon, KpiGrid } from '../../components/ui';
 import { useToast } from '../../context/ToastContext';
@@ -104,9 +105,9 @@ export default function WellnessBookings() {
           </Empty>
         ) : null}
         {items.length ? (
-          <table className="kit-table" style={{ minWidth: 900 }}>
+          <table className="kit-table" style={{ minWidth: 1080 }}>
             <thead>
-              <tr><th>Code</th><th>Guest</th><th>Experience</th><th>When</th><th>Status</th><th /></tr>
+              <tr><th>Code</th><th>Guest</th><th>Experience</th><th>When</th><th>Specialist</th><th>Status</th><th /></tr>
             </thead>
             <tbody>
               {items.map((b) => (
@@ -125,6 +126,17 @@ export default function WellnessBookings() {
                     {moment(b.date).format('ddd D MMM')} · {b.start}–{b.end}
                     {b.status === 'requested' ? <div className="sub">asked {moment(b.createdAt).fromNow()}</div> : null}
                     {b.checkedInAt ? <div className="sub">arrived {moment(b.checkedInAt).format('HH:mm')}{b.checkedInBy ? ` · ${b.checkedInBy}` : ''}</div> : null}
+                  </td>
+                  <td style={{ minWidth: 190 }}>
+                    {['requested', 'upcoming', 'in_progress'].includes(b.status) ? (
+                      <AssignPicker
+                        department="Wellness"
+                        value={b.staff?.id}
+                        onChange={(staffId) => act(opsApi.wellnessAction(b.id, 'assign', { staffId }), staffId ? 'Assigned — the specialist is notified' : 'Unassigned')}
+                      />
+                    ) : (
+                      <span className="sub">{b.staff?.name || '—'}</span>
+                    )}
                   </td>
                   <td>
                     <Pill tone={STATUS[b.status]?.[1]}>{STATUS[b.status]?.[0] || b.status}</Pill>

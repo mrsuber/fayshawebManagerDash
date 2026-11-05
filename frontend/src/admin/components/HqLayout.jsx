@@ -68,6 +68,9 @@ export default function HqLayout() {
               <Icon name="spa" size={18} /> Open FAY OS (operations)
             </Link>
           )}
+          <Link to="/work" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)' }}>
+            <Icon name="task_alt" size={18} /> My work
+          </Link>
           <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)' }}>
             <Icon name="public" size={18} /> View the website
           </Link>

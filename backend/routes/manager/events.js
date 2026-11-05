@@ -126,6 +126,14 @@ router.patch(
       const staff = assignedTo ? (await db.query('SELECT id, full_name FROM users WHERE id = $1 AND deleted_at IS NULL', [assignedTo])).rows[0] : null;
       if (assignedTo && !staff) throw httpError(400, 'Team member not found');
       await db.query('UPDATE event_requests SET assigned_to = $2, updated_at = NOW() WHERE id = $1', [cur.id, staff?.id || null]);
+      if (staff && staff.id !== cur.assigned_to) {
+        await require('../../services/assignment').notifyAssignee(req.app, staff.id, {
+          title: `You lead ${cur.reference}`,
+          body: `${cur.name}${cur.event_date ? ` · ${new Date(cur.event_date).toISOString().slice(0, 10)}` : ''}${cur.guests ? ` · ${cur.guests} guests` : ''}`,
+          link: '/work',
+          key: `event:${cur.id}`,
+        });
+      }
       await note(cur.id, req.user.id, 'event', staff ? `Assigned to ${staff.full_name}` : 'Unassigned');
     }
     // Brief corrections after a call with the client.

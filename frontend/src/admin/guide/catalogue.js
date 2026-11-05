@@ -167,9 +167,7 @@ export const FEATURES = [
   },
   {
     surface: 'fayos', area: 'Operations', name: 'Service requests', where: 'Operations → Service requests', status: 'partial',
-    does: ['Every request by department, priority and status; live updates'],
-    limits: ['The “average response” figure and the response-time chart are sample values'],
-    improve: ['Real response-time statistics from the request history'],
+    does: ['Every request by department, priority and status; live updates', 'Assign a person (or let Faysha suggest the least busy); real timeline, what was done, checked, the guest’s rating', 'Average response and the response-time chart from the real requests'],
   },
   {
     surface: 'fayos', area: 'Operations', name: 'Lockers & loans', where: 'Operations → Lockers & Loans', status: 'live',
@@ -204,7 +202,7 @@ export const FEATURES = [
     surface: 'fayos', area: 'Wellness', name: 'Wellness today, bookings and catalogue', where: 'Wellness (Today, Bookings, Catalogue)', status: 'live',
     does: ['Today: the wellness places (HQ → Wellness catalogue → Zones) and experiences (Activities) with their photos, today’s schedule and the coming days from the real bookings; Arrived / Completed / No-show; staff book for a guest (confirmed at once, with a code)', 'Every step is in the guest’s journey: requested or booked (with the code), confirmed, arrived, completed or missed, and the guest’s rating; after a session the guest is asked to rate it, and the stars show on the booking', 'Bookings: requests to confirm (at the time asked or another) or decline with a reason, the guest is notified; check in by the guest’s code (the booking moves to Arrived); completed and no-show', 'Times opened in HQ → Wellness catalogue → Availability are confirmed automatically when a guest books them; other times arrive as requests and ring the bell', 'Catalogue: every service and journey with photos, gallery, stages (each with room, floor, photo, PIN), location, access, hours, booking notice, equipment lent'],
     limits: ['Opening slots is done in HQ (v1 wellness screens), not yet in FAY OS'],
-    improve: ['Open availability from FAY OS with a weekly template', 'Assign a therapist to each booking', 'Scan the code as a QR from a tablet at the spa desk'],
+    improve: ['Open availability from FAY OS with a weekly template', 'Scan the code as a QR from a tablet at the spa desk'],
   },
   {
     surface: 'fayos', area: 'Dining', name: 'Dining', where: 'Dining', status: 'live',
@@ -302,6 +300,11 @@ export const FEATURES = [
   },
   { surface: 'server', area: 'Planned', name: 'Channel manager', status: 'planned', does: ['Booking.com, Airbnb and Expedia calendars synchronised'] },
   { surface: 'server', area: 'Planned', name: 'Revenue management', status: 'planned', does: ['Prices by date, season and occupancy; minimum stays'] },
-  { surface: 'app', area: 'Planned', name: 'Staff app', status: 'planned', does: ['Each role sees its own screens: housekeeping, maintenance, dining, concierge, drivers, therapists'] },
+  {
+    surface: 'fayos', area: 'Team', name: 'My work', where: '/work (every team member; FAY OS and HQ menus)', status: 'live',
+    does: ['What is assigned to me: guest requests, wellness sessions, work orders, events I lead', 'Start / done with a note (the guest is told and asked to rate), check a guest in with their code, work-order cost', 'My rating and what guests said'],
+    improve: ['The native staff app on the same API (push notifications, offline)'],
+  },
+  { surface: 'app', area: 'Planned', name: 'Staff app', status: 'planned', does: ['Each role sees its own screens on a phone app (My work today on the web): housekeeping, maintenance, dining, concierge, drivers, therapists'] },
   { surface: 'server', area: 'Planned', name: 'Smart locks and gate controller', status: 'planned', does: ['Door PINs and gate opening sent to the hardware automatically'] },
 ];

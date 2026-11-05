@@ -24,8 +24,9 @@ const TZ = process.env.PROPERTY_TZ || 'Africa/Douala';
 const SELECT = `
   SELECT b.*, u.full_name AS guest_name, u.phone AS guest_phone, a.category, a.location, a.floor, a.access_mode, a.base_price,
          a.currency, ap.unit_number AS residence, c.full_name AS confirmed_by_name, k.full_name AS checked_in_by_name,
-         sr.rating AS guest_rating, sr.comment AS guest_comment
+         sr.rating AS guest_rating, sr.comment AS guest_comment, st_u.full_name AS staff_name
     FROM wellness_bookings b
+    LEFT JOIN users st_u ON st_u.id = b.staff_id
     JOIN users u ON u.id = b.user_id
     LEFT JOIN wellness_activities a ON a.id = b.activity_id
     LEFT JOIN bookings st ON st.id = b.apartment_booking_id
@@ -66,6 +67,7 @@ const toItem = (r) => ({
   checkedInBy: r.checked_in_by_name,
   rating: r.guest_rating || null,
   ratingComment: r.guest_comment || null,
+  staff: r.staff_id ? { id: r.staff_id, name: r.staff_name } : null,
 });
 
 async function one(q, id) {
@@ -199,6 +201,42 @@ router.post(
   }),
 );
 
+/**
+ * POST /wellness/bookings/:id/assign { staffId | 'auto' | null } — the specialist who runs the session
+ * (gym coach, therapist…). They are notified and see it in My work; the guest's rating is credited to them.
+ */
+router.post(
+  '/wellness/bookings/:id/assign',
+  ah(async (req, res) => {
+    const assignment = require('../../services/assignment');
+    let staffId = req.body?.staffId ?? null;
+    if (staffId === 'auto') {
+      const pick = await assignment.suggest('Wellness');
+      if (!pick) throw httpError(409, 'Nobody is in the Wellness team yet — add them in HQ → Staff');
+      staffId = pick.id;
+    }
+    if (staffId) await assignment.person(staffId);
+    const { rows } = await db.query(
+      `UPDATE wellness_bookings SET staff_id = $2, assigned_at = CASE WHEN $2::int IS NULL THEN NULL ELSE NOW() END, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status IN ('requested', 'upcoming', 'in_progress') RETURNING id`,
+      [req.params.id, staffId],
+    );
+    if (!rows.length) throw httpError(409, 'Only an upcoming session can be assigned');
+    const row = await one(db, rows[0].id);
+    const item = toItem(row);
+    if (item.staff) {
+      await assignment.notifyAssignee(req.app, item.staff.id, {
+        title: `${item.activity} with ${item.guest}`,
+        body: `${item.date} at ${item.start}${item.place ? ` · ${item.place}` : ''} · code ${item.code}${item.requests ? ` · “${String(item.requests).slice(0, 80)}”` : ''}`,
+        key: `wellness:${item.id}`,
+      });
+      await journey(db, row, `${row.activity_name} – with ${item.staff.name}`, req.user.id);
+    }
+    changed(req, item);
+    res.json(item);
+  }),
+);
+
 /** Check-in: the guest is here. Accepts a confirmed booking of today (or yesterday's late evening). */
 async function checkIn(req, id) {
   const b = await one(db, id);
@@ -232,26 +270,27 @@ router.post(
   }),
 );
 
-for (const [action, status, from] of [['complete', 'completed', ['upcoming', 'in_progress']], ['no-show', 'no_show', ['upcoming']]]) {
-  router.post(
-    `/wellness/bookings/:id/${action}`,
-    ah(async (req, res) => {
-      const { rows } = await db.query(
-        `UPDATE wellness_bookings SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = ANY($3) RETURNING id`,
-        [req.params.id, status, from],
-      );
-      if (!rows.length) throw httpError(409, 'This booking cannot be changed that way now');
-      const row = await one(db, rows[0].id);
-      await journey(db, row, `${status === 'completed' ? 'Completed' : 'Missed'} ${row.activity_name}`, req.user.id);
-      const item = toItem(row);
-      // Right after the session, ask the guest how it was (the rating joins their journey).
-      if (status === 'completed') {
-        notifyGuest(req.app, item.guestId, { title: `How was ${item.activity}?`, body: 'Tap to rate your session — it takes a second.', event: 'rating:ask', data: { screen: 'Rate' } }).catch(() => {});
-      }
-      changed(req, item);
-      res.json(item);
-    }),
+/** Completed or no-show; after a completed session the guest is asked to rate it. */
+async function finish(req, id, action) {
+  const [status, from] = action === 'complete' ? ['completed', ['upcoming', 'in_progress']] : ['no_show', ['upcoming']];
+  const { rows } = await db.query(
+    `UPDATE wellness_bookings SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = ANY($3) RETURNING id`,
+    [id, status, from],
   );
+  if (!rows.length) throw httpError(409, 'This booking cannot be changed that way now');
+  const row = await one(db, rows[0].id);
+  await journey(db, row, `${status === 'completed' ? 'Completed' : 'Missed'} ${row.activity_name}`, req.user.id);
+  const item = toItem(row);
+  // Right after the session, ask the guest how it was (the rating joins their journey).
+  if (status === 'completed') {
+    notifyGuest(req.app, item.guestId, { title: `How was ${item.activity}?`, body: 'Tap to rate your session — it takes a second.', event: 'rating:ask', data: { screen: 'Rate' } }).catch(() => {});
+  }
+  changed(req, item);
+  return item;
+}
+
+for (const action of ['complete', 'no-show']) {
+  router.post(`/wellness/bookings/:id/${action}`, ah(async (req, res) => res.json(await finish(req, req.params.id, action))));
 }
 
 /** Wellness places (HQ → Wellness catalogue → Zones), with their photos, for the Wellness dashboard. */
@@ -333,3 +372,7 @@ router.post(
 );
 
 module.exports = router;
+module.exports.checkIn = checkIn;
+module.exports.finish = finish;
+module.exports.toItem = toItem;
+module.exports.SELECT = SELECT;

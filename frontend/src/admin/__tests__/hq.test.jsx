@@ -58,7 +58,8 @@ describe('who can open HQ', () => {
     expect(canOpenHq({ role: 'content_manager', permissions: { pages: { view: true } } })).toBe(true);
     expect(canOpenHq({ role: 'manager', permissions: { reservations: { view: true } } })).toBe(false);
     expect(homeFor({ role: 'manager' })).toBe('/manager');
-    expect(homeFor({ role: 'staff', permissions: { operations: { view: true } } })).toBe(null);
+    expect(homeFor({ role: 'staff', permissions: { operations: { view: true } } })).toBe('/work');
+    expect(homeFor({ role: 'guest' })).toBe(null);
   });
 });
 
