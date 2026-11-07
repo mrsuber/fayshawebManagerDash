@@ -1556,3 +1556,11 @@ textarea.fs-input {
 @media (max-width: 600px) { .fs-quote__qty { display: none; } }
 .fs-currency { background: transparent; color: var(--text-2); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 8px; font: 12px var(--sans); letter-spacing: 1px; cursor: pointer; }
 .fs-currency option { background: var(--surface); color: var(--text); }
+
+/* Event proposal: "how we see your event" mood board (images chosen by the coordinator). */
+.fs-moodboard { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 32px; }
+.fs-moodboard figure { margin: 0; position: relative; border-radius: 14px; overflow: hidden; background: rgba(255, 255, 255, 0.04); aspect-ratio: 4 / 3; }
+.fs-moodboard__lead { grid-column: 1 / -1; aspect-ratio: 16 / 7 !important; }
+.fs-moodboard img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fs-moodboard figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px 14px 10px; font-size: 13px; color: #ece6da; background: linear-gradient(transparent, rgba(5, 6, 8, 0.85)); }
+@media (max-width: 560px) { .fs-moodboard__lead { aspect-ratio: 4 / 3 !important; } }

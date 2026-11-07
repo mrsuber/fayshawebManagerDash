@@ -1,7 +1,8 @@
 import moment from 'moment';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { eventsApi } from '../api';
+import { contentApi, eventsApi } from '../api';
+import { mediaUrl } from '../config';
 import { Ago, Composer, Empty, Facts, ListRow, Pill, SearchBox, SplitView, Tabs, TextInput, Thread, Toolbar } from '../components/kit';
 import { Icon, KpiGrid } from '../components/ui';
 import { useToast } from '../context/ToastContext';
@@ -171,10 +172,10 @@ function EventDetail({ ev, apply, toast }) {
           ['Spaces', ev.spaces.map((s) => SPACE[s] || s).join(', ') || 'No preference'],
           ['Catering', `${CATERING[ev.catering] || ev.catering}${ev.cateringStyle ? ` · ${ev.cateringStyle}` : ''}`],
           ['Rooms for guests', ev.roomsNeeded || null],
-          ['Budget', ev.budgetMin || ev.budgetMax ? `${ev.budgetMin ? money(ev.budgetMin, ev.currency) : '…'} – ${ev.budgetMax ? money(ev.budgetMax, ev.currency) : '…'}` : 'Not given'],
+          ['Client’s budget', ev.clientBudget ? <strong style={{ color: 'var(--gold)' }}>{money(ev.clientBudget, ev.currency)} · revise the proposal around it</strong> : ev.budgetMin || ev.budgetMax ? `${ev.budgetMin ? money(ev.budgetMin, ev.currency) : '…'} – ${ev.budgetMax ? money(ev.budgetMax, ev.currency) : '…'}` : 'Not asked — quote first'],
           ['Services', ev.services.map((s) => SERVICE[s] || s).join(', ') || null],
           ['Dietary needs', ev.dietary],
-          ['Deposit received', ev.depositPaid ? money(ev.depositPaid, accepted?.currency || ev.currency) : null],
+          ['Paid', ev.account?.paid ? `${money(ev.account.paid, accepted?.currency || ev.currency)} of ${money(ev.account.total, accepted?.currency || ev.currency)}${ev.account.paidInFull ? ' · paid in full' : ` · balance ${money(ev.account.balance, accepted?.currency || ev.currency)}`}` : null],
           ['Account', ev.guestId ? <button type="button" className="card-link" onClick={() => navigate(`/guest360?guest=${ev.guestId}`)}>Open Guest 360</button> : null],
         ]}
       />
@@ -188,11 +189,11 @@ function EventDetail({ ev, apply, toast }) {
           ))}
         </select>
         {!draft && !['completed', 'cancelled'].includes(ev.status) ? (
-          <button type="button" className="btn-gold" onClick={() => setBuilding(live ? { ...live, id: null } : { items: [], currency: ev.currency, depositPercent: 30, taxRate: 0, discount: 0, notes: '' })}>
+          <button type="button" className="btn-gold" onClick={() => setBuilding(live ? { ...live, id: null } : { items: [], images: [], currency: ev.currency, depositPercent: 30, taxRate: 0, discount: 0, notes: '' })}>
             <Icon name="request_quote" size={18} /> {live ? 'New version of the proposal' : 'Build a proposal'}
           </button>
         ) : null}
-        {ev.status === 'accepted' || (ev.status === 'confirmed' && accepted && ev.depositPaid < accepted.total) ? (
+        {(ev.status === 'accepted' || ev.status === 'confirmed') && accepted && !ev.account?.paidInFull ? (
           <button type="button" className="btn-gold" onClick={() => setDepositOpen((o) => !o)}>
             <Icon name="payments" size={18} /> Record a payment
           </button>
@@ -220,7 +221,9 @@ function EventDetail({ ev, apply, toast }) {
         ) : null}
       </div>
 
-      {depositOpen ? <DepositForm ev={ev} quote={accepted} onDone={(e) => { apply(e); setDepositOpen(false); toast('Payment recorded'); }} toast={toast} /> : null}
+      {depositOpen ? <DepositForm ev={ev} quote={accepted} onDone={(e) => { apply(e); setDepositOpen(false); toast('Payment recorded · receipt sent to the client'); }} toast={toast} /> : null}
+
+      {ev.account?.invoiceNumber ? <AccountCard account={ev.account} currency={accepted?.currency || ev.currency} /> : null}
 
       {building || draft ? (
         <QuoteBuilder
@@ -266,7 +269,10 @@ function QuoteSummary({ quote: q }) {
         {q.respondedAt ? ` · ${q.status} ${moment(q.respondedAt).fromNow()}${q.responseName ? ` by ${q.responseName}` : ''}` : ''}
         {q.validUntil ? ` · valid until ${moment(q.validUntil).format('D MMM')}` : ''}
       </span>
+      {q.counterBudget ? <div className="kit-message" style={{ fontSize: 14, borderColor: 'var(--gold)' }}>Too much for the client — their budget: <strong>{money(q.counterBudget, q.currency)}</strong>. Build a new version around it.</div> : null}
       {q.responseNote ? <div className="kit-message" style={{ fontSize: 14 }}>“{q.responseNote}”</div> : null}
+      {q.images?.length ? <span className="sub">{q.images.length} mood image{q.images.length > 1 ? 's' : ''} · {q.images.map((i) => i.caption).filter(Boolean).join(' · ')}</span> : null}
+      {q.invoiceNumber ? <span className="sub">Invoice {q.invoiceNumber}</span> : null}
       {q.link && q.status === 'sent' ? (
         <button type="button" className="card-link" style={{ alignSelf: 'flex-start' }} onClick={() => navigator.clipboard?.writeText(q.link)}>
           Copy the client’s link
@@ -285,6 +291,7 @@ function QuoteBuilder({ ev, quote, onClose, onSaved, toast }) {
     depositPercent: quote.depositPercent ?? 30,
     validUntil: quote.validUntil || moment().add(14, 'days').format('YYYY-MM-DD'),
     notes: quote.notes || '',
+    images: (quote.images || []).map((i) => ({ ...i })),
   });
   const [busy, setBusy] = useState('');
   const set = (k) => (val) => setV((x) => ({ ...x, [k]: val }));
@@ -371,6 +378,12 @@ function QuoteBuilder({ ev, quote, onClose, onSaved, toast }) {
         <TextInput label="Deposit to confirm (%)" type="number" value={v.depositPercent} onChange={set('depositPercent')} />
         <TextInput label="Valid until" type="date" value={v.validUntil} onChange={set('validUntil')} />
       </div>
+      <MoodBoard images={v.images} onChange={set('images')} toast={toast} />
+      {ev.clientBudget ? (
+        <div className="kit-message" style={{ borderColor: 'var(--gold)' }}>
+          The client’s budget is <strong>{money(ev.clientBudget, v.currency)}</strong> — this version is {total > ev.clientBudget ? `${money(total - ev.clientBudget, v.currency)} above` : 'within'} it.
+        </div>
+      ) : null}
       <TextInput label="Included, conditions and payment terms (shown to the client)" multiline rows={4} value={v.notes} onChange={set('notes')} placeholder="Includes tables, chairs, linen and service staff until midnight. Balance due 14 days before the event." />
       <Facts
         items={[
@@ -395,28 +408,91 @@ function QuoteBuilder({ ev, quote, onClose, onSaved, toast }) {
   );
 }
 
+/** "How we see it": images that show the client what we are aiming for, shown above the proposal. */
+function MoodBoard({ images, onChange, toast }) {
+  const [busy, setBusy] = useState(false);
+  const add = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const url = await contentApi.uploadImage(file);
+      onChange([...images, { url, caption: '' }]);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <span className="kit-label">How we see it — mood images shown with the proposal ({images.length}/8)</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+        {images.map((img, i) => (
+          <div key={img.url + i} className="card" style={{ padding: 6, gap: 6, background: 'var(--surface-2)' }}>
+            <img src={mediaUrl(img.url)} alt="" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: 6 }} />
+            <input className="kit-input" value={img.caption} placeholder="Caption" onChange={(e) => onChange(images.map((x, j) => (j === i ? { ...x, caption: e.target.value } : x)))} />
+            <button type="button" className="card-link" onClick={() => onChange(images.filter((_, j) => j !== i))}>Remove</button>
+          </div>
+        ))}
+        {images.length < 8 ? (
+          <label className="card" style={{ alignItems: 'center', justifyContent: 'center', minHeight: 120, cursor: busy ? 'progress' : 'pointer', borderStyle: 'dashed', gap: 6 }}>
+            <Icon name="add_photo_alternate" size={26} />
+            <span className="sub">{busy ? 'Uploading…' : 'Add an image'}</span>
+            <input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={add} disabled={busy} />
+          </label>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Invoice, payments and receipts of an accepted proposal. */
+function AccountCard({ account, currency }) {
+  return (
+    <div className="card" style={{ gap: 10, background: 'var(--surface-2)' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span className="serif" style={{ fontSize: 20, flex: 1 }}>Invoice {account.invoiceNumber}</span>
+        <Pill tone={account.paidInFull ? '#3fd283' : account.depositDue > 0 ? '#e8b84a' : '#5b8ff0'}>{account.paidInFull ? 'Paid in full' : account.depositDue > 0 ? 'Deposit due' : 'Balance due'}</Pill>
+        {account.invoiceUrl ? <a className="fay-btn-outline" href={account.invoiceUrl} target="_blank" rel="noreferrer"><Icon name="receipt_long" size={18} /> Invoice</a> : null}
+      </div>
+      <Facts items={[['Total', money(account.total, currency)], ['Paid', money(account.paid, currency)], ['Balance', money(account.balance, currency)], ['Deposit still due', account.depositDue ? money(account.depositDue, currency) : null]]} />
+      {account.payments.map((p) => (
+        <div key={p.id} className="row-line" style={{ display: 'flex', gap: 12, padding: '6px 0', fontSize: 13.5, flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--dim)', minWidth: 100 }}>{moment(p.paidAt).format('D MMM YYYY')}</span>
+          <span style={{ flex: 1 }}>{p.method}{p.reference ? ` · ref. ${p.reference}` : ''}</span>
+          <span>{money(p.amount, p.currency || currency)}</span>
+          {p.receiptUrl ? <a className="card-link" href={p.receiptUrl} target="_blank" rel="noreferrer">{p.receiptNumber}</a> : null}
+        </div>
+      ))}
+      <span className="sub">Every payment — online or recorded here — is in the same ledger with a numbered receipt emailed to the client. No side deals: the client is told to pay only through the platform or against a receipt.</span>
+    </div>
+  );
+}
+
 function DepositForm({ ev, quote, onDone, toast }) {
-  const due = quote ? Math.max(0, (ev.depositPaid ? quote.total : quote.depositAmount) - ev.depositPaid) : 0;
-  const [v, setV] = useState({ amount: due || '', method: 'mobile_money', reference: '' });
+  const due = ev.account ? (ev.account.depositDue > 0 ? ev.account.depositDue : ev.account.balance) : 0;
+  const [v, setV] = useState({ amount: due || '', method: 'cash', reference: '' });
   const [busy, setBusy] = useState(false);
   return (
     <div className="card" style={{ gap: 12, background: 'var(--surface-2)' }}>
       <span className="card-title">Payment received</span>
       <span className="sub">
-        {quote ? `Deposit ${money(quote.depositAmount, quote.currency)} of ${money(quote.total, quote.currency)}. Already received: ${money(ev.depositPaid, quote.currency)}.` : ''} Recording the first payment confirms the date.
+        {quote ? `Deposit ${money(quote.depositAmount, quote.currency)} of ${money(quote.total, quote.currency)}. Already received: ${money(ev.account?.paid || 0, quote.currency)}.` : ''} Money taken at the residence or by transfer: the client gets a numbered receipt by email. The date is confirmed once the deposit is covered. Online payments are recorded by themselves.
       </span>
       <div className="kit-two">
         <TextInput label={`Amount (${quote?.currency || ev.currency})`} type="number" value={v.amount} onChange={(a) => setV({ ...v, amount: a })} />
         <label className="kit-field">
           <span className="kit-label">Method</span>
           <select className="kit-select" value={v.method} onChange={(e) => setV({ ...v, method: e.target.value })}>
-            <option value="mobile_money">Mobile money</option>
+            <option value="cash">Cash at the residence</option>
             <option value="bank_transfer">Bank transfer</option>
-            <option value="card">Card</option>
-            <option value="cash">Cash</option>
+            <option value="card_terminal">Card terminal</option>
+            <option value="mobile_money">Mobile money (to the Faysha account)</option>
           </select>
         </label>
-        <TextInput label="Reference" value={v.reference} onChange={(r) => setV({ ...v, reference: r })} />
+        <TextInput label={v.method === 'cash' ? 'Reference (optional)' : 'Transaction reference (required)'} value={v.reference} onChange={(r) => setV({ ...v, reference: r })} />
       </div>
       <div className="kit-actions" style={{ justifyContent: 'flex-end' }}>
         <button

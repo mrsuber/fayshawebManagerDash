@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
-import { eventDeposit, getEventQuote, getStories, respondToEventQuote, sendEventRequest } from '../api';
+import { eventDeposit, getEventQuote, mediaUrl, getStories, respondToEventQuote, sendEventRequest } from '../api';
 import { Loading } from '../components/ui';
 import { IMG } from '../data';
 import { useLang } from '../i18n';
@@ -202,8 +202,6 @@ function PlanForm() {
             <div className="fs-field">{t('events.qServices')}<Chips multi options={SERVICES} value={v.services} onChange={set('services')} label={t('events.qServices')} /></div>
             <div className="fs-form-grid">
               <label className="fs-field">{t('events.qRooms')}<input className="fs-input" type="number" min="0" value={v.roomsNeeded} onChange={set('roomsNeeded')} /></label>
-              <label className="fs-field">{t('events.qBudgetMin')}<input className="fs-input" type="number" min="0" value={v.budgetMin} onChange={set('budgetMin')} /></label>
-              <label className="fs-field">{t('events.qBudgetMax')}<input className="fs-input" type="number" min="0" value={v.budgetMax} onChange={set('budgetMax')} /></label>
               <label className="fs-field">{t('events.qCurrency')}
                 <select className="fs-input" value={v.currency} onChange={set('currency')}>
                   {['XAF', 'EUR', 'USD', 'GBP', 'NGN', 'XOF'].map((c) => <option key={c} value={c}>{c}</option>)}
@@ -211,6 +209,7 @@ function PlanForm() {
               </label>
             </div>
             <label className="fs-field">{t('events.qVision')}<textarea className="fs-input" rows={5} value={v.message} onChange={set('message')} placeholder={t('events.qVisionPh')} /></label>
+            <p className="fs-muted" style={{ fontSize: 13, margin: 0 }}>{t('events.noBudgetNote')}</p>
           </>
         )}
         {step === 3 && (
@@ -245,6 +244,9 @@ export function EventQuote() {
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
+  const [budget, setBudget] = useState('');
+  const [mode, setMode] = useState('accept'); // accept | counter | decline
+  const [answered, setAnswered] = useState('');
   const [busy, setBusy] = useState(false);
   const load = () => getEventQuote(token).then(setD).catch((e) => { setError(e.message); setD(null); });
   useEffect(() => {
@@ -255,7 +257,8 @@ export function EventQuote() {
     setBusy(true);
     setError('');
     try {
-      await respondToEventQuote(token, { decision, name, note });
+      const r = await respondToEventQuote(token, { decision, name, note, budget: decision === 'counter' ? Number(budget) : undefined });
+      setAnswered(r?.status || decision);
       await load();
     } catch (e) {
       setError(e.message);
@@ -271,6 +274,16 @@ export function EventQuote() {
       <p className="fs-kicker">{d.reference} · {t('events.proposal')} v{q.version}</p>
       <h1 className="fs-h1">{d.title || `${d.typeLabel} · ${d.guests} ${t('stories.guests')}`}</h1>
       <p className="fs-lead">{t('events.proposalFor', { name: d.name })}{d.eventDate ? ` · ${new Date(`${d.eventDate}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}</p>
+      {q.images?.length ? (
+        <div className="fs-moodboard" aria-label={t('events.moodboard')}>
+          {q.images.map((img, i) => (
+            <figure key={i} className={i === 0 ? 'fs-moodboard__lead' : ''}>
+              <img src={mediaUrl(img.url)} alt={img.caption || t('events.moodboard')} loading="lazy" />
+              {img.caption ? <figcaption>{img.caption}</figcaption> : null}
+            </figure>
+          ))}
+        </div>
+      ) : null}
       <div className="fs-card" style={{ padding: 'clamp(22px, 4vw, 44px)', marginTop: 32 }}>
         <table className="fs-quote">
           <tbody>
@@ -295,20 +308,70 @@ export function EventQuote() {
       </div>
       {q.status === 'sent' ? (
         <div className="fs-card" style={{ padding: 'clamp(22px, 4vw, 44px)', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <label className="fs-field">{t('events.signName')}<input className="fs-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label>
-          <label className="fs-field">{t('events.noteToUs')}<textarea className="fs-input" rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
+          <div className="fs-chips" role="radiogroup" aria-label={t('events.yourAnswer')}>
+            {[['accept', t('events.accept')], ['counter', t('events.tooMuch')], ['decline', t('events.decline')]].map(([id, label]) => (
+              <button key={id} type="button" role="radio" aria-checked={mode === id} className="fs-chip fs-chip--soft" aria-pressed={mode === id} onClick={() => setMode(id)} style={{ minHeight: 46 }}>{label}</button>
+            ))}
+          </div>
+          {mode === 'accept' ? <label className="fs-field">{t('events.signName')}<input className="fs-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label> : null}
+          {mode === 'counter' ? (
+            <>
+              <p className="fs-muted" style={{ margin: 0 }}>{t('events.counterLead')}</p>
+              <label className="fs-field">{t('events.yourBudget')} ({q.currency})<input className="fs-input" type="number" min="1" inputMode="numeric" value={budget} onChange={(e) => setBudget(e.target.value)} /></label>
+            </>
+          ) : null}
+          <label className="fs-field">{mode === 'counter' ? t('events.counterNote') : t('events.noteToUs')}<textarea className="fs-input" rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
           {error ? <div className="fs-alert fs-alert--error" role="alert">{error}</div> : null}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button type="button" className="fs-btn fs-btn--ghost" disabled={busy} onClick={() => respond('decline')}>{t('events.decline')}</button>
-            <button type="button" className="fs-btn fs-btn--gold" disabled={busy || !name.trim()} onClick={() => respond('accept')}>{t('events.accept')}</button>
+            {mode === 'accept' ? <button type="button" className="fs-btn fs-btn--gold" disabled={busy || !name.trim()} onClick={() => respond('accept')}>{t('events.accept')}</button> : null}
+            {mode === 'counter' ? <button type="button" className="fs-btn fs-btn--gold" disabled={busy || !(Number(budget) > 0)} onClick={() => respond('counter')}>{t('events.sendBudget')}</button> : null}
+            {mode === 'decline' ? <button type="button" className="fs-btn fs-btn--ghost" disabled={busy} onClick={() => respond('decline')}>{t('events.declineFinal')}</button> : null}
           </div>
-          <p className="fs-muted" style={{ fontSize: 13, margin: 0 }}>{t('events.acceptNote')}</p>
+          {mode === 'accept' ? <p className="fs-muted" style={{ fontSize: 13, margin: 0 }}>{t('events.acceptNote')}</p> : null}
         </div>
       ) : (
-        <div className={`fs-alert ${q.status === 'accepted' ? 'fs-alert--ok' : ''}`} style={{ marginTop: 20 }}>{t(`events.state_${q.status}`)}</div>
+        <div className={`fs-alert ${q.status === 'accepted' ? 'fs-alert--ok' : ''}`} style={{ marginTop: 20 }}>
+          {q.status === 'declined' && (q.counterBudget || answered === 'revising') ? t('events.state_revising', { budget: fmt(q.counterBudget || Number(budget), q.currency) }) : t(`events.state_${q.status}`)}
+        </div>
       )}
-      {q.status === 'accepted' ? <DepositPay token={token} /> : null}
+      {q.status === 'accepted' && d.account ? <Account account={d.account} currency={q.currency} /> : null}
+      {q.status === 'accepted' ? <DepositPay token={token} onPaid={load} /> : null}
     </section>
+  );
+}
+
+/** Invoice, what is paid and each payment's receipt — all money for the event goes through here. */
+function Account({ account, currency }) {
+  const { t } = useLang();
+  return (
+    <div className="fs-card" style={{ padding: 'clamp(22px, 4vw, 44px)', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <h2 className="fs-h3" style={{ margin: 0 }}>{t('events.invoice')} {account.invoiceNumber}</h2>
+        {account.invoiceUrl ? <a className="fs-btn fs-btn--ghost" href={account.invoiceUrl} target="_blank" rel="noreferrer">{t('events.viewInvoice')}</a> : null}
+      </div>
+      <table className="fs-quote">
+        <tbody>
+          <tr><td>{t('events.total')}</td><td /><td className="fs-quote__amt">{fmt(account.total, currency)}</td></tr>
+          <tr><td>{t('events.paid')}</td><td /><td className="fs-quote__amt">{fmt(account.paid, currency)}</td></tr>
+          <tr className="fs-quote__total"><td>{t('events.balance')}</td><td /><td className="fs-quote__amt">{fmt(account.balance, currency)}</td></tr>
+        </tbody>
+      </table>
+      {account.payments.length ? (
+        <div>
+          <p className="fs-kicker" style={{ marginBottom: 8 }}>{t('events.receipts')}</p>
+          {account.payments.map((p) => (
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--fs-line, rgba(255,255,255,.08))', flexWrap: 'wrap' }}>
+              <span>{new Date(p.paidAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · {p.method}</span>
+              <span>
+                {fmt(p.amount, p.currency || currency)}
+                {p.receiptUrl ? <> · <a href={p.receiptUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--fs-gold, #e8b84a)' }}>{p.receiptNumber}</a></> : null}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <p className="fs-muted" style={{ fontSize: 13, margin: 0 }}>{t('events.onlyHere')}</p>
+    </div>
   );
 }
 
@@ -316,17 +379,20 @@ const stripeLoads = {};
 const stripeFor = (key) => (key ? (stripeLoads[key] = stripeLoads[key] || loadStripe(key)) : null);
 
 /** Pay the deposit of an accepted proposal: card (Stripe) or MTN / Orange money; the event is confirmed at once. */
-function DepositPay({ token }) {
+function DepositPay({ token, onPaid }) {
   const { t } = useLang();
   const [info, setInfo] = useState(null);
-  const load = () => eventDeposit.get(token).then(setInfo).catch(() => setInfo(false));
+  const load = () => {
+    onPaid?.();
+    return eventDeposit.get(token).then(setInfo).catch(() => setInfo(false));
+  };
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
   if (!info) return null;
   if (!(info.due > 0)) {
-    return info.paid > 0 ? <div className="fs-alert fs-alert--ok" style={{ marginTop: 20 }}>{t('events.depositPaid')} {fmt(info.paid, info.currency)}</div> : null;
+    return info.paid > 0 ? <div className="fs-alert fs-alert--ok" style={{ marginTop: 20 }}>{t('events.paidInFull')}</div> : null;
   }
   if (!info.card && !info.mobileMoney?.automatic) return <p className="fs-muted" style={{ marginTop: 20 }}>{t('events.depositOffline')}</p>;
   return (
@@ -391,7 +457,8 @@ function DepositForm({ token, info, onPaid }) {
 
   return (
     <div className="fs-card" style={{ padding: 'clamp(22px, 4vw, 44px)', marginTop: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <h2 className="fs-h3" style={{ margin: 0 }}>{t('events.payDeposit')} · {fmt(info.due, info.currency)}</h2>
+      <h2 className="fs-h3" style={{ margin: 0 }}>{info.stage === 'balance' ? t('events.payBalance') : t('events.payDeposit')} · {fmt(info.due, info.currency)}</h2>
+      {info.stage === 'balance' ? <p className="fs-muted" style={{ margin: 0 }}>{t('events.depositPaid')}</p> : null}
       {waiting ? (
         <div className="fs-alert" role="status">{t('book.approve')} — {t('book.approveNote')}</div>
       ) : (
