@@ -12,20 +12,28 @@ const authService = {
     return response;
   },
 
-  /** { fullName, email, password, phone? } → signed in on success. 409 { code: 'ACCOUNT_EXISTS' } if the email is taken. */
-  async register({ fullName, email, password, phone }) {
-    const response = await apiClient.post('/auth/register', {
+  /**
+   * { fullName, email, password, phone? } → { verificationRequired, email }: a 6-digit code is emailed and the
+   * account opens with verifyCode. 409 { code: 'ACCOUNT_EXISTS' } if the email already has a verified account.
+   */
+  register: ({ fullName, email, password, phone }) =>
+    apiClient.post('/auth/register', {
       fullName: fullName.trim(),
       email: email.trim().toLowerCase(),
       password,
       phone: phone ? phone.trim() : undefined,
-    });
+    }),
+
+  /** { email, code } → signed in. */
+  async verifyCode(email, code) {
+    const response = await apiClient.post('/auth/verify-code', { email: email.trim().toLowerCase(), code });
     if (response.success && response.token) {
       await setToken(response.token);
       await setUser(response.user);
     }
     return response;
   },
+  resendCode: (email) => apiClient.post('/auth/resend-code', { email: email.trim().toLowerCase() }),
 
   async logout() {
     const token = await getToken();

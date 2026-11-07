@@ -147,6 +147,9 @@ app.use('/api/work', require('./routes/work')); // My work: each team member's a
 // Public media (residence photos, chat images): readable from the website, the dashboards and the app on any origin.
 app.use('/uploads', (req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  // Read with CORS by WebGL viewers (the 360° tour in the app runs in a WebView with no origin): public, no cookies.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.removeHeader('Access-Control-Allow-Credentials');
   next();
 }, express.static(require('path').join(__dirname, 'uploads'), { maxAge: '7d' }));
 

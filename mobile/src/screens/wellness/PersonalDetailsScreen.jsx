@@ -6,13 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import apiClient from '../../services/api';
+import { showAlert } from '../../components/Dialog';
 
 export default function PersonalDetailsScreen({ navigation }) {
   const { user, refreshUserData } = useAuth();
@@ -59,7 +59,7 @@ export default function PersonalDetailsScreen({ navigation }) {
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
-      Alert.alert('Error', 'Failed to load profile data');
+      showAlert('Error', 'Failed to load profile data');
     } finally {
       setLoading(false);
     }
@@ -71,7 +71,7 @@ export default function PersonalDetailsScreen({ navigation }) {
 
       // Validate required fields
       if (!formData.fullName.trim()) {
-        Alert.alert('Validation Error', 'Full name is required');
+        showAlert('Validation Error', 'Full name is required');
         return;
       }
 
@@ -91,14 +91,14 @@ export default function PersonalDetailsScreen({ navigation }) {
         // Refresh user data in AuthContext
         await refreshUserData();
 
-        Alert.alert('Success', 'Your profile has been updated successfully');
+        showAlert('Success', 'Your profile has been updated successfully');
         setIsEditing(false);
       } else {
-        Alert.alert('Error', response.error || 'Failed to update profile');
+        showAlert('Error', response.error || 'Failed to update profile');
       }
     } catch (error) {
       console.error('Error updating profile:', error);
-      Alert.alert('Error', error.error || 'Failed to update profile');
+      showAlert('Error', error.error || 'Failed to update profile');
     } finally {
       setSaving(false);
     }

@@ -6,6 +6,7 @@ import { Screen, Card, Button, Field, PickerField, Stepper, Notice, Checkbox, Ch
 import { COLORS, FONTS } from '../../constants/theme';
 import apiClient, { errorMessage } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import ResidenceSheet from '../../components/ResidenceSheet';
 import { fileUrl } from '../../config';
 import { getPaymentConfig, applyStripeKey } from '../../services/paymentConfig';
 import { addDays, dayLabel, isoDay, nightsBetween, xaf, xafExact } from '../../utils/format';
@@ -27,6 +28,7 @@ export default function BookStayScreen({ navigation }) {
   const { user, isAuthenticated } = useAuth();
   const stripe = useStripe();
   const [step, setStep] = useState(0);
+  const [viewing, setViewing] = useState(null); // residence open in the details sheet
   const [stay, setStay] = useState({ checkIn: addDays(new Date(), 1), checkOut: addDays(new Date(), 3), guests: 2 });
   const [options, setOptions] = useState(null);
   const [choice, setChoice] = useState(null);
@@ -106,6 +108,7 @@ export default function BookStayScreen({ navigation }) {
           image: cat.primary_image || cat.representative_image || u.primary_image || null,
           maxGuests: Number(cat.max_guests) || Number(u.max_guests) || 0,
           bedrooms: Number(cat.bedrooms) || 0,
+          mediaCount: Number(cat.media_count) || 0,
           units: [],
         };
         entry.units.push({ id: u.id, unit: u.unit_number, price: Number(u.price_per_night) || 0, available: u.is_available !== false, maxGuests: Number(u.max_guests) || entry.maxGuests });
@@ -270,12 +273,17 @@ export default function BookStayScreen({ navigation }) {
             <TouchableOpacity key={o.categoryId} activeOpacity={0.9} disabled={!o.unit} onPress={() => setChoice(o)} style={{ marginTop: 14, opacity: o.unit ? 1 : 0.45 }}>
               <Card padded={false} highlight={selected} style={selected ? { borderColor: COLORS.primary } : null}>
                 <Image source={o.image ? { uri: fileUrl(o.image) } : require('../../../assets/explore.jpg')} style={s.resImage} />
+                <TouchableOpacity style={s.gallery} onPress={() => setViewing(o)} accessibilityLabel={`Photos and 360° view of ${o.name}`}>
+                  <Ionicons name="images-outline" size={14} color={COLORS.text} />
+                  <Text style={s.galleryText}>{o.mediaCount ? `Gallery · ${o.mediaCount}` : 'Photos & details'}</Text>
+                </TouchableOpacity>
                 <View style={{ padding: 16 }}>
                   <View style={s.rowBetween}>
                     <Text style={s.resName}>{o.name}</Text>
                     {selected ? <Ionicons name="checkmark-circle" size={22} color={COLORS.primary} /> : null}
                   </View>
                   {!!o.description && <Body muted numberOfLines={3} style={{ marginTop: 6, fontSize: 12.5 }}>{o.description}</Body>}
+                  <Text style={s.details} onPress={() => setViewing(o)}>See photos, 360° view & details ›</Text>
                   <View style={[s.rowBetween, { marginTop: 12 }]}>
                     <Text style={s.meta}>{[o.bedrooms ? `${o.bedrooms} bedroom${o.bedrooms > 1 ? 's' : ''}` : null, o.maxGuests ? `up to ${o.maxGuests} guests` : null].filter(Boolean).join(' · ')}</Text>
                     {o.unit ? (
@@ -399,6 +407,15 @@ export default function BookStayScreen({ navigation }) {
         ))}
       </View>
       {body}
+      <ResidenceSheet
+        option={viewing}
+        onClose={() => setViewing(null)}
+        priceLine={viewing?.unit ? `${xaf(viewing.price)} / night · ${xaf(viewing.price * nights)} for ${nights} night${nights > 1 ? 's' : ''}` : null}
+        onChoose={(o) => {
+          setChoice(o);
+          setViewing(null);
+        }}
+      />
     </Screen>
   );
 }
@@ -408,7 +425,10 @@ const s = StyleSheet.create({
   bar: { flex: 1, height: 3, borderRadius: 2, backgroundColor: 'rgba(242,233,216,0.1)' },
   barOn: { backgroundColor: COLORS.primary },
   nights: { fontFamily: FONTS.body, color: COLORS.primary, fontSize: 13, textAlign: 'center', marginTop: 6, letterSpacing: 1 },
-  resImage: { width: '100%', height: 150 },
+  resImage: { width: '100%', height: 170 },
+  gallery: { position: 'absolute', top: 10, right: 10, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(13,13,13,0.75)', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: 'rgba(200,164,93,0.4)' },
+  galleryText: { color: COLORS.text, fontSize: 11.5, fontFamily: FONTS.body },
+  details: { color: COLORS.primary, fontSize: 12.5, fontFamily: FONTS.body, marginTop: 10 },
   resName: { fontFamily: FONTS.heading, color: COLORS.text, fontSize: 17, letterSpacing: 0.5, flexShrink: 1 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   meta: { fontFamily: FONTS.body, color: COLORS.textTertiary, fontSize: 12 },

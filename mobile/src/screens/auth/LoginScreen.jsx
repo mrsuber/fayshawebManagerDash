@@ -23,6 +23,11 @@ export default function LoginScreen({ navigation, route }) {
     setError('');
     const result = await login(email.trim(), password);
     // On success the app switches to the signed-in screens by itself.
+    if (!result.success && result.code === 'EMAIL_NOT_VERIFIED') {
+      setBusy(false);
+      navigation.navigate('EmailVerification', { email: result.email || email.trim().toLowerCase(), waitSeconds: result.waitSeconds, fromLogin: true });
+      return;
+    }
     if (!result.success) {
       setError(result.status === 401 ? 'That email and password don’t match. Try again or reset your password.' : result.error);
       setBusy(false);

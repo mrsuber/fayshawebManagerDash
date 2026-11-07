@@ -12,6 +12,32 @@ const { authenticateToken, checkPasswordChangeRequired } = require('../middlewar
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const emailCode = require('../services/emailCode');
+
+/** A guest who signed up in the app and has not entered the emailed code yet. */
+const awaitingCode = (u) => u && u.status === 'pending_verification' && !u.email_verified && (u.role_name || u.role) === 'guest';
+
+/** The { token, user } a successful sign-in returns. */
+async function signedIn(userId) {
+  const user = await userService.getUserById(userId);
+  const token = jwt.sign({ userId: user.id, email: user.email, role: user.role_name }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return {
+    success: true,
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      fullName: user.full_name,
+      role: user.role_name,
+      roleDisplayName: user.role_display_name,
+      permissions: user.permissions,
+      emailVerified: user.email_verified,
+      mustChangePassword: user.must_change_password,
+      isPasswordTemporary: user.is_password_temporary
+    }
+  };
+}
 
 /**
  * POST /api/auth/login
@@ -65,6 +91,18 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({
         success: false,
         error: 'Invalid credentials'
+      });
+    }
+
+    // Signed up but never entered the emailed code: no session until they do (a new code is sent).
+    if (awaitingCode(user)) {
+      const sent = await emailCode.send(user);
+      return res.status(403).json({
+        success: false,
+        code: 'EMAIL_NOT_VERIFIED',
+        email: user.email,
+        waitSeconds: sent.waitSeconds,
+        error: 'Please verify your email first: we sent you a 6-digit code.'
       });
     }
 
@@ -143,7 +181,16 @@ router.post('/register', async (req, res) => {
     }
 
     const db = require('../config/database');
-    const existing = await db.query('SELECT id FROM users WHERE LOWER(email) = $1', [cleanEmail]);
+    const existing = await db.query(
+      `SELECT u.id, u.email, u.full_name, u.status, u.email_verified, r.name AS role_name
+         FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE LOWER(u.email) = $1`,
+      [cleanEmail]
+    );
+    if (existing.rows.length && awaitingCode(existing.rows[0])) {
+      // Signed up before but never verified: send a code again rather than a dead end.
+      const sent = await emailCode.send(existing.rows[0]);
+      return res.status(202).json({ success: true, verificationRequired: true, email: cleanEmail, waitSeconds: sent.waitSeconds });
+    }
     if (existing.rows.length) {
       return res.status(409).json({
         success: false,
@@ -164,43 +211,86 @@ router.post('/register', async (req, res) => {
     const username = `${cleanEmail.split('@')[0].replace(/[^a-z0-9]/g, '').slice(0, 30) || 'guest'}_${Math.floor(1000 + Math.random() * 9000)}`;
     const { rows } = await db.query(
       `INSERT INTO users (email, username, password_hash, full_name, phone, role_id, status, email_verified, is_password_temporary, must_change_password)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active', false, false, false)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending_verification', false, false, false)
        RETURNING id, email, username, full_name, email_verified`,
       [cleanEmail, username, await bcrypt.hash(password, 10), String(fullName).trim(), phone || null, r.id]
     );
     const user = rows[0];
 
-    // Link earlier bookings made with this email (e.g. a booking before the account existed).
-    await db.query('UPDATE bookings SET user_id = $1 WHERE user_id IS NULL AND LOWER(guest_email) = $2', [user.id, cleanEmail]);
-
-    const emailService = require('../services/email.service');
-    emailService.sendEmail({
-      to: cleanEmail,
-      subject: 'Welcome to Faysha',
-      text: `Hello ${user.full_name},\n\nYour Faysha account is ready. Sign in to the Faysha app with ${cleanEmail} to book your stay, open your door with your digital key and talk to your concierge.\n\nOne destination, endless serenity.`,
-      html: `<p>Hello ${String(user.full_name).replace(/[<>&]/g, '')},</p><p>Your Faysha account is ready. Sign in to the Faysha app with <b>${cleanEmail}</b> to book your stay, open your door with your digital key and talk to your concierge.</p><p><i>One destination, endless serenity.</i></p>`
-    }).catch((e) => console.error('Welcome email failed:', e.message));
-
-    const token = jwt.sign({ userId: user.id, email: user.email, role: r.name }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-    res.status(201).json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        fullName: user.full_name,
-        role: r.name,
-        roleDisplayName: r.display_name,
-        permissions: r.permissions,
-        emailVerified: user.email_verified,
-        mustChangePassword: false,
-        isPasswordTemporary: false
-      }
-    });
+    // No session yet: the account opens once the emailed code is entered (POST /verify-code).
+    const sent = await emailCode.send({ ...user, role_name: r.name }, { force: true });
+    res.status(201).json({ success: true, verificationRequired: true, email: user.email, waitSeconds: sent.waitSeconds });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ success: false, error: 'An error occurred during sign-up' });
+  }
+});
+
+/**
+ * POST /api/auth/verify-code { email, code } → { token, user }
+ * Opens a signed-up account: the guest is signed in, earlier bookings with this email join it, and the welcome email goes out.
+ */
+router.post('/verify-code', async (req, res) => {
+  try {
+    const cleanEmail = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '').replace(/\D/g, '');
+    if (!cleanEmail || code.length !== 6) return res.status(400).json({ success: false, error: 'Enter the 6-digit code from your email' });
+    const db = require('../config/database');
+    const u = (await db.query(
+      `SELECT u.id, u.email, u.full_name, u.status, u.email_verified, r.name AS role_name
+         FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE LOWER(u.email) = $1`,
+      [cleanEmail]
+    )).rows[0];
+    if (!u || !awaitingCode(u)) {
+      return res.status(400).json({ success: false, code: u?.email_verified ? 'ALREADY_VERIFIED' : 'INVALID', error: u?.email_verified ? 'This email is already verified: sign in.' : 'That code is not valid' });
+    }
+    const result = await emailCode.check(u.id, code);
+    if (result !== 'ok') {
+      const error = {
+        wrong: 'That code is not right. Check the latest email from Faysha.',
+        expired: 'That code has expired. Send a new one.',
+        locked: 'Too many wrong codes. Send a new one.'
+      }[result];
+      return res.status(400).json({ success: false, code: result.toUpperCase(), error });
+    }
+    await db.query('UPDATE bookings SET user_id = $1 WHERE user_id IS NULL AND LOWER(guest_email) = $2', [u.id, cleanEmail]);
+    const name = String(u.full_name).replace(/[<>&]/g, '');
+    require('../services/email.service').sendEmail({
+      to: cleanEmail,
+      subject: 'Welcome to Faysha',
+      text: `Hello ${u.full_name},\n\nYour Faysha account is ready. Book your stay, open your door with your digital key and talk to your concierge from the Faysha app.\n\nOne destination, endless serenity.`,
+      html: `<p>Hello ${name},</p><p>Your Faysha account is ready. Book your stay, open your door with your digital key and talk to your concierge from the Faysha app.</p><p><i>One destination, endless serenity.</i></p>`
+    }).catch((e) => console.error('Welcome email failed:', e.message));
+    res.json(await signedIn(u.id));
+  } catch (error) {
+    console.error('Verify code error:', error);
+    res.status(500).json({ success: false, error: 'We could not check the code. Please try again.' });
+  }
+});
+
+/**
+ * POST /api/auth/resend-code { email } → { success, waitSeconds }
+ * Always answers the same way, so it does not reveal which emails have accounts.
+ */
+router.post('/resend-code', async (req, res) => {
+  try {
+    const cleanEmail = String(req.body?.email || '').trim().toLowerCase();
+    const db = require('../config/database');
+    const u = (await db.query(
+      `SELECT u.id, u.email, u.full_name, u.status, u.email_verified, r.name AS role_name
+         FROM users u LEFT JOIN roles r ON r.id = u.role_id WHERE LOWER(u.email) = $1`,
+      [cleanEmail]
+    )).rows[0];
+    let waitSeconds = emailCode.RESEND_SECONDS;
+    if (awaitingCode(u)) {
+      const sent = await emailCode.send(u);
+      if (!sent.sent) return res.status(429).json({ success: false, waitSeconds: sent.waitSeconds, error: `Please wait ${sent.waitSeconds} s before asking for another code` });
+      waitSeconds = sent.waitSeconds;
+    }
+    res.json({ success: true, waitSeconds, message: 'If this email is waiting for a code, a new one is on its way.' });
+  } catch (error) {
+    console.error('Resend code error:', error);
+    res.status(500).json({ success: false, error: 'We could not send a code. Please try again.' });
   }
 });
 

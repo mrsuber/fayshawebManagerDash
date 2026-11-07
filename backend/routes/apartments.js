@@ -100,12 +100,13 @@ router.get('/categories/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Media and unit count as sub-queries: joining both multiplied each photo by the number of residences.
     const result = await pool.query(`
       SELECT
         c.*,
-        COUNT(a.id) as apartment_count,
-        COALESCE(
-          json_agg(
+        (SELECT COUNT(*) FROM apartments a WHERE a.category_id = c.id AND a.is_active = true) as apartment_count,
+        COALESCE((
+          SELECT json_agg(
             jsonb_build_object(
               'id', m.id,
               'media_type', m.media_type,
@@ -115,14 +116,11 @@ router.get('/categories/:id', async (req, res) => {
               'is_primary', m.is_primary,
               'sort_order', m.sort_order
             ) ORDER BY m.sort_order, m.id
-          ) FILTER (WHERE m.id IS NOT NULL),
-          '[]'
-        ) as media
+          )
+          FROM apartment_media m WHERE m.category_id = c.id
+        ), '[]') as media
       FROM apartment_categories c
-      LEFT JOIN apartments a ON c.id = a.category_id AND a.is_active = true
-      LEFT JOIN apartment_media m ON m.category_id = c.id
       WHERE c.id = $1
-      GROUP BY c.id
     `, [id]);
 
     if (result.rows.length === 0) {

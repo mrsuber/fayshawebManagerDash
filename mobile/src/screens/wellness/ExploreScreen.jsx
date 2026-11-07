@@ -11,7 +11,7 @@ import { WebView } from 'react-native-webview';
 import { LinearGradient } from 'expo-linear-gradient';
 import guest from '../../services/guestService';
 import apiClient from '../../services/api';
-import { fileUrl } from '../../config';
+import { fileUrl, SERVER_URL } from '../../config';
 import { COLORS, FONTS } from '../../constants/theme';
 import { ZONE_DATA } from '../../constants/wellnessData';
 import { EXPLORE_IMAGE } from '../../constants/images';
@@ -275,7 +275,9 @@ export default function ExploreScreen({ navigation }) {
           {selectedLocation && (
             <View style={styles.viewerContainer}>
               <WebView
-                source={{ html: getVirtualTourHTML(selectedLocation) }}
+                // Served from the Faysha origin so the panorama is a same-origin image for WebGL.
+                source={{ html: getVirtualTourHTML(selectedLocation), baseUrl: `${SERVER_URL}/` }}
+                originWhitelist={['*']}
                 style={styles.webView}
                 onMessage={handleWebViewMessage}
                 javaScriptEnabled={true}

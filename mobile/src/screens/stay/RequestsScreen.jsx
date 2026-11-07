@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen, Card, Button, Pill, Loading, ErrorView, Empty, SectionTitle, Sheet, Field, ChipRow, Notice, Body } from '../../components/ui';
 import { COLORS, FONTS } from '../../constants/theme';
 import guest from '../../services/guestService';
@@ -7,6 +7,7 @@ import { errorMessage } from '../../services/api';
 import useLoad from '../../hooks/useLoad';
 import { useLiveEvent } from '../../contexts/LiveContext';
 import { ago } from '../../utils/format';
+import { showAlert } from '../../components/Dialog';
 
 const DEPARTMENTS = [
   { value: 'Housekeeping', label: 'Housekeeping', icon: 'sparkles-outline', ideas: ['Please clean the residence', 'Fresh towels, please', 'Turndown service tonight', 'Extra pillows'] },
@@ -60,7 +61,7 @@ export default function RequestsScreen({ navigation, route }) {
   };
 
   const cancel = (request) =>
-    Alert.alert('Cancel this request?', request.title, [
+    showAlert('Cancel this request?', request.title, [
       { text: 'Keep it', style: 'cancel' },
       {
         text: 'Cancel request',
@@ -70,7 +71,7 @@ export default function RequestsScreen({ navigation, route }) {
             const updated = await guest.cancelRequest(request.id);
             setData((list) => list.map((r) => (r.id === updated.id ? updated : r)));
           } catch (e) {
-            Alert.alert('Could not cancel', errorMessage(e));
+            showAlert('Could not cancel', errorMessage(e));
           }
         },
       },

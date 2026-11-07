@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Body, Button, Card, Empty, ErrorView, Field, Loading, Notice, Pill, Screen, SectionTitle, Sheet, Stepper } from '../../components/ui';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useLiveEvent } from '../../contexts/LiveContext';
 import useLoad from '../../hooks/useLoad';
 import apiClient, { errorMessage } from '../../services/api';
+import { showAlert } from '../../components/Dialog';
 
 const STATUS = { requested: ['Being prepared', 'gold'], ready: ['Ready', 'blue'], out: ['With you', 'green'], returned: ['Returned', 'grey'], cancelled: ['Cancelled', 'grey'], declined: ['Not available', 'red'], lost: ['Lost', 'red'] };
 const when = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -39,9 +40,9 @@ export default function LoansScreen({ navigation }) {
     }
   };
   const cancel = (l) =>
-    Alert.alert('Cancel this request?', l.label, [
+    showAlert('Cancel this request?', l.label, [
       { text: 'Keep it', style: 'cancel' },
-      { text: 'Cancel', style: 'destructive', onPress: () => apiClient.post(`/guest/loans/${l.id}/cancel`).then(reload).catch((e) => Alert.alert('Not cancelled', errorMessage(e))) },
+      { text: 'Cancel', style: 'destructive', onPress: () => apiClient.post(`/guest/loans/${l.id}/cancel`).then(reload).catch((e) => showAlert('Not cancelled', errorMessage(e))) },
     ]);
 
   if (loading) return <Screen title="Lockers & equipment" onBack={() => navigation.goBack()}><Loading /></Screen>;

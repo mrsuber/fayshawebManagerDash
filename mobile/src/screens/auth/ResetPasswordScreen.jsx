@@ -9,7 +9,6 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { COLORS, FONTS } from '../../constants/theme';
 import authService from '../../services/authService';

@@ -8,7 +8,6 @@ import {
   ImageBackground,
   Animated,
   Dimensions,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -19,6 +18,7 @@ import BookingModalUnified from '../../components/BookingModalUnified';
 import ServicePicker from '../../components/ServicePicker';
 import PremiumModal from '../../components/PremiumModal';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
+import { showAlert } from '../../components/Dialog';
 
 const { width, height } = Dimensions.get('window');
 
@@ -84,7 +84,7 @@ export default function ReflectScreen({ navigation }) {
       setReflectServices(services);
     } catch (error) {
       console.error('Error loading Reflect activity:', error);
-      Alert.alert('Error', 'Failed to load Reflect journey details');
+      showAlert('Error', 'Failed to load Reflect journey details');
     } finally {
       setLoadingActivity(false);
     }
@@ -103,7 +103,7 @@ export default function ReflectScreen({ navigation }) {
 
   const handleBookSession = () => {
     if (!reflectActivity) {
-      Alert.alert('Error', 'Reflect journey not available. Please try again.');
+      showAlert('Error', 'Reflect journey not available. Please try again.');
       return;
     }
     setSelectedActivityToBook(reflectActivity);
@@ -112,7 +112,7 @@ export default function ReflectScreen({ navigation }) {
 
   const handleBookIndividualService = (service) => {
     if (!service) {
-      Alert.alert('Error', 'Service not available. Please try again.');
+      showAlert('Error', 'Service not available. Please try again.');
       return;
     }
     setSelectedActivityToBook(service);

@@ -9,7 +9,6 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
   Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,8 +16,10 @@ import { COLORS, FONTS } from '../../constants/theme';
 import authService from '../../services/authService';
 import { useAuth } from '../../contexts/AuthContext';
 
-export default function ChangePasswordScreen({ navigation }) {
-  const { patchUser } = useAuth();
+export default function ChangePasswordScreen({ navigation, route }) {
+  const { patchUser, refreshUserData } = useAuth();
+  // Forced after a temporary password (first booking): finishing unlocks the app and lands on Home.
+  const forced = route?.name === 'SetPassword';
   const [formData, setFormData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -269,9 +270,13 @@ export default function ChangePasswordScreen({ navigation }) {
               <TouchableOpacity
                 onPress={() => {
                   setShowSuccessModal(false);
-                  // A forced change (temporary password) unlocks the app; otherwise go back to settings.
-                  patchUser({ mustChangePassword: false, isPasswordTemporary: false });
-                  if (navigation.canGoBack()) navigation.goBack();
+                  if (forced) {
+                    // Unlocks the app: the navigator swaps to the signed-in stack and opens Home.
+                    patchUser({ mustChangePassword: false, isPasswordTemporary: false });
+                    refreshUserData().catch(() => {});
+                  } else if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  }
                 }}
                 activeOpacity={0.85}
               >
@@ -279,7 +284,7 @@ export default function ChangePasswordScreen({ navigation }) {
                   colors={['#C8A45D', '#D68910']}
                   style={styles.modalButton}
                 >
-                  <Text style={styles.modalButtonText}>Continue</Text>
+                  <Text style={styles.modalButtonText}>{forced ? 'Go to home' : 'Continue'}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>

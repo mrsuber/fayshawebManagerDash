@@ -17,13 +17,13 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
-  Alert,
   ActivityIndicator,
   TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS } from '../constants/theme';
 import wellnessUnifiedService from '../services/wellnessUnifiedService';
+import { showAlert } from './Dialog';
 
 const dayLabel = (iso) => {
   const d = new Date(`${iso}T12:00:00`);
@@ -69,7 +69,7 @@ export default function BookingModalUnified({ visible, onClose, activity, activi
         setStay(results[0]?.stay || null);
         setSlots(Object.fromEntries(list.map((a, i) => [a.id, results[i]?.availability || []])));
       } catch (error) {
-        Alert.alert('Could not load times', error.message || 'Please try again.');
+        showAlert('Could not load times', error.message || 'Please try again.');
         setStay(null);
       } finally {
         if (alive) setLoading(false);
@@ -136,7 +136,7 @@ export default function BookingModalUnified({ visible, onClose, activity, activi
       });
       setDone({ message: response.message, bookings: response.bookings || [response.booking] });
     } catch (error) {
-      Alert.alert('Booking not made', error.message || error.error || 'Please try again.');
+      showAlert('Booking not made', error.message || error.error || 'Please try again.');
     } finally {
       setBooking(false);
     }

@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ImageBackground,
   ActivityIndicator,
-  Alert,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +20,7 @@ import BookingModalUnified from '../../components/BookingModalUnified';
 import PremiumModal from '../../components/PremiumModal';
 import * as bookingService from '../../services/bookingService';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
+import { showAlert } from '../../components/Dialog';
 
 export default function BookingsScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState('apartment');
@@ -265,7 +265,7 @@ export default function BookingsScreen({ navigation }) {
   };
 
   const handleCancelBooking = async (booking) => {
-    Alert.alert(
+    showAlert(
       'Cancel Booking',
       `Are you sure you want to cancel your ${booking.name} booking on ${booking.date} at ${booking.time}?`,
       [
@@ -284,7 +284,7 @@ export default function BookingsScreen({ navigation }) {
                 'Cancelled by user via mobile app'
               );
 
-              Alert.alert(
+              showAlert(
                 'Booking Cancelled',
                 'Your wellness booking has been cancelled successfully.',
                 [{ text: 'OK' }]
@@ -294,7 +294,7 @@ export default function BookingsScreen({ navigation }) {
               await fetchBookings();
             } catch (error) {
               console.error('Cancel booking error:', error);
-              Alert.alert(
+              showAlert(
                 'Error',
                 error.error || 'Failed to cancel booking. Please try again.',
                 [{ text: 'OK' }]
@@ -345,7 +345,7 @@ export default function BookingsScreen({ navigation }) {
       setRescheduleModalVisible(true);
     } catch (error) {
       console.error('Reschedule error:', error);
-      Alert.alert(
+      showAlert(
         'Error',
         'Failed to load activity details for rescheduling. Please try again.',
         [{ text: 'OK' }]
@@ -374,7 +374,7 @@ export default function BookingsScreen({ navigation }) {
       // Refresh bookings
       await fetchBookings();
 
-      Alert.alert(
+      showAlert(
         'Booking Rescheduled',
         'Your wellness booking has been rescheduled successfully.',
         [{ text: 'OK' }]

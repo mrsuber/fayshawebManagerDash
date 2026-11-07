@@ -10,6 +10,7 @@ import { Montserrat_400Regular } from '@expo-google-fonts/montserrat/400Regular'
 import { Montserrat_500Medium } from '@expo-google-fonts/montserrat/500Medium';
 import { Montserrat_600SemiBold } from '@expo-google-fonts/montserrat/600SemiBold';
 import AppNavigator from './src/navigation/AppNavigator';
+import { DialogHost } from './src/components/Dialog';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { LiveProvider } from './src/contexts/LiveContext';
 import { STRIPE_PUBLISHABLE_KEY } from './src/config';
@@ -45,6 +46,7 @@ export default function App() {
           <LiveProvider>
             <StatusBar style="light" />
             <AppNavigator ready={ready} />
+            <DialogHost />
           </LiveProvider>
         </AuthProvider>
       </StripeProvider>

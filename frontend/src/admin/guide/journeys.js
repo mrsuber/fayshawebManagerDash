@@ -46,6 +46,7 @@ export const JOURNEYS = [
         intro: 'The same flow on the website and in the app, with or without an account.',
         steps: [
           { who: 'Guest', where: 'Website /residences · App → Book a stay', status: 'live', text: 'Chooses dates and guests; sees which residences are free and the price for the whole stay, in their currency.', check: 'Pick dates: only free residences appear and the total matches nights × price.' },
+          { who: 'Guest', where: 'App → Book a stay → residence', status: 'live', text: 'Opens a residence before choosing it: swipes the photos, steps inside the 360° view, sees size, rooms, view, features and amenities, then chooses it from there.', check: 'Photos and 360° views come from HQ → Residences (category media).' },
           { who: 'Guest', where: 'Website /book · App → Book a stay', status: 'live', text: 'Enters their details and accepts the published terms of stay. A guest account is created automatically with the booking.', check: 'The terms shown are the version published in FAY OS → Content.' },
           { who: 'Guest', where: 'Payment step', status: 'setup', text: 'Pays by card (Stripe) or MTN / Orange mobile money, approved on their phone. The residence is held 60 minutes for a card, 48 hours for mobile money.', check: 'Needs the keys in HQ → Settings → Payments. Without mobile money keys (development) payments are simulated and confirm after a few seconds.' },
           { who: 'System', where: 'Server', status: 'live', text: 'Once paid, the stay is confirmed: one gate QR and door PIN, the deposit box handed over with a new PIN, one confirmation email with first sign-in details, a notification in the app.', check: 'One email only, even if the payment is confirmed twice.' },
@@ -262,6 +263,8 @@ export const JOURNEYS = [
       {
         title: 'Knowing the guest',
         steps: [
+          { who: 'Guest', where: 'App → Create account', status: 'live', text: 'Signs up and receives a 6-digit code by email. The account opens, and they are signed in, only once the code is entered. An unverified account cannot sign in: it is sent a new code instead.', check: 'A code works for 15 minutes; 5 wrong tries ask for a new one; a new code at most once a minute.' },
+          { who: 'Guest', where: 'App → first sign-in', status: 'live', text: 'A guest whose account was created by a booking signs in with the temporary password from the email, chooses their own password and lands on Home.' },
           { who: 'Manager', where: 'FAY OS → Guests → Guest 360', status: 'live', text: 'Profile, stays, preferences, timeline of everything they did, notes.' },
           { who: 'Guest', where: 'App → Profile', status: 'live', text: 'Personal details, rewards, currency, terms, account deletion.' },
         ],

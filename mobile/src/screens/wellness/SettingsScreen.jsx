@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Linking, StyleSheet, Switch, Text, View } from 'react-native';
+import { Linking, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import apiClient, { errorMessage } from '../../services/api';
 import { registerForPush, unregisterPush } from '../../services/push';
 import { APP } from '../../config';
+import { showAlert } from '../../components/Dialog';
 
 const PUSH_PREF = 'faysha.pushEnabled';
 const EMERGENCY = '+237 653 255 547';
@@ -47,7 +48,7 @@ export default function SettingsScreen({ navigation }) {
       const status = (await Notifications.getPermissionsAsync().catch(() => ({ status: 'undetermined' }))).status;
       setPermission(status);
       if (!token && status === 'denied') {
-        Alert.alert('Notifications are off', 'Allow notifications for Faysha in your phone settings to hear from your hosts.', [
+        showAlert('Notifications are off', 'Allow notifications for Faysha in your phone settings to hear from your hosts.', [
           { text: 'Not now', style: 'cancel' },
           { text: 'Open settings', onPress: () => Linking.openSettings() },
         ]);
