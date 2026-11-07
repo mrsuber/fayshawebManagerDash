@@ -256,6 +256,7 @@ export default function BookStayScreen({ navigation }) {
         />
         <PickerField label="Check-out" value={stay.checkOut} minimumDate={addDays(stay.checkIn, 1)} onChange={(checkOut) => setStay({ ...stay, checkOut })} />
         <Stepper label="Guests" value={stay.guests} min={1} max={12} onChange={(guests) => setStay({ ...stay, guests })} />
+        <Body muted style={{ fontSize: 12, marginTop: 6 }}>Everyone who will sleep in the residence, children included. Day visitors are invited later from the app.</Body>
         {nights > 0 ? <Text style={s.nights}>{nights} night{nights > 1 ? 's' : ''}</Text> : null}
       </>
     );

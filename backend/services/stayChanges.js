@@ -78,6 +78,7 @@ async function cancelStay({ id, by, reason, refund = by === 'guest', actorId = n
     [id, why, by],
   );
   await db.query(`UPDATE payments SET status = 'failed', error_message = 'Booking cancelled' WHERE booking_id = $1 AND status = 'pending'`, [id]);
+  await require('./occupancy').closeForStay(id);
   require('./notify').resolve(app, `momo:${id}`).catch(() => {});
   await handOverDepositBox(b.apartment_id).catch(() => {});
 
@@ -135,6 +136,10 @@ async function changeDates({ id, checkIn, checkOut, apartmentId, app }) {
   if (!['pending', 'confirmed', 'checked_in'].includes(b.status)) throw httpError(409, `This stay is ${b.status.replace('_', ' ')}`);
   if (b.status === 'checked_in' && checkIn !== iso(b.check_in_date)) throw httpError(409, 'The guest is in residence: only the departure date can change');
   const apt = apartmentId || b.apartment_id;
+  if (String(apt) !== String(b.apartment_id)) {
+    const cap = await require('./occupancy').capacityOf(apt);
+    if (Number(b.number_of_guests) > cap) throw httpError(409, `That residence sleeps up to ${cap}; this stay is for ${b.number_of_guests}`);
+  }
   const { rows: rate } = await db.query(
     `SELECT COALESCE(a.custom_price, c.base_price) AS rate, a.unit_number FROM apartments a JOIN apartment_categories c ON c.id = a.category_id WHERE a.id = $1`,
     [apt],
@@ -153,6 +158,7 @@ async function changeDates({ id, checkIn, checkOut, apartmentId, app }) {
     if (e.code === '23P01') throw httpError(409, 'Those dates are not free for this residence');
     throw e;
   }
+  await require('./occupancy').closeForStay(id, { from: checkIn, to: checkOut });
   const after = await load(id);
   const difference = Number(after.final_price) - Number(b.final_price);
   // Paid more than the new price: the difference is raised as a refund for HQ to approve.
@@ -182,6 +188,7 @@ async function markNoShow({ id, app }) {
   if (!['pending', 'confirmed'].includes(b.status)) throw httpError(409, `This stay is ${b.status.replace('_', ' ')}`);
   if (b.days_before > 0) throw httpError(409, 'A no-show can only be recorded from the arrival day');
   await db.query(`UPDATE bookings SET status = 'no_show', cancelled_at = NOW(), cancelled_by = 'staff', cancellation_reason = 'No-show', gate_qr_code = NULL, door_pin = NULL WHERE id = $1`, [id]);
+  await require('./occupancy').closeForStay(id);
   require('./notify').resolve(app, `no-show:${id}`).catch(() => {});
   await handOverDepositBox(b.apartment_id).catch(() => {});
   await tellGuest(app, b, { title: `We missed you · ${b.booking_number}`, body: `Your stay starting ${iso(b.check_in_date)} was closed as you did not arrive. If this is a mistake, please contact our concierge.` });

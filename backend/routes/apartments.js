@@ -415,14 +415,19 @@ router.post('/', staffOnly, async (req, res) => {
       status,
       custom_price,
       notes,
-      special_features
+      special_features,
+      max_occupancy
     } = req.body;
+    const cap = max_occupancy === '' || max_occupancy == null ? null : parseInt(max_occupancy, 10);
+    if (cap !== null && !(cap >= 1 && cap <= 30)) {
+      return res.status(400).json({ success: false, message: 'Maximum occupancy must be between 1 and 30 people' });
+    }
 
     const result = await pool.query(`
       INSERT INTO apartments (
         category_id, unit_number, floor, building, status,
-        custom_price, notes, special_features
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        custom_price, notes, special_features, max_occupancy
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `, [
       category_id,
@@ -432,7 +437,8 @@ router.post('/', staffOnly, async (req, res) => {
       status || 'available',
       custom_price,
       notes,
-      JSON.stringify(special_features || [])
+      JSON.stringify(special_features || []),
+      cap
     ]);
 
     res.json({
@@ -460,8 +466,17 @@ router.put('/:id', staffOnly, async (req, res) => {
     const values = [];
     let paramCount = 1;
 
+    // Only these columns can be changed (the keys become SQL identifiers, so never take them from the body as-is).
+    const EDITABLE = ['category_id', 'unit_number', 'floor', 'building', 'status', 'custom_price', 'notes', 'special_features', 'is_active', 'max_occupancy', 'property_id'];
+    if (updates.max_occupancy === '') updates.max_occupancy = null;
+    if (updates.max_occupancy != null) {
+      const cap = parseInt(updates.max_occupancy, 10);
+      if (!(cap >= 1 && cap <= 30)) return res.status(400).json({ success: false, message: 'Maximum occupancy must be between 1 and 30 people' });
+      updates.max_occupancy = cap;
+    }
+
     Object.keys(updates).forEach(key => {
-      if (key !== 'id' && key !== 'created_at' && key !== 'updated_at') {
+      if (EDITABLE.includes(key)) {
         fields.push(`${key} = $${paramCount}`);
         let value = updates[key];
 

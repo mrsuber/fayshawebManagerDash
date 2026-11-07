@@ -22,6 +22,7 @@ const Apartments = () => {
     building: '',
     status: 'available',
     custom_price: '',
+    max_occupancy: '',
     notes: '',
     special_features: []
   });
@@ -68,6 +69,7 @@ const Apartments = () => {
         ...formData,
         floor: formData.floor ? parseInt(formData.floor) : null,
         custom_price: formData.custom_price ? parseFloat(formData.custom_price) : null,
+        max_occupancy: formData.max_occupancy ? parseInt(formData.max_occupancy, 10) : null,
         category_id: parseInt(formData.category_id)
       };
 
@@ -100,6 +102,7 @@ const Apartments = () => {
         building: apartment.building || '',
         status: apartment.status,
         custom_price: apartment.custom_price || '',
+        max_occupancy: apartment.max_occupancy || '',
         notes: apartment.notes || '',
         special_features: apartment.special_features || []
       });
@@ -112,6 +115,7 @@ const Apartments = () => {
         building: '',
         status: 'available',
         custom_price: '',
+        max_occupancy: '',
         notes: '',
         special_features: []
       });
@@ -340,6 +344,15 @@ const Apartments = () => {
                   )}
                   <div className="flex items-center text-sm text-gray-600">
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-5-3.87M9 20H4v-2a4 4 0 015-3.87m6-4a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    <span>
+                      Sleeps up to {apartment.max_occupancy || apartment.max_guests || categories.find((c) => c.id === apartment.category_id)?.max_guests || '—'}
+                      {apartment.max_occupancy ? ' (own limit)' : ''}
+                    </span>
+                  </div>
+                  <div className="flex items-center text-sm text-gray-600">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <span className="font-semibold text-primary-600">
@@ -485,6 +498,25 @@ const Apartments = () => {
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                       placeholder="Leave empty to use category price"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Maximum occupancy (people)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="30"
+                      value={formData.max_occupancy}
+                      onChange={(e) => setFormData({ ...formData, max_occupancy: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                      placeholder={`Category: ${categories.find((c) => String(c.id) === String(formData.category_id))?.max_guests ?? '—'} guests`}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Everyone who sleeps here, children included. Bookings above it are refused, and guests added to a stay
+                      count towards it. Leave empty to use the category's figure.
+                    </p>
                   </div>
                 </div>
 

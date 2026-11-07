@@ -235,11 +235,17 @@ export const JOURNEYS = [
         ],
       },
       {
-        title: 'Visitors',
+        title: 'Visitors & occupancy',
+        intro: 'Strict enough to protect the residences, light enough to live with: day visits under clear house rules; anyone who sleeps here is a registered guest.',
         steps: [
-          { who: 'Guest', where: 'App → Residence → Visitors', status: 'live', text: 'Invites a visitor for a day of the stay and shares the pass link.' },
-          { who: 'Front desk', where: 'FAY OS → Operations → Visitors & gate', status: 'live', text: 'Approves the pass; the visitor gets a QR and a 6-digit gate code.' },
-          { who: 'Visitor', where: 'Pass link /visit/…', status: 'setup', text: 'Shows the code at the gate; the guest is told when they arrive.', check: 'The gate opens by itself only with a gate controller connected.' },
+          { who: 'HQ', where: 'HQ → Residences → residence', status: 'live', text: 'Sets the maximum occupancy of each residence (everyone who sleeps there, children included); empty uses the category’s figure.', check: 'A booking above it is refused on the website, in the app and at the front desk.' },
+          { who: 'Manager', where: 'FAY OS → Visitors → Policy', status: 'live', text: 'Sets the house rules: visiting hours (08:00–22:00), people per pass (4), visitors per residence per day (6), passes per day (3) and per week (12), when a frequent visitor is flagged (4 days in a week), overstay alert (30 min), fee per added guest per night, discreet visits on/off, auto-approval.' },
+          { who: 'Guest', where: 'App → Residence → Visitors', status: 'live', text: 'Sees the house rules and invites a visitor for a day of the stay, until the end of visiting hours at the latest; the app explains any limit reached. Can ask for a discreet visit.' },
+          { who: 'Front desk', where: 'FAY OS → Visitors', status: 'live', text: 'Approves passes. A discreet pass shows “Private visitor”; the name appears only when the gate checks the pass. A visitor seen most days is flagged as possibly living there and always waits for approval.' },
+          { who: 'Visitor', where: 'Pass link /visit/…', status: 'setup', text: 'Shows the QR or 6-digit code and their ID at the gate; the host is told when they arrive.', check: 'The gate opens by itself only with a gate controller connected.' },
+          { who: 'System', where: 'Monitor (every minute)', status: 'live', text: 'A visitor still inside after their pass ended raises an alert to the team: check with the host and, if they are staying, add them to the stay.' },
+          { who: 'Guest', where: 'App → Visitors → Staying the night', status: 'live', text: 'Adds someone who will sleep there (a visitor staying over, family arriving later) for some or all nights, within the residence’s capacity.', check: 'A request that would exceed capacity on any night is refused with the reason.' },
+          { who: 'Front desk', where: 'FAY OS → Visitors → Added to a stay', status: 'live', text: 'Approves or declines with a reason; approval rechecks capacity and adds the per-night fee to the bill. Cancelling, shortening or ending a stay voids its future passes and added guests.' },
         ],
       },
       {

@@ -20,6 +20,9 @@ export const openGate = (body) => post('/gate/open', body);
 export const gateEvents = () => get('/gate/events', undefined, []);
 export const visitorSettings = () => get('/visitors/settings', undefined, { autoApprove: false });
 export const saveVisitorSettings = (data) => withMock(() => api.put('/visitors/settings', data), data);
+// People added to a stay (they sleep there): approved within the residence's capacity.
+export const stayGuests = () => get('/visitors/guests', undefined, []);
+export const stayGuestAction = (id, action, body) => post(`/visitors/guests/${id}/${action}`, body);
 
 // Quality
 export const qualitySummary = (days) => get('/quality/summary', { days }, { overall: {}, people: [], departments: [], inspections: {}, cleaners: [] });

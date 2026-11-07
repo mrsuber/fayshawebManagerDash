@@ -154,6 +154,32 @@ const RULES = [
            WHERE p.status = 'pending' AND p.visit_date >= (NOW() AT TIME ZONE $1)::date`,
   },
   {
+    // A visitor still inside after their pass ended (plus the policy's grace): nobody sleeps over on a pass.
+    prefix: 'visitor-overstay',
+    level: 'action',
+    category: 'gate',
+    sql: `SELECT p.id, 'Visitor still in · Residence ' || COALESCE(a.unit_number, '') AS title,
+                 CASE WHEN p.discreet THEN 'A private visitor' ELSE p.visitor_name END || ' was due out at ' || COALESCE(p.arrive_until, '22:00')
+                   || CASE WHEN p.visit_date < (NOW() AT TIME ZONE $1)::date THEN ' on ' || to_char(p.visit_date, 'DD Mon') ELSE '' END
+                   || '. Check with the host; if they are staying, add them to the stay.' AS body,
+                 '/visitors' AS link
+            FROM visitor_passes p LEFT JOIN apartments a ON a.id = p.apartment_id
+           WHERE p.status = 'arrived'
+             AND (p.visit_date + COALESCE(p.arrive_until, '22:00')::time
+                  + make_interval(mins => COALESCE((SELECT (value->>'overstayMinutes')::int FROM app_settings WHERE key = 'visitors'), 30)))
+                 < (NOW() AT TIME ZONE $1)`,
+  },
+  {
+    prefix: 'stay-guest',
+    level: 'action',
+    category: 'gate',
+    sql: `SELECT g.id, 'Guest to add · Residence ' || a.unit_number AS title,
+                 g.full_name || ' from ' || to_char(g.from_date, 'Dy DD Mon') || ' to ' || to_char(g.to_date, 'Dy DD Mon') AS body,
+                 '/visitors' AS link
+            FROM stay_guests g JOIN bookings b ON b.id = g.booking_id JOIN apartments a ON a.id = b.apartment_id
+           WHERE g.status = 'pending' AND g.to_date > (NOW() AT TIME ZONE $1)::date`,
+  },
+  {
     prefix: 'asset-task',
     level: 'action',
     category: 'assets',
