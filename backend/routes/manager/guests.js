@@ -78,6 +78,7 @@ async function moveGuest(req, res, kind) {
     if (row.booking_status !== 'checked_in') throw httpError(409, 'Guest is not checked in');
     await tx(async (q) => {
       await q.query("UPDATE bookings SET status = 'checked_out', checked_out_at = CURRENT_TIMESTAMP WHERE id = $1", [row.booking_id]);
+      await require('../../services/occupancy').closeForStay(row.booking_id, {}, q);
       // The residence needs cleaning before the next arrival.
       await q.query(
         `INSERT INTO residence_controls (apartment_id, housekeeping_status, housekeeping_note) VALUES ($1, 'Dirty', 'Departure clean')

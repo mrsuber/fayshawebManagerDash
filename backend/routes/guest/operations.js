@@ -20,6 +20,7 @@ const { authenticateToken, checkPasswordChangeRequired } = require('../../middle
 const { db, ah, httpError, isoDate, isoTime, emit } = require('../manager/lib');
 const { staffAlert } = require('../../services/notify');
 const { requireStay, currentStay } = require('./index');
+const occupancy = require('../../services/occupancy');
 
 const router = express.Router();
 router.use(['/ratings', '/loans', '/visitors'], authenticateToken, checkPasswordChangeRequired);
@@ -221,6 +222,8 @@ const toPass = (p) => ({
   until: p.arrive_until,
   note: p.note,
   status: p.status,
+  discreet: Boolean(p.discreet),
+  flag: p.flag || null,
   residence: p.unit_number || null,
   arrivedAt: p.arrived_at ? isoTime(p.arrived_at) : null,
   createdAt: isoTime(p.created_at),
@@ -231,7 +234,23 @@ router.get(
   '/visitors',
   ah(async (req, res) => {
     const { rows } = await db.query(`${PASS_SELECT} WHERE p.user_id = $1 ORDER BY p.visit_date DESC, p.created_at DESC LIMIT 50`, [req.user.id]);
-    res.json(rows.map(toPass));
+    // The app reads the policy and the added guests from ?full=1; a bare call keeps the old shape (a list of passes).
+    if (!req.query.full) return res.json(rows.map(toPass));
+    const p = await occupancy.policy();
+    const stay = await currentStay(req.user);
+    const guests = stay
+      ? (await db.query(`SELECT * FROM stay_guests WHERE booking_id = $1 AND status <> 'cancelled' ORDER BY from_date, id`, [stay.id])).rows.map(toStayGuest)
+      : [];
+    res.json({
+      passes: rows.map(toPass),
+      guests,
+      capacity: stay ? await occupancy.capacityOf(stay.apartment_id) : null,
+      booked: stay ? Number(stay.number_of_guests) : null,
+      policy: {
+        visitFrom: p.visitFrom, visitUntil: p.visitUntil, maxPeoplePerVisit: p.maxPeoplePerVisit, maxVisitorsPerDay: p.maxVisitorsPerDay,
+        maxPassesPerDay: p.maxPassesPerDay, maxPassesPerWeek: p.maxPassesPerWeek, allowDiscreet: p.allowDiscreet, extraGuestFeePerNight: p.extraGuestFeePerNight,
+      },
+    });
   }),
 );
 
@@ -244,22 +263,33 @@ router.post(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date || '')) throw httpError(400, 'Choose the day of the visit');
     const time = (t) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(t || '') ? t : null);
     const stay = await requireStay(req.user);
-    const range = (await db.query(`SELECT $1::date < (NOW() AT TIME ZONE $3)::date AS past, $1::date > $2::date AS after`, [b.date, stay.check_out_date, TZ])).rows[0];
+    const range = (await db.query(
+      `SELECT $1::date < (NOW() AT TIME ZONE $3)::date AS past, $1::date > $2::date AS after, $1::date < $4::date AS before`,
+      [b.date, stay.check_out_date, TZ, stay.check_in_date],
+    )).rows[0];
     if (range.past) throw httpError(400, 'The visit date is in the past');
-    if (range.after) throw httpError(400, 'Visitors can be invited for the days of your stay');
-    // Managers choose whether passes need approval (FAY OS → Visitors); by default they do.
-    const auto = ((await db.query(`SELECT value FROM app_settings WHERE key = 'visitors'`)).rows[0]?.value || {}).autoApprove === true;
+    if (range.after || range.before) throw httpError(400, 'Visitors can be invited for the days of your stay');
+    const p = await occupancy.policy();
+    const people = Math.min(20, Math.max(1, parseInt(b.people, 10) || 1));
+    const from = time(b.from);
+    const until = time(b.until) || p.visitUntil; // every pass ends by the end of visiting hours
+    const discreet = Boolean(b.discreet) && p.allowDiscreet;
+    const check = await occupancy.checkVisit({ stay, date: b.date, from, until, people, name, phone: b.visitorPhone }, p);
+    // Managers choose whether passes need approval (FAY OS → Visitors); a flagged pass always does.
+    const auto = p.autoApprove === true && !check.forceApproval;
     const { rows } = await db.query(
-      `INSERT INTO visitor_passes (token, code, user_id, booking_id, apartment_id, visitor_name, visitor_phone, people, vehicle, visit_date, arrive_from, arrive_until, note, status, decided_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::text, CASE WHEN $14::text = 'approved' THEN NOW() END) RETURNING id`,
+      `INSERT INTO visitor_passes (token, code, user_id, booking_id, apartment_id, visitor_name, visitor_phone, people, vehicle, visit_date, arrive_from, arrive_until, note, status, decided_at, discreet, flag)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::text, CASE WHEN $14::text = 'approved' THEN NOW() END, $15, $16) RETURNING id`,
       [crypto.randomBytes(18).toString('base64url'), String(crypto.randomInt(0, 1e6)).padStart(6, '0'), req.user.id, stay.id, stay.apartment_id, name.slice(0, 150),
-        b.visitorPhone ? String(b.visitorPhone).slice(0, 50) : null, Math.min(20, Math.max(1, parseInt(b.people, 10) || 1)), b.vehicle ? String(b.vehicle).slice(0, 40) : null,
-        b.date, time(b.from), time(b.until), b.note ? String(b.note).slice(0, 500) : null, auto ? 'approved' : 'pending'],
+        b.visitorPhone ? String(b.visitorPhone).slice(0, 50) : null, people, b.vehicle ? String(b.vehicle).slice(0, 40) : null,
+        b.date, from, until, b.note ? String(b.note).slice(0, 500) : null, auto ? 'approved' : 'pending', discreet, check.flag],
     );
     const pass = (await db.query(`${PASS_SELECT} WHERE p.id = $1`, [rows[0].id])).rows[0];
+    // A discreet visit is announced without the visitor's name; the gate sees it when it checks the pass.
+    const who = discreet ? 'Private visitor' : pass.visitor_name;
     await staffAlert(req.app, {
-      title: auto ? `Visitor expected · ${pass.visitor_name}` : `Visitor to approve · ${pass.visitor_name}`,
-      body: `For ${req.user.fullName} · Residence ${pass.unit_number} · ${isoDate(pass.visit_date)}${pass.arrive_from ? ` from ${pass.arrive_from}` : ''} · ${pass.people} person(s)${pass.vehicle ? ` · ${pass.vehicle}` : ''}`,
+      title: auto ? `Visitor expected · ${who}` : `${check.flag ? 'Check this visit' : 'Visitor to approve'} · ${who}`,
+      body: `${discreet ? '' : `For ${req.user.fullName} · `}Residence ${pass.unit_number} · ${isoDate(pass.visit_date)}${pass.arrive_from ? ` from ${pass.arrive_from}` : ''} until ${pass.arrive_until} · ${pass.people} person(s)${pass.vehicle ? ` · ${pass.vehicle}` : ''}${check.flag ? ` · ${check.flag}` : ''}`,
       link: '/visitors',
       level: auto ? 'info' : 'action',
       category: 'gate',
@@ -281,6 +311,81 @@ router.post(
   }),
 );
 
+// ---------------------------------------------------------------- Guests added to a stay
+const toStayGuest = (g) => ({
+  id: g.id,
+  fullName: g.full_name,
+  phone: g.phone,
+  relation: g.relation,
+  from: isoDate(g.from_date),
+  to: isoDate(g.to_date),
+  nights: Math.round((new Date(g.to_date) - new Date(g.from_date)) / 86400000),
+  fee: Number(g.fee),
+  note: g.note,
+  status: g.status,
+  declineReason: g.decline_reason || null,
+  createdAt: isoTime(g.created_at),
+});
+
+/**
+ * Someone will sleep in the residence (a visitor staying over, family arriving later): they are registered on the
+ * stay, within the residence's capacity, and the team approves. A visitor pass is never used for a night.
+ */
+router.post(
+  '/visitors/guests',
+  ah(async (req, res) => {
+    const b = req.body || {};
+    const fullName = String(b.fullName || '').trim();
+    if (!fullName) throw httpError(400, 'Who is joining your stay?');
+    const stay = await requireStay(req.user);
+    const iso = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+    const checkIn = isoDate(stay.check_in_date);
+    const checkOut = isoDate(stay.check_out_date);
+    const today = (await db.query(`SELECT to_char((NOW() AT TIME ZONE $1)::date, 'YYYY-MM-DD') AS d`, [TZ])).rows[0].d;
+    const from = iso(b.from) || (today > checkIn ? today : checkIn);
+    const to = iso(b.to) || checkOut;
+    if (from < checkIn || to > checkOut || from < today) throw httpError(400, `Choose nights within your stay (${checkIn} → ${checkOut})`);
+    if (to <= from) throw httpError(400, 'Add at least one night');
+    const cap = await occupancy.capacityOf(stay.apartment_id);
+    const peak = Number(stay.number_of_guests) + (await occupancy.peakOccupancy(stay.id, from, to));
+    if (peak + 1 > cap) {
+      throw httpError(409, `Residence ${stay.unit_number} sleeps up to ${cap}. With ${peak} already registered on some of those nights, no one else can be added — the concierge can suggest a larger residence.`);
+    }
+    const p = await occupancy.policy();
+    const nights = Math.round((new Date(to) - new Date(from)) / 86400000);
+    const fee = (Number(p.extraGuestFeePerNight) || 0) * nights;
+    const { rows } = await db.query(
+      `INSERT INTO stay_guests (booking_id, user_id, full_name, phone, relation, from_date, to_date, note, fee)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [stay.id, req.user.id, fullName.slice(0, 150), b.phone ? String(b.phone).slice(0, 50) : null, b.relation ? String(b.relation).slice(0, 60) : null, from, to, b.note ? String(b.note).slice(0, 500) : null, fee],
+    );
+    const g = rows[0];
+    await staffAlert(req.app, {
+      title: `Guest to add · Residence ${stay.unit_number}`,
+      body: `${req.user.fullName} asks to add ${g.full_name}${g.relation ? ` (${g.relation})` : ''} for ${nights} night${nights > 1 ? 's' : ''} from ${from}${fee ? ` · fee ${fee.toLocaleString('en-US')} XAF` : ''}`,
+      link: '/visitors',
+      level: 'action',
+      category: 'gate',
+      dedupeKey: `stay-guest:${g.id}`,
+    });
+    emit(req, 'visitor:updated', { stayGuest: g.id });
+    res.status(201).json(toStayGuest(g));
+  }),
+);
+
+router.post(
+  '/visitors/guests/:id/cancel',
+  ah(async (req, res) => {
+    const { rows } = await db.query(
+      `UPDATE stay_guests SET status = 'cancelled' WHERE id = $1 AND user_id = $2 AND status = 'pending' RETURNING *`,
+      [req.params.id, req.user.id],
+    );
+    if (!rows.length) throw httpError(409, 'This request can no longer be cancelled — ask the front desk');
+    await require('../../services/notify').resolve(req.app, `stay-guest:${rows[0].id}`);
+    res.json(toStayGuest(rows[0]));
+  }),
+);
+
 // Errors answer { message } like the rest of the guest API.
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
@@ -292,6 +397,7 @@ router.use((err, req, res, next) => {
 
 module.exports = router;
 module.exports.toPass = toPass;
+module.exports.toStayGuest = toStayGuest;
 module.exports.toLoan = toLoan;
 module.exports.LOAN_SELECT = LOAN_SELECT;
 module.exports.PASS_SELECT = PASS_SELECT;

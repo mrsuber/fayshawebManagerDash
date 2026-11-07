@@ -15,13 +15,17 @@
  *   POST   /visitors/verify                 { code | token } → the pass, for the gate
  *   POST   /gate/open                       { passId?, bookingId?, note }  logs and, when configured, tells the gate controller
  *   GET    /gate/events                     recent openings
- *   GET/PUT /visitors/settings              { autoApprove, directions, mapsUrl, gatePhone }
+ *   GET/PUT /visitors/settings              the visitor policy (services/occupancy.js) + directions, mapsUrl, gatePhone
+ *   GET    /visitors/guests?status=        people added to stays (pending first)
+ *   POST   /visitors/guests/:id/approve | /decline { reason? }
+ * Discreet passes show "Private visitor" in lists; the name is revealed when the gate verifies the pass.
  */
 const express = require('express');
 const { db, ah, httpError, isoTime, emit } = require('./lib');
 const { staffAlert, resolve } = require('../../services/notify');
 const { notifyGuest } = require('../../services/guestPush');
-const { toLoan, LOAN_SELECT, toPass, PASS_SELECT, CATEGORY } = require('../guest/operations');
+const { toLoan, LOAN_SELECT, toPass, PASS_SELECT, CATEGORY, toStayGuest } = require('../guest/operations');
+const occupancy = require('../../services/occupancy');
 
 const router = express.Router();
 const TZ = process.env.PROPERTY_TZ || 'Africa/Douala';
@@ -217,10 +221,13 @@ for (const [action, status] of [['decline', 'declined'], ['lost', 'lost']]) {
 }
 
 // ---------------------------------------------------------------- Visitors
-const passOut = async (id) => {
+const passOut = async (id, { reveal = false } = {}) => {
   const row = (await db.query(`${PASS_SELECT.replace('FROM visitor_passes p', ', u.full_name AS host, u.phone AS host_phone FROM visitor_passes p JOIN users u ON u.id = p.user_id')} WHERE p.id = $1`, [id])).rows[0];
   if (!row) throw httpError(404, 'Pass not found');
-  return { ...toPass(row), host: row.host, hostId: row.user_id, hostPhone: row.host_phone };
+  const pass = { ...toPass(row), host: row.host, hostId: row.user_id, hostPhone: row.host_phone };
+  // Discreet: the list shows who the host is, not who visits; the gate sees the name when it checks the pass.
+  if (pass.discreet && !reveal) Object.assign(pass, { visitorName: 'Private visitor', visitorPhone: null, vehicle: pass.vehicle ? 'Vehicle on file' : null, note: null });
+  return pass;
 };
 
 router.get(
@@ -246,7 +253,7 @@ router.post(
       [token, TZ],
     );
     if (!rows[0]) throw httpError(404, 'No pass matches this code');
-    const pass = await passOut(rows[0].id);
+    const pass = await passOut(rows[0].id, { reveal: true });
     const today = (await db.query(`SELECT (NOW() AT TIME ZONE $1)::date::text AS d`, [TZ])).rows[0].d;
     res.json({ ...pass, valid: pass.status === 'approved' && pass.date === today, reason: pass.status !== 'approved' ? `This pass is ${pass.status}` : pass.date !== today ? `This pass is for ${pass.date}` : null });
   }),
@@ -331,14 +338,96 @@ router.get(
   }),
 );
 
-router.get('/visitors/settings', ah(async (req, res) => res.json((await db.query(`SELECT value FROM app_settings WHERE key = 'visitors'`)).rows[0]?.value || { autoApprove: false })));
+router.get('/visitors/settings', ah(async (req, res) => res.json(await occupancy.policy())));
 router.put(
   '/visitors/settings',
   ah(async (req, res) => {
-    const b = req.body || {};
-    const value = { autoApprove: Boolean(b.autoApprove), directions: String(b.directions || '').slice(0, 2000), mapsUrl: /^https?:\/\//.test(b.mapsUrl || '') ? b.mapsUrl : '', gatePhone: String(b.gatePhone || '').slice(0, 40) };
+    const value = occupancy.clean(req.body);
     await db.query(`INSERT INTO app_settings (key, value, updated_by) VALUES ('visitors', $1, $2) ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2`, [JSON.stringify(value), req.user.id]);
     res.json(value);
+  }),
+);
+
+// ---------------------------------------------------------------- People added to a stay
+const STAY_GUEST_SELECT = `
+  SELECT g.*, b.booking_number, b.number_of_guests, b.apartment_id, b.check_in_date, b.check_out_date, a.unit_number, u.full_name AS host
+    FROM stay_guests g JOIN bookings b ON b.id = g.booking_id JOIN apartments a ON a.id = b.apartment_id LEFT JOIN users u ON u.id = g.user_id`;
+const stayGuestOut = async (id) => {
+  const g = (await db.query(`${STAY_GUEST_SELECT} WHERE g.id = $1`, [id])).rows[0];
+  if (!g) throw httpError(404, 'Not found');
+  return {
+    ...toStayGuest(g),
+    host: g.host,
+    booking: g.booking_number,
+    bookingId: g.booking_id,
+    residence: g.unit_number,
+    booked: g.number_of_guests,
+    capacity: await occupancy.capacityOf(g.apartment_id),
+  };
+};
+
+router.get(
+  '/visitors/guests',
+  ah(async (req, res) => {
+    const status = ['pending', 'approved', 'declined', 'cancelled'].includes(req.query.status) ? req.query.status : null;
+    const { rows } = await db.query(
+      `SELECT g.id FROM stay_guests g JOIN bookings b ON b.id = g.booking_id
+        WHERE ($1::text IS NULL AND (g.status = 'pending' OR (g.status = 'approved' AND g.to_date >= CURRENT_DATE))) OR g.status = $1
+        ORDER BY g.status = 'pending' DESC, g.from_date, g.id LIMIT 100`,
+      [status],
+    );
+    res.json(await Promise.all(rows.map((r) => stayGuestOut(r.id))));
+  }),
+);
+
+router.post(
+  '/visitors/guests/:id/approve',
+  ah(async (req, res) => {
+    const g = (await db.query(`${STAY_GUEST_SELECT} WHERE g.id = $1`, [req.params.id])).rows[0];
+    if (!g) throw httpError(404, 'Not found');
+    if (g.status !== 'pending') throw httpError(409, `This request is ${g.status}`);
+    // Capacity again: other guests may have been added since it was asked.
+    const cap = await occupancy.capacityOf(g.apartment_id);
+    const peak = Number(g.number_of_guests) + (await occupancy.peakOccupancy(g.booking_id, g.from_date, g.to_date, { excludeId: g.id }));
+    if (peak + 1 > cap) throw httpError(409, `Residence ${g.unit_number} sleeps up to ${cap}: with ${peak} registered on some of those nights this guest cannot be added`);
+    await db.query(`UPDATE stay_guests SET status = 'approved', decided_by = $2, decided_at = NOW() WHERE id = $1`, [g.id, req.user.id]);
+    if (Number(g.fee) > 0) {
+      await db.query(
+        `INSERT INTO folio_charges (guest_id, booking_id, description, category, amount, source_type, source_id, created_by)
+         VALUES ($1, $2, $3, 'Accommodation', $4, 'stay_guest', $5, $6)`,
+        [g.user_id, g.booking_id, `Added guest · ${g.full_name}`.slice(0, 255), g.fee, g.id, req.user.id],
+      );
+    }
+    await resolve(req.app, `stay-guest:${g.id}`);
+    notifyGuest(req.app, g.user_id, {
+      title: `${g.full_name} is added to your stay`,
+      body: `${g.full_name} is registered in Residence ${g.unit_number} until ${toStayGuest(g).to}.${Number(g.fee) > 0 ? ` ${Number(g.fee).toLocaleString('en-US')} XAF is added to your bill.` : ''} They come in with you or show ID at the gate.`,
+      event: 'visitor:updated',
+      data: { screen: 'Visitors' },
+    });
+    emit(req, 'visitor:updated', { stayGuest: g.id });
+    res.json(await stayGuestOut(g.id));
+  }),
+);
+
+router.post(
+  '/visitors/guests/:id/decline',
+  ah(async (req, res) => {
+    const reason = String(req.body?.reason || '').trim().slice(0, 255) || null;
+    const { rows } = await db.query(
+      `UPDATE stay_guests SET status = 'declined', decided_by = $2, decided_at = NOW(), decline_reason = $3 WHERE id = $1 AND status = 'pending' RETURNING *`,
+      [req.params.id, req.user.id, reason],
+    );
+    if (!rows[0]) throw httpError(409, 'This request is no longer pending');
+    await resolve(req.app, `stay-guest:${rows[0].id}`);
+    notifyGuest(req.app, rows[0].user_id, {
+      title: `${rows[0].full_name} cannot be added`,
+      body: reason ? `The residence team declined: ${reason}` : 'The residence team declined this request. The concierge can tell you more.',
+      event: 'visitor:updated',
+      data: { screen: 'Visitors' },
+    });
+    emit(req, 'visitor:updated', { stayGuest: rows[0].id });
+    res.json(await stayGuestOut(rows[0].id));
   }),
 );
 

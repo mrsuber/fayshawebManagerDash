@@ -316,7 +316,7 @@ router.get('/availability', async (req, res) => {
         c.name as category_name,
         c.display_name as category_display_name,
         c.description as category_description,
-        c.max_guests,
+        COALESCE(a.max_occupancy, c.max_guests) as max_guests,
         c.size_sqm,
         c.bedrooms,
         c.bathrooms,
@@ -552,7 +552,7 @@ router.post('/', async (req, res) => {
 
     // Lock the residence so two guests cannot book the same nights at once.
     const apartment = await client.query(
-      `SELECT a.id, c.max_guests FROM apartments a JOIN apartment_categories c ON c.id = a.category_id WHERE a.id = $1 FOR UPDATE OF a`,
+      `SELECT a.id, COALESCE(a.max_occupancy, c.max_guests) AS max_guests FROM apartments a JOIN apartment_categories c ON c.id = a.category_id WHERE a.id = $1 FOR UPDATE OF a`,
       [apartment_id]
     );
     if (!apartment.rows[0]) {

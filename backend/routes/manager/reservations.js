@@ -96,7 +96,7 @@ router.post(
     if (!guest) throw httpError(400, 'Guest not found');
     const apt = (
       await db.query(
-        `SELECT a.id, a.unit_number, COALESCE(a.custom_price, c.base_price) AS rate, c.max_guests
+        `SELECT a.id, a.unit_number, COALESCE(a.custom_price, c.base_price) AS rate, COALESCE(a.max_occupancy, c.max_guests) AS max_guests
            FROM apartments a JOIN apartment_categories c ON c.id = a.category_id
           WHERE (a.unit_number = $1 OR a.id::text = $1) AND a.is_active = true`,
         [String(residence)],
@@ -239,6 +239,7 @@ router.patch(
     } else if (kind === 'departures' && status === 'Checked Out') {
       if (b.status !== 'checked_in') throw httpError(409, 'Guest is not checked in');
       await db.query("UPDATE bookings SET status = 'checked_out', checked_out_at = NOW() WHERE id = $1", [id]);
+      await require('../../services/occupancy').closeForStay(id);
       await db.query(
         `INSERT INTO residence_controls (apartment_id, housekeeping_status, housekeeping_note) VALUES ($1, 'Dirty', 'Departure clean')
          ON CONFLICT (apartment_id) DO UPDATE SET housekeeping_status = 'Dirty', housekeeping_note = 'Departure clean'`,
