@@ -120,7 +120,8 @@ const stackOptions = {
   headerStyle: { backgroundColor: COLORS.background, borderBottomWidth: 1, borderBottomColor: COLORS.border, elevation: 0, shadowOpacity: 0 },
   headerTintColor: COLORS.text,
   headerTitleStyle: { fontFamily: FONTS.heading, fontSize: 15, letterSpacing: 0.5 },
-  headerBackTitleVisible: false,
+  // v7: an arrow only (headerBackTitleVisible was removed, which is why "Main" showed as the back label).
+  headerBackButtonDisplayMode: 'minimal',
   cardStyle: { backgroundColor: COLORS.background },
 };
 const bare = { headerShown: false };
@@ -156,7 +157,9 @@ export default function AppNavigator({ ready }) {
             <Stack.Screen name="PlanEvent" component={PlanEventScreen} options={bare} />
           </Stack.Group>
         ) : user.mustChangePassword ? (
-          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Choose your password', headerLeft: () => null }} />
+          // Its own route name: when the password is set this route no longer exists, so the stack lands on Main
+          // (sharing the name "ChangePassword" with the signed-in stack kept the guest stuck on this screen).
+          <Stack.Screen name="SetPassword" component={ChangePasswordScreen} options={{ title: 'Choose your password', headerLeft: () => null, gestureEnabled: false }} />
         ) : (
           <Stack.Group>
             <Stack.Screen name="Main" component={MainTabs} options={bare} />

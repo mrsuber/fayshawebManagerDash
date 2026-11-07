@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Screen, Card, Button, Pill, Loading, ErrorView, Empty, SectionTitle, Sheet, Field, ChipRow, Notice, Body, PickerField, Stepper, tap,
@@ -10,6 +10,7 @@ import { errorMessage } from '../../services/api';
 import useLoad from '../../hooks/useLoad';
 import { useLiveEvent } from '../../contexts/LiveContext';
 import { addDays, ago, dayLabel, hhmm, isoDay, xaf } from '../../utils/format';
+import { showAlert } from '../../components/Dialog';
 
 const TABS = [
   { value: 'menu', label: 'Order in', icon: 'restaurant-outline' },
@@ -95,7 +96,7 @@ export default function DiningScreen({ navigation, route }) {
   };
 
   const cancelReservation = (r) =>
-    Alert.alert('Cancel this table?', `${r.venue} · ${dayLabel(r.date)} ${r.time}`, [
+    showAlert('Cancel this table?', `${r.venue} · ${dayLabel(r.date)} ${r.time}`, [
       { text: 'Keep it', style: 'cancel' },
       {
         text: 'Cancel table',
@@ -105,7 +106,7 @@ export default function DiningScreen({ navigation, route }) {
             const updated = await guest.cancelReservation(r.id);
             setData((d) => ({ ...d, reservations: d.reservations.map((x) => (x.id === updated.id ? updated : x)) }));
           } catch (e) {
-            Alert.alert('Could not cancel', errorMessage(e));
+            showAlert('Could not cancel', errorMessage(e));
           }
         },
       },

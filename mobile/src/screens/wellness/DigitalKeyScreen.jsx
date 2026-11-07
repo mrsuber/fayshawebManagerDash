@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
@@ -19,6 +18,7 @@ import { COLORS, FONTS } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { useLiveEvent } from '../../contexts/LiveContext';
+import { showAlert } from '../../components/Dialog';
 
 export default function DigitalKeyScreen() {
   const { user } = useAuth();
@@ -124,7 +124,7 @@ export default function DigitalKeyScreen() {
 
   const copyToClipboard = (text, label) => {
     Clipboard.setStringAsync(String(text ?? '')).catch(() => {});
-    Alert.alert('Copied!', `${label} copied to clipboard`);
+    showAlert('Copied!', `${label} copied to clipboard`);
   };
 
   // Loading state

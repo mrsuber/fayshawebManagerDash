@@ -39,11 +39,13 @@ export default function SignUpScreen({ navigation }) {
     }
     setBusy(true);
     const result = await register(form);
+    setBusy(false);
     if (!result.success) {
       setError(result.error);
       setExists(result.code === 'ACCOUNT_EXISTS');
-      setBusy(false);
+      return;
     }
+    navigation.replace('EmailVerification', { email: result.email || form.email.trim().toLowerCase(), waitSeconds: result.waitSeconds });
   };
 
   return (

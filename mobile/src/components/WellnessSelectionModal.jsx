@@ -12,13 +12,13 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS } from '../constants/theme';
 import wellnessUnifiedService from '../services/wellnessUnifiedService';
+import { showAlert } from './Dialog';
 
 const CATEGORY_CONFIG = {
   journey: {
@@ -69,7 +69,7 @@ export default function WellnessSelectionModal({ visible, onClose, onSelectActiv
       setActivities(response.activities || []);
     } catch (error) {
       console.error('Load activities error:', error);
-      Alert.alert('Error', 'Failed to load wellness activities');
+      showAlert('Error', 'Failed to load wellness activities');
     } finally {
       setLoading(false);
     }

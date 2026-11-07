@@ -6,12 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { COLORS, FONTS } from '../../constants/theme';
 import BookingModalUnified from '../../components/BookingModalUnified';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
+import { showAlert } from '../../components/Dialog';
 
 export default function DetailScreen({ route, navigation }) {
   const { title, subtitle, img, description, features, activityId } = route.params;
@@ -137,7 +137,7 @@ export default function DetailScreen({ route, navigation }) {
 
   const handleBook = () => {
     if (!activity) {
-      Alert.alert('Error', 'Activity details not available. Please try again.');
+      showAlert('Error', 'Activity details not available. Please try again.');
       return;
     }
     setBookingModalVisible(true);

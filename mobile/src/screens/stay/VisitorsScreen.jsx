@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Alert, Share, StyleSheet, Text, View } from 'react-native';
+import { Share, StyleSheet, Text, View } from 'react-native';
 import { Body, Button, Card, Empty, ErrorView, Field, Loading, Notice, Pill, PickerField, Screen, SectionTitle, Sheet, Stepper } from '../../components/ui';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useLiveEvent } from '../../contexts/LiveContext';
 import useLoad from '../../hooks/useLoad';
 import apiClient, { errorMessage } from '../../services/api';
 import { dayLabel, isoDay } from '../../utils/format';
+import { showAlert } from '../../components/Dialog';
 
 const STATUS = { pending: ['Awaiting approval', 'gold'], approved: ['Pass active', 'green'], arrived: ['Arrived', 'blue'], left: ['Left', 'grey'], declined: ['Declined', 'red'], cancelled: ['Cancelled', 'grey'], expired: ['Expired', 'grey'] };
 const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -37,7 +38,7 @@ export default function VisitorsScreen({ navigation }) {
       setForm(null);
       await reload();
       if (p.status === 'approved') share(p);
-      else Alert.alert('Request sent', 'The residence team approves visitor passes. You will be notified, and can then send the pass to your visitor.');
+      else showAlert('Request sent', 'The residence team approves visitor passes. You will be notified, and can then send the pass to your visitor.');
     } catch (e) {
       setFormError(errorMessage(e));
     } finally {
@@ -74,7 +75,7 @@ export default function VisitorsScreen({ navigation }) {
             <View style={{ flexDirection: 'row', gap: 18, marginTop: 10 }}>
               {p.status === 'approved' ? <Text style={s.link} onPress={() => share(p)}>Send the pass</Text> : null}
               {['pending', 'approved'].includes(p.status) ? (
-                <Text style={s.link} onPress={() => apiClient.post(`/guest/visitors/${p.id}/cancel`).then(reload).catch((e) => Alert.alert('Not cancelled', errorMessage(e)))}>Cancel</Text>
+                <Text style={s.link} onPress={() => apiClient.post(`/guest/visitors/${p.id}/cancel`).then(reload).catch((e) => showAlert('Not cancelled', errorMessage(e)))}>Cancel</Text>
               ) : null}
             </View>
           </Card>

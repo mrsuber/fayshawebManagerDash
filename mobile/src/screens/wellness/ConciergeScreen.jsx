@@ -8,7 +8,6 @@ import {
   TextInput,
   Image,
   ActivityIndicator,
-  Alert,
   Linking,
   Platform,
   Animated,
@@ -23,6 +22,7 @@ import { CONCIERGE_QUICK_REPLIES } from '../../constants/wellnessData';
 import api from '../../services/api';
 import { useChat, useLiveEvent } from '../../contexts/LiveContext';
 import { SERVER_URL } from '../../config';
+import { showAlert } from '../../components/Dialog';
 
 // Separate component for image attachment with error handling
 const ImageAttachment = ({ fullUrl, url, name, onPress }) => {
@@ -130,7 +130,7 @@ export default function ConciergeScreen() {
       }
     } catch (error) {
       console.error('Error fetching messages:', error);
-      Alert.alert('Error', 'Failed to load messages');
+      showAlert('Error', 'Failed to load messages');
     } finally {
       setLoading(false);
     }
@@ -180,7 +180,7 @@ export default function ConciergeScreen() {
     const name = asset.fileName || asset.name || asset.uri.split('/').pop() || fallbackName;
     const mimeType = asset.mimeType || (type === 'image' ? 'image/jpeg' : 'application/pdf');
     if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
-      Alert.alert('File too large', 'Files can be up to 10 MB.');
+      showAlert('File too large', 'Files can be up to 10 MB.');
       return;
     }
     setAttachedFile({ type, name, uri: asset.uri, mimeType });
@@ -190,13 +190,13 @@ export default function ConciergeScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please allow access to your photos to send one.');
+        showAlert('Permission needed', 'Please allow access to your photos to send one.');
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6, exif: false });
       if (!result.canceled && result.assets?.[0]) asAttachment(result.assets[0], 'image');
     } catch (error) {
-      Alert.alert('Could not open your photos', error.message);
+      showAlert('Could not open your photos', error.message);
     }
   };
 
@@ -204,13 +204,13 @@ export default function ConciergeScreen() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please allow camera access to take a photo.');
+        showAlert('Permission needed', 'Please allow camera access to take a photo.');
         return;
       }
       const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6, exif: false });
       if (!result.canceled && result.assets?.[0]) asAttachment(result.assets[0], 'image');
     } catch (error) {
-      Alert.alert('Could not open the camera', error.message);
+      showAlert('Could not open the camera', error.message);
     }
   };
 
@@ -225,12 +225,12 @@ export default function ConciergeScreen() {
         asAttachment({ ...asset, fileSize: asset.size }, String(asset.mimeType || '').startsWith('image/') ? 'image' : 'document');
       }
     } catch (error) {
-      Alert.alert('Could not open your files', error.message);
+      showAlert('Could not open your files', error.message);
     }
   };
 
   const showAttachmentOptions = () => {
-    Alert.alert(
+    showAlert(
       'Send a file',
       undefined,
       [
@@ -348,7 +348,7 @@ export default function ConciergeScreen() {
           : m
       ));
 
-      Alert.alert(
+      showAlert(
         'Send Failed',
         'Message could not be sent. Tap the message to retry.',
         [{ text: 'OK' }]
@@ -395,11 +395,11 @@ export default function ConciergeScreen() {
       if (supported) {
         await Linking.openURL(fullUrl);
       } else {
-        Alert.alert('Error', 'Cannot open this file');
+        showAlert('Error', 'Cannot open this file');
       }
     } catch (error) {
       console.error('Error opening file:', error);
-      Alert.alert('Error', 'Failed to open file');
+      showAlert('Error', 'Failed to open file');
     }
   };
 

@@ -8,10 +8,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { COLORS, FONTS } from '../../constants/theme';
 import authService from '../../services/authService';
+import { showAlert } from '../../components/Dialog';
 
 export default function ForgotPasswordScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -40,7 +40,7 @@ export default function ForgotPasswordScreen({ navigation }) {
 
       if (response.success) {
         setSuccess(true);
-        Alert.alert(
+        showAlert(
           'Reset Link Sent',
           'If the email exists, a password reset link has been sent. Please check your email.',
           [

@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
@@ -15,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import { showAlert } from '../../components/Dialog';
 
 export default function DepositBoxScreen({ navigation, route }) {
   const { user } = useAuth();
@@ -101,7 +101,7 @@ export default function DepositBoxScreen({ navigation, route }) {
       console.error('Error fetching deposit box data:', error);
       // Don't show error alert if we have initial data
       if (!initialDepositBoxData) {
-        Alert.alert('Error', 'Failed to load deposit box information');
+        showAlert('Error', 'Failed to load deposit box information');
       }
     } finally {
       setLoading(false);
@@ -116,11 +116,11 @@ export default function DepositBoxScreen({ navigation, route }) {
 
   const copyToClipboard = (text, label) => {
     Clipboard.setStringAsync(String(text ?? '')).catch(() => {});
-    Alert.alert('Copied!', `${label} copied to clipboard`);
+    showAlert('Copied!', `${label} copied to clipboard`);
   };
 
   const handleMarkAsCollected = async (packageId) => {
-    Alert.alert(
+    showAlert(
       'Mark as Collected',
       'Have you collected this package from the deposit box?',
       [
@@ -134,13 +134,13 @@ export default function DepositBoxScreen({ navigation, route }) {
               });
 
               if (response.success) {
-                Alert.alert('Success', 'Package marked as collected');
+                showAlert('Success', 'Package marked as collected');
                 // Refresh data
                 fetchDepositBoxData();
               }
             } catch (error) {
               console.error('Error marking package as collected:', error);
-              Alert.alert('Error', 'Failed to mark package as collected');
+              showAlert('Error', 'Failed to mark package as collected');
             }
           },
         },

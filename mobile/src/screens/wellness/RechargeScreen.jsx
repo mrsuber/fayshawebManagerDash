@@ -8,7 +8,6 @@ import {
   ImageBackground,
   Animated,
   Dimensions,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -19,6 +18,7 @@ import BookingModalUnified from '../../components/BookingModalUnified';
 import ServicePicker from '../../components/ServicePicker';
 import PremiumModal from '../../components/PremiumModal';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
+import { showAlert } from '../../components/Dialog';
 
 const { width, height } = Dimensions.get('window');
 
@@ -93,7 +93,7 @@ export default function RechargeScreen({ navigation }) {
       setRechargeServices(services);
     } catch (error) {
       console.error('❌ [RechargeScreen] Error loading Recharge activity:', error);
-      Alert.alert('Error', 'Failed to load Recharge journey details');
+      showAlert('Error', 'Failed to load Recharge journey details');
     } finally {
       setLoadingActivity(false);
     }
@@ -112,7 +112,7 @@ export default function RechargeScreen({ navigation }) {
 
   const handleBookSession = () => {
     if (!rechargeActivity) {
-      Alert.alert('Error', 'Recharge journey not available. Please try again.');
+      showAlert('Error', 'Recharge journey not available. Please try again.');
       return;
     }
     setSelectedActivityToBook(rechargeActivity);
@@ -123,7 +123,7 @@ export default function RechargeScreen({ navigation }) {
     console.log('📌 [RechargeScreen] handleBookIndividualService called with service:', JSON.stringify(service, null, 2));
 
     if (!service) {
-      Alert.alert('Error', 'Service not available. Please try again.');
+      showAlert('Error', 'Service not available. Please try again.');
       return;
     }
 

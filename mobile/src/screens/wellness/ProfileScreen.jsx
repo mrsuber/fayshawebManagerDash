@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ImageBackground,
-  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,6 +13,7 @@ import { COLORS, FONTS } from '../../constants/theme';
 import { PROFILE_ITEMS } from '../../constants/wellnessData';
 import { useAuth } from '../../contexts/AuthContext';
 import { APP } from '../../config';
+import { showAlert } from '../../components/Dialog';
 
 export default function ProfileScreen({ navigation }) {
   const { user, logout } = useAuth();
@@ -207,7 +207,7 @@ export default function ProfileScreen({ navigation }) {
         {/* Logout Button */}
         <TouchableOpacity
           onPress={() =>
-            Alert.alert('Log out?', 'You can sign back in at any time.', [
+            showAlert('Log out?', 'You can sign back in at any time.', [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Log out', style: 'destructive', onPress: handleLogout },
             ])

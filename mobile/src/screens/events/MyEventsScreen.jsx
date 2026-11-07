@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Body, Button, Card, ErrorView, Field, Heading, Loading, Notice, Pill, Screen } from '../../components/ui';
 import { COLORS, FONTS } from '../../constants/theme';
 import { useLiveEvent } from '../../contexts/LiveContext';
 import useLoad from '../../hooks/useLoad';
 import apiClient, { errorMessage } from '../../services/api';
 import { dayLabel } from '../../utils/format';
+import { showAlert } from '../../components/Dialog';
 
 const STATUS = {
   new: ['Received', 'gold'], assessing: ['We are preparing your proposal', 'blue'], quoted: ['Proposal ready', 'gold'], accepted: ['Accepted · deposit pending', 'blue'],
@@ -29,7 +30,7 @@ function Proposal({ ev, onAnswered }) {
       await apiClient.post(`/events/quote/${ev.quoteToken}/respond`, { decision, name });
       onAnswered();
     } catch (e) {
-      Alert.alert('Not recorded', errorMessage(e));
+      showAlert('Not recorded', errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -54,7 +55,7 @@ function Proposal({ ev, onAnswered }) {
         <>
           <Field label="Your full name, to accept" value={name} onChangeText={setName} style={{ marginTop: 14 }} />
           <Button title="Accept the proposal" onPress={() => respond('accept')} loading={busy} disabled={!name.trim()} />
-          <Button title="Decline" variant="ghost" onPress={() => Alert.alert('Decline this proposal?', 'You can still ask us for changes by replying to our email.', [{ text: 'Keep it' }, { text: 'Decline', style: 'destructive', onPress: () => respond('decline') }])} style={{ marginTop: 8 }} />
+          <Button title="Decline" variant="ghost" onPress={() => showAlert('Decline this proposal?', 'You can still ask us for changes by replying to our email.', [{ text: 'Keep it' }, { text: 'Decline', style: 'destructive', onPress: () => respond('decline') }])} style={{ marginTop: 8 }} />
         </>
       ) : null}
     </View>

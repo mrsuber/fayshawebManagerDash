@@ -62,20 +62,31 @@ export const AuthProvider = ({ children }) => {
       }
       return { success: false, error: response.error || 'Sign-in failed' };
     } catch (e) {
-      return { success: false, error: errorMessage(e, 'Sign-in failed. Please try again.'), code: e.code, status: e.status };
+      return { success: false, error: errorMessage(e, 'Sign-in failed. Please try again.'), code: e.code, status: e.status, email: e.email };
     }
   }, []);
 
+  /** Creates the account; nobody is signed in until the emailed code is entered (verifyCode). */
   const register = useCallback(async (details) => {
     try {
       const response = await authService.register(details);
+      if (response.success) return { success: true, verificationRequired: true, email: response.email, waitSeconds: response.waitSeconds };
+      return { success: false, error: 'We could not create your account' };
+    } catch (e) {
+      return { success: false, error: errorMessage(e, 'We could not create your account. Please try again.'), code: e.code };
+    }
+  }, []);
+
+  const verifyCode = useCallback(async (email, code) => {
+    try {
+      const response = await authService.verifyCode(email, code);
       if (response.success && response.user) {
         setUser(response.user);
         return { success: true, user: response.user };
       }
-      return { success: false, error: 'We could not create your account' };
+      return { success: false, error: 'That code is not valid' };
     } catch (e) {
-      return { success: false, error: errorMessage(e, 'We could not create your account. Please try again.'), code: e.code };
+      return { success: false, error: errorMessage(e, 'We could not check the code. Please try again.'), code: e.code };
     }
   }, []);
 
@@ -118,8 +129,8 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, isAuthenticated: Boolean(user), login, register, logout, updateProfile, refreshUserData, patchUser }),
-    [user, loading, login, register, logout, updateProfile, refreshUserData, patchUser],
+    () => ({ user, loading, isAuthenticated: Boolean(user), login, register, verifyCode, logout, updateProfile, refreshUserData, patchUser }),
+    [user, loading, login, register, verifyCode, logout, updateProfile, refreshUserData, patchUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

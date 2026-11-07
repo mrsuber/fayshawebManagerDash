@@ -8,7 +8,6 @@ import {
   ImageBackground,
   Animated,
   Dimensions,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -19,6 +18,7 @@ import BookingModalUnified from '../../components/BookingModalUnified';
 import ServicePicker from '../../components/ServicePicker';
 import PremiumModal from '../../components/PremiumModal';
 import wellnessUnifiedService from '../../services/wellnessUnifiedService';
+import { showAlert } from '../../components/Dialog';
 
 const { width, height } = Dimensions.get('window');
 
@@ -84,7 +84,7 @@ export default function ExploreScreenMood({ navigation }) {
       setExploreServices(services);
     } catch (error) {
       console.error('Error loading Explore activity:', error);
-      Alert.alert('Error', 'Failed to load Explore journey details');
+      showAlert('Error', 'Failed to load Explore journey details');
     } finally {
       setLoadingActivity(false);
     }
@@ -103,7 +103,7 @@ export default function ExploreScreenMood({ navigation }) {
 
   const handleBookSession = () => {
     if (!exploreActivity) {
-      Alert.alert('Error', 'Explore journey not available. Please try again.');
+      showAlert('Error', 'Explore journey not available. Please try again.');
       return;
     }
     setSelectedActivityToBook(exploreActivity);
@@ -112,7 +112,7 @@ export default function ExploreScreenMood({ navigation }) {
 
   const handleBookIndividualService = (service) => {
     if (!service) {
-      Alert.alert('Error', 'Service not available. Please try again.');
+      showAlert('Error', 'Service not available. Please try again.');
       return;
     }
     setSelectedActivityToBook(service);
