@@ -12,7 +12,7 @@ const TYPES = [
 ];
 const SPACES = [['garden', 'Gardens'], ['pool_deck', 'Pool deck'], ['restaurant', 'Restaurant'], ['sky_deck', 'Sky deck'], ['lounge', 'Lounge'], ['wellness_club', 'Wellness club'], ['whole_estate', 'Whole estate']];
 const SERVICES = [['decor', 'Decor'], ['flowers', 'Flowers'], ['sound', 'Sound & DJ'], ['lighting', 'Lighting'], ['photo', 'Photography'], ['video', 'Video'], ['cake', 'Cake'], ['officiant', 'Officiant'], ['transport', 'Guest transport'], ['security', 'Security'], ['wellness', 'Spa for the party'], ['kids', 'Children’s corner']];
-const STEPS = ['The occasion', 'Spaces & food', 'Services & budget', 'Your details'];
+const STEPS = ['The occasion', 'Spaces & food', 'Services & vision', 'Your details'];
 
 function MultiChips({ options, value, onChange }) {
   return (
@@ -33,7 +33,7 @@ export default function PlanEventScreen({ navigation }) {
   const [step, setStep] = useState(0);
   const [v, setV] = useState({
     eventType: '', eventDate: addDays(new Date(), 60), flexibleDates: false, guests: 50, startTime: '', spaces: [], catering: 'faysha', cateringStyle: '',
-    dietary: '', services: [], roomsNeeded: 0, budgetMin: '', budgetMax: '', message: '',
+    dietary: '', services: [], roomsNeeded: 0, message: '',
     name: user?.fullName || '', email: user?.email || '', phone: user?.phone || '', organisation: '',
   });
   const [busy, setBusy] = useState(false);
@@ -62,8 +62,6 @@ export default function PlanEventScreen({ navigation }) {
         eventDate: v.flexibleDates ? null : isoDay(v.eventDate),
         guests: Number(v.guests),
         roomsNeeded: Number(v.roomsNeeded) || 0,
-        budgetMin: v.budgetMin || null,
-        budgetMax: v.budgetMax || null,
         currency: 'XAF',
         source: 'app',
       });
@@ -128,15 +126,12 @@ export default function PlanEventScreen({ navigation }) {
   } else if (step === 2) {
     body = (
       <>
-        <Heading size={22} style={{ marginTop: 6 }}>Services and budget</Heading>
+        <Heading size={22} style={{ marginTop: 6 }}>Services and your vision</Heading>
         <SectionTitle>WHAT SHOULD WE TAKE CARE OF?</SectionTitle>
         <MultiChips options={SERVICES} value={v.services} onChange={set('services')} />
         <Stepper label="Residences for overnight guests" value={v.roomsNeeded} min={0} max={50} onChange={set('roomsNeeded')} />
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Field label="Budget from (XAF)" value={String(v.budgetMin)} onChangeText={set('budgetMin')} keyboardType="number-pad" style={{ flex: 1 }} />
-          <Field label="Up to (XAF)" value={String(v.budgetMax)} onChangeText={set('budgetMax')} keyboardType="number-pad" style={{ flex: 1 }} />
-        </View>
         <Field label="Describe the day you imagine" value={v.message} onChangeText={set('message')} multiline placeholder="The atmosphere, the timeline, anything important to you…" maxLength={5000} />
+        <Notice icon="sparkles-outline">No need to name a budget. We send you a tailored proposal first, with images of how we see your day — if it is more than you had in mind, tell us your budget and we adjust it.</Notice>
       </>
     );
   } else {

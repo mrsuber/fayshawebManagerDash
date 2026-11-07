@@ -21,14 +21,18 @@ async function dueFor(token) {
   const q = rows[0];
   if (!q) throw httpError(404, 'This proposal link is not valid. Please contact us.');
   if (q.quote_status !== 'accepted') throw httpError(409, 'Accept the proposal first, then pay the deposit');
-  const due = Math.max(0, Math.round((Number(q.deposit_amount) - Number(q.deposit_paid)) * 100) / 100);
-  return { ...q, due };
+  // First the deposit (it confirms the date), then the balance — always against the accepted proposal.
+  const acc = await require('../eventBilling').account(q.event_id);
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const stage = acc.depositDue > 0 ? 'deposit' : acc.balance > 0 ? 'balance' : 'paid';
+  const due = r2(stage === 'deposit' ? acc.depositDue : acc.balance);
+  return { ...q, due, stage, paid: acc.paid, balance: r2(acc.balance), depositDue: r2(acc.depositDue) };
 }
 
 /** Starts a card payment for the deposit due. Returns { client_secret, publishable_key, payment_id, amount, currency }. */
 async function startCard(token) {
   const q = await dueFor(token);
-  if (!(q.due > 0)) throw httpError(409, 'The deposit is already paid — thank you');
+  if (!(q.due > 0)) throw httpError(409, 'Everything is paid — thank you');
   const stripe = await getStripe();
   const { stripe: keys } = await settings.load();
   if (!stripe || !keys.publishableKey) throw httpError(503, 'Card payments are not available right now. Please choose mobile money.');
@@ -38,9 +42,9 @@ async function startCard(token) {
   const intent = await stripe.paymentIntents.create({
     amount: fx.toStripeAmount(q.due, currency),
     currency: currency.toLowerCase(),
-    metadata: { kind: 'event_deposit', event_id: String(q.event_id), reference: q.reference },
+    metadata: { kind: 'event_deposit', stage: q.stage, event_id: String(q.event_id), reference: q.reference },
     receipt_email: q.email,
-    description: `Event deposit ${q.reference}`,
+    description: `Event ${q.stage} ${q.reference}`,
   });
   const p = await db.query(
     `INSERT INTO payments (event_request_id, payment_method, amount, currency, status, stripe_payment_intent_id, payment_metadata)
@@ -66,7 +70,7 @@ async function confirmCard(token, paymentIntentId, app) {
 /** Asks the client's phone to approve the deposit (XAF only). Returns { payment_id, automatic }. */
 async function startMobileMoney(token, { provider, phone }) {
   const q = await dueFor(token);
-  if (!(q.due > 0)) throw httpError(409, 'The deposit is already paid — thank you');
+  if (!(q.due > 0)) throw httpError(409, 'Everything is paid — thank you');
   if (!['mtn', 'orange'].includes(provider)) throw httpError(400, 'Choose MTN Mobile Money or Orange Money');
   if (String(q.currency).toUpperCase() !== 'XAF') throw httpError(400, 'Mobile money is available for proposals in XAF');
   const { mobileMoney } = await settings.publicConfig();
@@ -93,37 +97,52 @@ async function statusOf(token, paymentId, app) {
   if (p.status === 'pending' && p.payment_method === 'mobile_money') await require('./mobileMoney').settle(p.id, app);
   const fresh = (await db.query('SELECT status, error_message FROM payments WHERE id = $1', [p.id])).rows[0];
   const q = await dueFor(token).catch(() => null);
-  return { status: fresh.status, message: fresh.error_message || null, due: q ? q.due : 0 };
+  return { status: fresh.status, message: fresh.error_message || null, due: q ? q.due : 0, stage: q ? q.stage : null };
 }
 
-/** Money received for a deposit: completes the payment, adds it to the event and confirms the event. Idempotent. */
-async function recordPaid(payment, app) {
+/**
+ * Money received for an event (online, or recorded by the team with `by`): completes the payment, issues its
+ * receipt, adds it to the event (the deposit confirms the date) and tells the client and the team. Idempotent.
+ */
+async function recordPaid(payment, app, { by = null } = {}) {
   const done = await db.query(
     `UPDATE payments SET status = 'completed', paid_at = CURRENT_TIMESTAMP, updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'failed') RETURNING *`,
     [payment.id],
   );
   if (!done.rows[0]) return { already: true };
   const p = done.rows[0];
+  const billing = require('../eventBilling');
+  const receipt = await billing.ensureReceipt(p.id);
+  const acc = await billing.account(p.event_request_id);
+  // Confirmed once the deposit is covered; deposit_paid keeps the running total for the pipeline.
   const e = (await db.query(
-    `UPDATE event_requests SET deposit_paid = deposit_paid + $2, deposit_paid_at = COALESCE(deposit_paid_at, NOW()),
-            status = CASE WHEN status IN ('accepted', 'confirmed') THEN 'confirmed' ELSE status END, updated_at = NOW()
-      WHERE id = $1 RETURNING id, reference, name, currency, user_id`,
-    [p.event_request_id, p.amount],
+    `UPDATE event_requests SET deposit_paid = $2, deposit_paid_at = COALESCE(deposit_paid_at, NOW()),
+            status = CASE WHEN status IN ('accepted', 'confirmed') AND $3 THEN 'confirmed' ELSE status END, updated_at = NOW()
+      WHERE id = $1 RETURNING id, reference, name, currency, user_id, status`,
+    [p.event_request_id, acc.paid, acc.depositDue <= 0.005],
   )).rows[0];
   if (!e) return { missing: true };
   const amount = `${Number(p.amount).toLocaleString('en-US')} ${p.currency || e.currency}`;
-  const how = p.payment_method === 'stripe' ? 'card' : 'mobile money';
-  await db.query(`INSERT INTO event_notes (event_id, kind, body) VALUES ($1, 'event', $2)`, [e.id, `Deposit paid online: ${amount} by ${how} · date confirmed`]);
-  await require('../stayKeys').alertManagers(app, `Deposit paid · ${e.reference}`, `${e.name} paid ${amount} by ${how}. The event is confirmed.`, `/events?id=${e.id}`);
+  const how = { stripe: 'card', mobile_money: 'mobile money', cash: 'cash', bank_transfer: 'bank transfer', card_terminal: 'card terminal' }[p.payment_method] || p.payment_method;
+  const where = by ? 'recorded by the team' : 'paid online';
+  const state = acc.paidInFull ? 'paid in full' : acc.depositDue <= 0.005 ? `date confirmed · balance ${acc.balance.toLocaleString('en-US')}` : `deposit still due ${acc.depositDue.toLocaleString('en-US')}`;
+  await db.query(`INSERT INTO event_notes (event_id, author_id, kind, body) VALUES ($1, $2, 'event', $3)`, [e.id, by, `Payment ${where}: ${amount} by ${how} · receipt ${receipt} · ${state}`]);
+  if (!by) await require('../stayKeys').alertManagers(app, `Payment received · ${e.reference}`, `${e.name} paid ${amount} by ${how} (${state}).`, `/events?id=${e.id}`);
   app?.get?.('io')?.to('staff').emit('event:updated', { id: e.id });
+  billing.emailReceipt(p.id).catch((err) => console.error('Receipt email failed:', err.message));
   if (e.user_id) {
     try {
-      await require('../guestPush').notifyGuest(app, e.user_id, { title: 'Deposit received', body: `Thank you — your ${amount} deposit for ${e.reference} is received and your date is confirmed.`, event: 'event:updated', data: { screen: 'MyEvents', id: e.id } });
+      await require('../guestPush').notifyGuest(app, e.user_id, {
+        title: 'Payment received',
+        body: `Thank you — ${amount} for ${e.reference} is received (receipt ${receipt}). ${acc.paidInFull ? 'Your event is paid in full.' : acc.depositDue <= 0.005 ? 'Your date is confirmed.' : ''}`.trim(),
+        event: 'event:updated',
+        data: { screen: 'MyEvents', id: e.id },
+      });
     } catch {
       // the client also sees it on the proposal page
     }
   }
-  return { confirmed: true };
+  return { confirmed: acc.depositDue <= 0.005, receipt, paidInFull: acc.paidInFull };
 }
 
 module.exports = { dueFor, startCard, confirmCard, startMobileMoney, statusOf, recordPaid };

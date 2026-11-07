@@ -9,7 +9,8 @@
  *   POST   /events/:id/quotes               { items, discount, taxRate, depositPercent, currency, validUntil, notes }  save a draft quote
  *   PATCH  /events/:id/quotes/:qid          same fields (drafts only)
  *   POST   /events/:id/quotes/:qid/send     emails the client a private link; earlier sent quotes are superseded
- *   POST   /events/:id/deposit              { amount, method, reference }  deposit received → confirmed
+ *   POST   /events/:id/deposit              { amount, method, reference }  a payment received by the team (cash, bank transfer,
+ *                                           card terminal): recorded in payments with a numbered receipt, like online payments
  *   POST   /events/:id/story                creates a draft story from the event (Content → Stories)
  */
 const express = require('express');
@@ -48,6 +49,17 @@ async function full(id) {
     ...ev.toEvent(row),
     moves: MOVES[row.status] || [],
     quotes: quotes.rows.map((q) => ({ ...ev.toQuote(q, { includeToken: true }), author: q.author })),
+    account: await (async () => {
+      const acc = await require('../../services/eventBilling').account(id);
+      const token = acc.quote?.token;
+      const docs = token ? require('../../services/eventBilling').links(token) : null;
+      return {
+        invoiceNumber: acc.quote?.invoice_number || null,
+        invoiceUrl: acc.quote?.invoice_number && docs ? docs.invoice : null,
+        total: acc.total, paid: acc.paid, balance: acc.balance, depositDue: acc.depositDue, paidInFull: acc.paidInFull,
+        payments: acc.payments.map((p) => ({ ...p, receiptUrl: p.receiptNumber && docs ? docs.receipt(p.id) : null })),
+      };
+    })(),
     thread: thread.rows.map((n) => ({ id: n.id, kind: n.kind === 'client' ? 'reply' : n.kind, client: n.kind === 'client', body: n.body, author: n.kind === 'client' ? 'Client' : n.author || 'System', at: isoTime(n.created_at) })),
   };
 }
@@ -208,7 +220,12 @@ router.post(
 function quoteValues(b, currency) {
   const priced = ev.priceQuote({ items: b.items, discount: b.discount, taxRate: b.taxRate, depositPercent: b.depositPercent ?? 30, currency });
   const validUntil = /^\d{4}-\d{2}-\d{2}$/.test(b.validUntil || '') ? b.validUntil : null;
-  return { ...priced, validUntil, notes: b.notes ? String(b.notes).slice(0, 5000) : null };
+  // How we see it: up to 8 mood images (uploaded in FAY OS or a https link) with a caption.
+  const images = (Array.isArray(b.images) ? b.images : [])
+    .filter((i) => i && /^(\/uploads\/|https:\/\/)/.test(String(i.url || '')))
+    .slice(0, 8)
+    .map((i) => ({ url: String(i.url).slice(0, 500), caption: String(i.caption || '').slice(0, 200) }));
+  return { ...priced, validUntil, images, notes: b.notes ? String(b.notes).slice(0, 5000) : null };
 }
 
 router.post(
@@ -220,10 +237,10 @@ router.post(
     const currency = /^[A-Z]{3}$/.test(req.body?.currency || '') ? req.body.currency : e.currency;
     const v = quoteValues(req.body || {}, currency);
     const { rows } = await db.query(
-      `INSERT INTO event_quotes (event_id, version, currency, items, discount, tax_rate, subtotal, tax, total, deposit_percent, deposit_amount, valid_until, notes, created_by)
-       VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM event_quotes WHERE event_id = $1), $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `INSERT INTO event_quotes (event_id, version, currency, items, discount, tax_rate, subtotal, tax, total, deposit_percent, deposit_amount, valid_until, notes, created_by, images)
+       VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM event_quotes WHERE event_id = $1), $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
        RETURNING version`,
-      [e.id, currency, JSON.stringify(v.items), v.discount, v.taxRate, v.subtotal, v.tax, v.total, v.depositPercent, v.depositAmount, v.validUntil, v.notes, req.user.id],
+      [e.id, currency, JSON.stringify(v.items), v.discount, v.taxRate, v.subtotal, v.tax, v.total, v.depositPercent, v.depositAmount, v.validUntil, v.notes, req.user.id, JSON.stringify(v.images)],
     );
     await note(e.id, req.user.id, 'event', `Proposal v${rows[0].version} drafted · ${formatMoney(v.total, currency)}`);
     if (e.status === 'new') await db.query(`UPDATE event_requests SET status = 'assessing', updated_at = NOW() WHERE id = $1`, [e.id]);
@@ -241,8 +258,8 @@ router.patch(
     const v = quoteValues(req.body || {}, currency);
     await db.query(
       `UPDATE event_quotes SET currency = $2, items = $3::jsonb, discount = $4, tax_rate = $5, subtotal = $6, tax = $7, total = $8,
-              deposit_percent = $9, deposit_amount = $10, valid_until = $11, notes = $12 WHERE id = $1`,
-      [q.id, currency, JSON.stringify(v.items), v.discount, v.taxRate, v.subtotal, v.tax, v.total, v.depositPercent, v.depositAmount, v.validUntil, v.notes],
+              deposit_percent = $9, deposit_amount = $10, valid_until = $11, notes = $12, images = $13::jsonb WHERE id = $1`,
+      [q.id, currency, JSON.stringify(v.items), v.discount, v.taxRate, v.subtotal, v.tax, v.total, v.depositPercent, v.depositAmount, v.validUntil, v.notes, JSON.stringify(v.images)],
     );
     res.json(await full(req.params.id));
   }),
@@ -288,18 +305,19 @@ router.post(
     if (!['accepted', 'confirmed'].includes(e.status)) throw httpError(409, 'Record the deposit once the client has accepted a proposal');
     const amount = Number(req.body?.amount);
     if (!(amount > 0)) throw httpError(400, 'Enter the amount received');
-    const accepted = (await db.query(`SELECT currency, deposit_amount FROM event_quotes WHERE event_id = $1 AND status = 'accepted' ORDER BY version DESC LIMIT 1`, [e.id])).rows[0];
-    const method = String(req.body?.method || 'bank_transfer').slice(0, 30);
-    await db.query(
-      `UPDATE event_requests SET deposit_paid = deposit_paid + $2, deposit_paid_at = COALESCE(deposit_paid_at, NOW()), status = 'confirmed', updated_at = NOW() WHERE id = $1`,
-      [e.id, amount],
-    );
-    await note(
-      e.id,
-      req.user.id,
-      'event',
-      `Deposit received: ${formatMoney(amount, accepted?.currency || e.currency)} by ${method.replace('_', ' ')}${req.body?.reference ? ` (ref. ${String(req.body.reference).slice(0, 60)})` : ''}${e.status !== 'confirmed' ? ' · date confirmed' : ''}`,
-    );
+    const accepted = (await db.query(`SELECT currency FROM event_quotes WHERE event_id = $1 AND status = 'accepted' ORDER BY version DESC LIMIT 1`, [e.id])).rows[0];
+    if (!accepted) throw httpError(409, 'There is no accepted proposal to pay against');
+    const methods = ['cash', 'bank_transfer', 'card_terminal', 'mobile_money'];
+    const method = methods.includes(req.body?.method) ? req.body.method : 'bank_transfer';
+    const reference = req.body?.reference ? String(req.body.reference).slice(0, 120) : null;
+    if (method !== 'cash' && !reference) throw httpError(400, 'Add the transfer or transaction reference, so the payment can be traced');
+    // Into the same payments ledger as online payments, then the same path: receipt, totals, confirmation, emails.
+    const p = (await db.query(
+      `INSERT INTO payments (event_request_id, payment_method, amount, currency, status, transaction_reference, recorded_by, payment_metadata)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7) RETURNING *`,
+      [e.id, method, amount, accepted.currency || e.currency, reference, req.user.id, JSON.stringify({ kind: 'event_payment', recordedBy: req.user.fullName })],
+    )).rows[0];
+    await require('../../services/payments/eventDeposits').recordPaid(p, req.app, { by: req.user.id });
     changed(req, e.id);
     res.status(201).json(await full(e.id));
   }),
