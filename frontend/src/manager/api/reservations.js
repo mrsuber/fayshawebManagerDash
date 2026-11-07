@@ -51,3 +51,22 @@ export const update = (id, changes) =>
         return r;
       }),
   );
+
+/** GET /reservations/:id/cancellation → { paid, percent, refund, daysBefore, policy } — the terms for this stay today. */
+export const cancellation = (id) =>
+  withMock(
+    () => api.get(`/reservations/${id}/cancellation`),
+    () => ({ paid: 0, percent: 100, refund: 0, daysBefore: null, policy: '' }),
+  );
+
+/** POST /reservations/:id/dates { checkIn, checkOut } → Reservation (repriced; overpayment raised as a refund). */
+export const changeDates = (id, dates) =>
+  withMock(
+    () => api.post(`/reservations/${id}/dates`, dates),
+    () =>
+      mutate((d) => {
+        const r = d.reservations.find((x) => x.id === id);
+        Object.assign(r, dates);
+        return r;
+      }),
+  );

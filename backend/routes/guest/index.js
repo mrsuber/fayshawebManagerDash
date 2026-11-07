@@ -132,6 +132,60 @@ router.get(
   }),
 );
 
+/** What cancelling this stay now would refund under the terms (shown before the guest confirms). */
+router.get(
+  '/stays/:id/cancellation',
+  ah(async (req, res) => {
+    await ownStay(req.user, req.params.id);
+    res.json(await require('../../services/stayChanges').cancellationQuote(req.params.id));
+  }),
+);
+
+/** POST { reason? } — the guest cancels; the refund the terms give is raised for HQ to approve; the team is told. */
+router.post(
+  '/stays/:id/cancel',
+  ah(async (req, res) => {
+    await ownStay(req.user, req.params.id);
+    const result = await require('../../services/stayChanges').cancelStay({ id: req.params.id, by: 'guest', reason: req.body?.reason, actorId: req.user.id, app: req.app });
+    res.json({ ok: true, ...result, stay: toStay(await ownStay(req.user, req.params.id)) });
+  }),
+);
+
+/**
+ * POST { checkIn, checkOut, note? } — the guest asks to move their stay. If the residence is free on those dates the
+ * request goes to the front desk (FAY OS → Service requests, Concierge) with the new price; the team confirms it.
+ */
+router.post(
+  '/stays/:id/change',
+  ah(async (req, res) => {
+    const stay = await ownStay(req.user, req.params.id);
+    const { checkIn, checkOut, note } = req.body || {};
+    if (!isDate(checkIn) || !isDate(checkOut) || checkOut <= checkIn) throw httpError(400, 'Choose new arrival and departure dates');
+    if (!['pending', 'confirmed', 'checked_in'].includes(stay.status)) throw httpError(409, 'This stay can no longer be changed');
+    if (stay.status === 'checked_in' && checkIn !== isoDate(stay.check_in_date)) throw httpError(409, 'You are in residence: you can change your departure date');
+    const clash = await db.query(
+      `SELECT 1 FROM bookings WHERE apartment_id = $1 AND id <> $2 AND status IN ('pending', 'confirmed', 'checked_in')
+          AND daterange(check_in_date, check_out_date, '[)') && daterange($3::date, $4::date, '[)') LIMIT 1`,
+      [stay.apartment_id, stay.id, checkIn, checkOut],
+    );
+    const nights = Math.round((new Date(`${checkOut}T00:00:00Z`) - new Date(`${checkIn}T00:00:00Z`)) / 86400000);
+    const rate = (await db.query(`SELECT COALESCE(a.custom_price, c.base_price) AS rate FROM apartments a JOIN apartment_categories c ON c.id = a.category_id WHERE a.id = $1`, [stay.apartment_id])).rows[0];
+    const newTotal = Number(rate.rate) * nights;
+    const difference = newTotal - num(stay.final_price);
+    const title = `Change dates · ${stay.booking_number}: ${checkIn} → ${checkOut}`;
+    const notes = `${clash.rows.length ? 'Residence NOT free on these dates — offer another residence or dates.' : 'Residence free on these dates.'} New price ${newTotal.toLocaleString('en-US')} XAF (${difference >= 0 ? '+' : '−'}${Math.abs(difference).toLocaleString('en-US')}). Apply in FAY OS → Reservations → Change dates.${note ? `\nGuest: ${String(note).slice(0, 500)}` : ''}`;
+    const { rows } = await db.query(
+      `WITH n AS (SELECT nextval(pg_get_serial_sequence('service_requests', 'id')) AS id)
+       INSERT INTO service_requests (id, request_number, guest_id, guest_name, booking_id, apartment_id, request_type, department, title, description, priority, location, metadata)
+       SELECT n.id, '#' || n.id, $1, $2, $3, $4, 'concierge', 'Concierge', $5, $6, 'normal', $7, $8 FROM n RETURNING id, request_number`,
+      [req.user.id, req.user.fullName, stay.id, stay.apartment_id, title.slice(0, 200), notes, `Residence ${stay.unit_number}`, JSON.stringify({ source: 'guest_app', kind: 'date_change', checkIn, checkOut })],
+    );
+    emit(req, 'service-request:created', { id: rows[0].id, number: rows[0].request_number, guestId: req.user.id, guestName: req.user.fullName, title, department: 'Concierge', status: 'New', priority: 'Normal', notes });
+    await notify(req, `Date change asked · ${stay.booking_number}`, `${req.user.fullName}: ${checkIn} → ${checkOut}${clash.rows.length ? ' (not free)' : ''}`, { link: '/requests' });
+    res.status(201).json({ ok: true, available: !clash.rows.length, nights, newTotal, difference, requestId: rows[0].id });
+  }),
+);
+
 // ======================================================================
 // Bill (folio)
 // ======================================================================

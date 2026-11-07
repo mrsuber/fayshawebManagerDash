@@ -10,7 +10,8 @@ const { finalizeStay, handOverDepositBox } = require('../../services/stayKeys');
 
 const router = express.Router();
 
-const STATUS_OUT = { pending: 'Pending', confirmed: 'Confirmed', checked_in: 'Confirmed', checked_out: 'Confirmed', cancelled: 'Cancelled' };
+const STATUS_OUT = { pending: 'Pending', confirmed: 'Confirmed', checked_in: 'Confirmed', checked_out: 'Confirmed', cancelled: 'Cancelled', no_show: 'No-show' };
+const stays = require('../../services/stayChanges');
 
 const SELECT = `
   SELECT b.*, a.unit_number, c.display_name AS collection, p.name AS package_name,
@@ -41,6 +42,8 @@ function toReservation(b, cur) {
     source: b.source || 'Direct Website',
     bookedAt: isoTime(b.created_at),
     cancelledAt: isoTime(b.cancelled_at),
+    cancellationReason: b.cancellation_reason || null,
+    cancelledBy: b.cancelled_by || null,
     package: b.package_name || undefined,
     totalAmount: Number(b.final_price),
     balanceDue: Math.max(0, Number(b.final_price) - Number(b.paid)),
@@ -149,16 +152,29 @@ router.post(
 );
 
 /** PATCH { status } — Confirmed | Pending | Cancelled */
+/**
+ * PATCH /:id { status: Confirmed | Pending | Cancelled | No-show, reason?, refund? }
+ * Cancelled tells the guest (email and app) and, with refund: true, raises the refund for HQ to approve under the
+ * terms (full > 14 days, 50 % 7–14 days, none under 7). No-show is recorded from the arrival day.
+ */
 router.patch(
   '/:id',
   ah(async (req, res) => {
-    const map = { Confirmed: 'confirmed', Pending: 'pending', Cancelled: 'cancelled' };
+    const map = { Confirmed: 'confirmed', Pending: 'pending', Cancelled: 'cancelled', 'No-show': 'no_show' };
     const status = map[req.body?.status];
-    if (!status) throw httpError(400, 'status must be Confirmed, Pending or Cancelled');
+    if (!status) throw httpError(400, 'status must be Confirmed, Pending, Cancelled or No-show');
     const current = (await db.query('SELECT status FROM bookings WHERE id = $1', [req.params.id])).rows[0];
     if (!current) throw httpError(404, 'Reservation not found');
     if (['checked_in', 'checked_out'].includes(current.status)) throw httpError(409, `This stay is already ${current.status.replace('_', ' ')}`);
-    const stamp = { confirmed: ', confirmed_at = COALESCE(confirmed_at, NOW())', cancelled: ', cancelled_at = NOW()', pending: '' }[status];
+    if (status === 'cancelled') {
+      const result = await stays.cancelStay({ id: req.params.id, by: 'staff', reason: req.body.reason, refund: Boolean(req.body.refund), actorId: req.user.id, app: req.app });
+      return res.json({ ...(await one(req.params.id)), refund: result.refund, approvals: result.approvalIds });
+    }
+    if (status === 'no_show') {
+      await stays.markNoShow({ id: req.params.id, app: req.app });
+      return res.json(await one(req.params.id));
+    }
+    const stamp = { confirmed: ', confirmed_at = COALESCE(confirmed_at, NOW())', pending: '' }[status];
     try {
       await db.query(`UPDATE bookings SET status = $1${stamp} WHERE id = $2`, [status, req.params.id]);
     } catch (e) {
@@ -166,8 +182,19 @@ router.patch(
       throw e;
     }
     if (status === 'confirmed') await finalizeStay(req.params.id, { app: req.app });
-    else await handOverDepositBox((await db.query('SELECT apartment_id FROM bookings WHERE id = $1', [req.params.id])).rows[0].apartment_id);
     res.json(await one(req.params.id));
+  }),
+);
+
+/** GET /:id/cancellation — what cancelling now would refund under the terms. */
+router.get('/:id/cancellation', ah(async (req, res) => res.json(await stays.cancellationQuote(req.params.id))));
+
+/** POST /:id/dates { checkIn, checkOut, apartmentId? } — move the stay; the price is recalculated and the guest told. */
+router.post(
+  '/:id/dates',
+  ah(async (req, res) => {
+    const result = await stays.changeDates({ id: req.params.id, checkIn: req.body?.checkIn, checkOut: req.body?.checkOut, apartmentId: req.body?.apartmentId, app: req.app });
+    res.json({ ...(await one(req.params.id)), change: result });
   }),
 );
 
@@ -180,7 +207,7 @@ router.get(
     const { rows } = await db.query(
       `SELECT b.id, b.guest_name, b.number_of_guests, b.status, b.check_in_date, b.check_out_date, a.unit_number
          FROM bookings b JOIN apartments a ON a.id = b.apartment_id
-        WHERE b.status <> 'cancelled' AND (b.check_in_date = CURRENT_DATE OR b.check_out_date = CURRENT_DATE)
+        WHERE b.status NOT IN ('cancelled', 'no_show') AND (b.check_in_date = CURRENT_DATE OR b.check_out_date = CURRENT_DATE)
         ORDER BY b.check_in_date, b.id`,
     );
     const today = isoDate(new Date());

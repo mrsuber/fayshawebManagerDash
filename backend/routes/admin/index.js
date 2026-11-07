@@ -60,7 +60,7 @@ async function dailyRevenue(from, to, property) {
        SELECT n::date AS night, b.final_price / GREATEST(b.number_of_nights, 1) AS revenue
          FROM bookings b JOIN apartments a ON a.id = b.apartment_id
          CROSS JOIN generate_series(b.check_in_date, b.check_out_date - 1, INTERVAL '1 day') n
-        WHERE b.status <> 'cancelled' AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
+        WHERE b.status NOT IN ('cancelled', 'no_show') AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
           AND ($3::int IS NULL OR a.property_id = $3)
      )
      SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
@@ -203,7 +203,7 @@ router.get(
         `SELECT c.display_name AS name, SUM(b.final_price / GREATEST(b.number_of_nights, 1))::numeric AS revenue, COUNT(*)::int AS nights
            FROM bookings b JOIN apartments a ON a.id = b.apartment_id JOIN apartment_categories c ON c.id = a.category_id
            CROSS JOIN generate_series(b.check_in_date, b.check_out_date - 1, INTERVAL '1 day') n
-          WHERE b.status <> 'cancelled' AND n::date BETWEEN $1 AND $2 AND ($3::int IS NULL OR a.property_id = $3)
+          WHERE b.status NOT IN ('cancelled', 'no_show') AND n::date BETWEEN $1 AND $2 AND ($3::int IS NULL OR a.property_id = $3)
           GROUP BY c.display_name ORDER BY 2 DESC`,
         [from, to, property],
       ),
@@ -222,7 +222,7 @@ router.get(
            (SELECT COUNT(*) FROM apartments a WHERE a.is_active = true AND ($3::int IS NULL OR a.property_id = $3))::int AS units,
            (SELECT COUNT(*) FROM bookings b JOIN apartments a ON a.id = b.apartment_id
               CROSS JOIN generate_series(b.check_in_date, b.check_out_date - 1, INTERVAL '1 day') n
-             WHERE b.status <> 'cancelled' AND n::date BETWEEN $1 AND $2 AND ($3::int IS NULL OR a.property_id = $3))::int AS nights`,
+             WHERE b.status NOT IN ('cancelled', 'no_show') AND n::date BETWEEN $1 AND $2 AND ($3::int IS NULL OR a.property_id = $3))::int AS nights`,
         [from, to, property],
       ),
     ]);

@@ -11,7 +11,7 @@ const { db, httpError, isoDate, displayTime, getSetting } = require('./lib');
 const CURRENT_BOOKING = `
   SELECT DISTINCT ON (b.user_id) b.*
     FROM bookings b
-   WHERE b.user_id IS NOT NULL AND b.status <> 'cancelled'
+   WHERE b.user_id IS NOT NULL AND b.status NOT IN ('cancelled', 'no_show')
    ORDER BY b.user_id,
      CASE WHEN b.status = 'checked_in' THEN 0
           WHEN b.status IN ('confirmed', 'pending') AND b.check_out_date > CURRENT_DATE THEN 1
@@ -43,7 +43,7 @@ const GUEST_SELECT = `
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::int AS stays, COALESCE(SUM(b.final_price), 0) AS revenue, MAX(b.check_in_date) AS last_stay_at
         FROM bookings b
-       WHERE b.user_id = u.id AND b.status <> 'cancelled' AND b.check_in_date <= CURRENT_DATE
+       WHERE b.user_id = u.id AND b.status NOT IN ('cancelled', 'no_show') AND b.check_in_date <= CURRENT_DATE
     ) stats ON true
     LEFT JOIN LATERAL (
       SELECT ROUND(AVG(f.rating) * 2, 1) AS satisfaction FROM feedback f WHERE f.rating IS NOT NULL AND LOWER(f.email) = LOWER(u.email)
