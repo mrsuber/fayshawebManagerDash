@@ -331,7 +331,7 @@ async function periodTotals(from, to) {
        SELECT b.id, b.user_id, a.category_id, n::date AS night, b.final_price / GREATEST(b.number_of_nights, 1) AS revenue
          FROM bookings b JOIN apartments a ON a.id = b.apartment_id
          CROSS JOIN generate_series(b.check_in_date, b.check_out_date - 1, INTERVAL '1 day') n
-        WHERE b.status <> 'cancelled' AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
+        WHERE b.status NOT IN ('cancelled', 'no_show') AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
      )
      SELECT
        COALESCE((SELECT SUM(revenue) FROM nights WHERE night BETWEEN $1 AND $2), 0) AS stays,
@@ -344,7 +344,7 @@ async function periodTotals(from, to) {
        (SELECT ROUND(AVG(rating) * 2, 1) FROM feedback WHERE rating IS NOT NULL AND created_at::date BETWEEN $1 AND $2) AS satisfaction,
        (SELECT COUNT(DISTINCT user_id) FROM nights WHERE night BETWEEN $1 AND $2 AND user_id IS NOT NULL)::int AS guests,
        (SELECT COUNT(DISTINCT n.user_id) FROM nights n WHERE n.night BETWEEN $1 AND $2 AND n.user_id IS NOT NULL
-           AND (SELECT COUNT(*) FROM bookings x WHERE x.user_id = n.user_id AND x.status <> 'cancelled') > 1)::int AS repeat_guests`,
+           AND (SELECT COUNT(*) FROM bookings x WHERE x.user_id = n.user_id AND x.status NOT IN ('cancelled', 'no_show')) > 1)::int AS repeat_guests`,
     [from, to],
   );
   const r = rows[0];
@@ -373,7 +373,7 @@ router.get(
        ), nights AS (
          SELECT n::date AS night, b.final_price / GREATEST(b.number_of_nights, 1) AS revenue
            FROM bookings b CROSS JOIN generate_series(b.check_in_date, b.check_out_date - 1, INTERVAL '1 day') n
-          WHERE b.status <> 'cancelled' AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
+          WHERE b.status NOT IN ('cancelled', 'no_show') AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
        ), services AS (
          SELECT created_at::date AS d, total AS v FROM dining_orders
          UNION ALL SELECT experience_date, total_price FROM experience_bookings WHERE status <> 'cancelled'
@@ -398,7 +398,7 @@ router.get(
                     / NULLIF(COUNT(DISTINCT a.id) * $3::int, 0))::int AS v
          FROM apartment_categories c
          JOIN apartments a ON a.category_id = c.id AND a.is_active = true
-         LEFT JOIN bookings b ON b.apartment_id = a.id AND b.status <> 'cancelled' AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
+         LEFT JOIN bookings b ON b.apartment_id = a.id AND b.status NOT IN ('cancelled', 'no_show') AND b.check_in_date <= $2::date AND b.check_out_date > $1::date
         WHERE c.is_active = true GROUP BY c.id, c.display_name, c.sort_order ORDER BY c.sort_order`,
       [from, to, days],
     );
@@ -463,11 +463,11 @@ async function snapshot() {
        (SELECT COUNT(*) FROM bookings WHERE status = 'checked_in')::int AS in_house,
        (SELECT COUNT(*) FROM apartments WHERE is_active = true)::int AS units,
        (SELECT json_agg(json_build_object('guest', b.guest_name, 'residence', a.unit_number, 'status', b.status))
-          FROM bookings b JOIN apartments a ON a.id = b.apartment_id WHERE b.check_in_date = CURRENT_DATE AND b.status <> 'cancelled') AS arrivals_today,
+          FROM bookings b JOIN apartments a ON a.id = b.apartment_id WHERE b.check_in_date = CURRENT_DATE AND b.status NOT IN ('cancelled', 'no_show')) AS arrivals_today,
        (SELECT json_agg(json_build_object('guest', b.guest_name, 'residence', a.unit_number, 'status', b.status))
-          FROM bookings b JOIN apartments a ON a.id = b.apartment_id WHERE b.check_in_date = CURRENT_DATE + 1 AND b.status <> 'cancelled') AS arrivals_tomorrow,
+          FROM bookings b JOIN apartments a ON a.id = b.apartment_id WHERE b.check_in_date = CURRENT_DATE + 1 AND b.status NOT IN ('cancelled', 'no_show')) AS arrivals_tomorrow,
        (SELECT json_agg(json_build_object('guest', b.guest_name, 'residence', a.unit_number, 'status', b.status))
-          FROM bookings b JOIN apartments a ON a.id = b.apartment_id WHERE b.check_out_date = CURRENT_DATE AND b.status <> 'cancelled') AS departures_today,
+          FROM bookings b JOIN apartments a ON a.id = b.apartment_id WHERE b.check_out_date = CURRENT_DATE AND b.status NOT IN ('cancelled', 'no_show')) AS departures_today,
        (SELECT json_object_agg(s, c) FROM (SELECT status::text AS s, COUNT(*) AS c FROM service_requests WHERE created_at::date = CURRENT_DATE GROUP BY status) x) AS requests_today,
        (SELECT json_agg(json_build_object('title', title, 'department', department, 'priority', priority))
           FROM service_requests WHERE status IN ('pending', 'escalated', 'in_progress', 'on_hold')) AS open_requests,

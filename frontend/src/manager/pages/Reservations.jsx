@@ -22,6 +22,7 @@ const SC = {
   Confirmed: '#1f7a48',
   Inquiry: '#6b5a3a',
   Cancelled: '#5c2b2b',
+  'No-show': '#4a3a5c',
 };
 const TABS = ['Overview', 'Calendar', 'Booking List', 'Availability & Rates', 'Room Types', 'Packages', 'Groups & Events', 'Cancellations', 'Analytics'];
 const VIEWS = ['month', 'week', 'day'];
@@ -99,6 +100,10 @@ export default function Reservations() {
   const [viewAll, setViewAll] = useState(null);
   const [form, setForm] = useState(null);
   const [rev, setRev] = useState(0);
+  // Cancel { r, reason, refund, quote } · Move { r, checkIn, checkOut }
+  const [cancelling, setCancelling] = useState(null);
+  const [moving, setMoving] = useState(null);
+  const [saving, setSaving] = useState(false);
   const refresh = useCallback(() => setRev((r) => r + 1), []);
 
   const all = useApi(() => reservationsApi.list(), [rev], []);
@@ -108,8 +113,8 @@ export default function Reservations() {
   const groups = useCollection('groups');
 
   const reservations = all.data || [];
-  const active = reservations.filter((r) => r.status !== 'Cancelled');
-  const cancelled = reservations.filter((r) => r.status === 'Cancelled');
+  const active = reservations.filter((r) => !['Cancelled', 'No-show'].includes(r.status));
+  const cancelled = reservations.filter((r) => ['Cancelled', 'No-show'].includes(r.status));
   const { arrivals, departures } = movements.data || { arrivals: [], departures: [] };
   const shift = (dir) => setDate((d) => moment(d).add(dir, view).toDate());
 
@@ -156,6 +161,45 @@ export default function Reservations() {
         refresh();
       })
       .catch((e) => toast(e.message, 'error'));
+
+  const startCancel = (r) => {
+    setOpen(null);
+    setCancelling({ r, reason: '', refund: true, quote: null });
+    reservationsApi
+      .cancellation(r.id)
+      .then((quote) => setCancelling((c) => (c && c.r.id === r.id ? { ...c, quote } : c)))
+      .catch(() => {});
+  };
+  const confirmCancel = () => {
+    const { r, reason, refund } = cancelling;
+    if (!reason.trim()) return toast('Give the guest a reason', 'error');
+    setSaving(true);
+    reservationsApi
+      .update(r.id, { status: 'Cancelled', reason: reason.trim(), refund })
+      .then((res) => {
+        toast(res?.refund ? `${r.number} cancelled · refund of ${money(res.refund)} sent to HQ for approval` : `${r.number} cancelled · the guest has been told`);
+        setCancelling(null);
+        refresh();
+      })
+      .catch((e) => toast(e.message, 'error'))
+      .finally(() => setSaving(false));
+  };
+  const confirmMove = () => {
+    const { r, checkIn, checkOut } = moving;
+    if (!checkIn || !checkOut || checkOut <= checkIn) return toast('Departure must be after arrival', 'error');
+    setSaving(true);
+    reservationsApi
+      .changeDates(r.id, { checkIn, checkOut })
+      .then((res) => {
+        const c = res?.change;
+        toast(`${r.number} moved · new total ${money(c?.total ?? res?.totalAmount)}${c?.difference < 0 ? ' · any overpayment goes to HQ as a refund' : ''}`);
+        setMoving(null);
+        refresh();
+      })
+      .catch((e) => toast(e.message, 'error'))
+      .finally(() => setSaving(false));
+  };
+  const arrived = (r) => r.checkIn <= today();
 
   const residenceOptions = residences.map((x) => [x.name, `${x.name} · ${money(x.type.rate)}/night`]);
   const newReservation = (preset = {}) => {
@@ -568,6 +612,11 @@ export default function Reservations() {
             </DialogTitle>
             <DialogContent>
               <div className="col" style={{ gap: 6, fontSize: 14 }}>
+                {open.cancellationReason && (
+                  <span style={{ color: 'var(--muted)' }}>
+                    Cancelled{open.cancelledBy ? ` by ${open.cancelledBy}` : ''}: {open.cancellationReason}
+                  </span>
+                )}
                 <span>{open.residence}</span>
                 <span>
                   {moment(open.checkIn).format('ddd, MMM D')} → {moment(open.checkOut).format('ddd, MMM D, YYYY')} ({moment(open.checkOut).diff(moment(open.checkIn), 'days')} nights)
@@ -583,12 +632,27 @@ export default function Reservations() {
             </DialogContent>
             <DialogActions>
               {open.status === 'Pending' && <Button onClick={() => setStatus(open, 'Confirmed')}>Confirm</Button>}
-              {open.status !== 'Cancelled' && (
-                <Button color="error" onClick={() => setStatus(open, 'Cancelled')}>
+              {['Pending', 'Confirmed'].includes(open.status) && open.checkIn > today() && (
+                <Button
+                  onClick={() => {
+                    setMoving({ r: open, checkIn: open.checkIn, checkOut: open.checkOut });
+                    setOpen(null);
+                  }}
+                >
+                  Change dates
+                </Button>
+              )}
+              {['Pending', 'Confirmed'].includes(open.status) && arrived(open) && (
+                <Button color="warning" onClick={() => setStatus(open, 'No-show')}>
+                  No-show
+                </Button>
+              )}
+              {['Pending', 'Confirmed'].includes(open.status) && (
+                <Button color="error" onClick={() => startCancel(open)}>
                   Cancel Booking
                 </Button>
               )}
-              {open.status !== 'Cancelled' && (
+              {['Pending', 'Confirmed'].includes(open.status) && (
                 <Button
                   variant="contained"
                   onClick={() => {
@@ -599,6 +663,94 @@ export default function Reservations() {
                   Collect Payment
                 </Button>
               )}
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+
+      {/* Cancel with a reason; the refund goes to HQ for approval */}
+      <Dialog open={!!cancelling} onClose={() => !saving && setCancelling(null)} fullWidth maxWidth="xs">
+        {cancelling && (
+          <>
+            <DialogTitle sx={{ fontFamily: 'var(--serif)', fontSize: 24 }}>
+              Cancel {cancelling.r.number}
+              <div style={{ fontFamily: 'var(--sans)', fontSize: 13, color: 'var(--muted)' }}>
+                {cancelling.r.guestName} · {range(cancelling.r)}
+              </div>
+            </DialogTitle>
+            <DialogContent>
+              <div className="col" style={{ gap: 12, fontSize: 14 }}>
+                <label className="col" style={{ gap: 4 }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>Reason (sent to the guest)</span>
+                  <textarea
+                    className="kit-input"
+                    rows={3}
+                    value={cancelling.reason}
+                    onChange={(e) => setCancelling({ ...cancelling, reason: e.target.value })}
+                    placeholder="e.g. Residence closed for urgent repairs"
+                    style={{ resize: 'vertical', background: 'var(--input-bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6, padding: 10, font: 'inherit' }}
+                  />
+                </label>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <input type="checkbox" checked={cancelling.refund} onChange={(e) => setCancelling({ ...cancelling, refund: e.target.checked })} />
+                  <span>
+                    Refund what was paid
+                    {cancelling.quote ? (cancelling.quote.paid ? ` (${money(cancelling.quote.paid)})` : ' (nothing paid yet)') : ''}
+                    <br />
+                    <small style={{ color: 'var(--muted)' }}>Cancelled by Faysha: the guest gets 100 %. The refund waits for HQ approval before money moves.</small>
+                  </span>
+                </label>
+                {cancelling.quote?.policy && <small style={{ color: 'var(--dim)' }}>Guest terms, for reference: {cancelling.quote.policy}</small>}
+              </div>
+            </DialogContent>
+            <DialogActions>
+              <Button disabled={saving} onClick={() => setCancelling(null)}>
+                Keep booking
+              </Button>
+              <Button color="error" variant="contained" disabled={saving} onClick={confirmCancel}>
+                {saving ? 'Cancelling…' : 'Cancel and tell guest'}
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+
+      {/* Move the stay: repriced, clash-checked, guest told */}
+      <Dialog open={!!moving} onClose={() => !saving && setMoving(null)} fullWidth maxWidth="xs">
+        {moving && (
+          <>
+            <DialogTitle sx={{ fontFamily: 'var(--serif)', fontSize: 24 }}>
+              Change dates · {moving.r.number}
+              <div style={{ fontFamily: 'var(--sans)', fontSize: 13, color: 'var(--muted)' }}>
+                {moving.r.guestName} · {moving.r.residence}
+              </div>
+            </DialogTitle>
+            <DialogContent>
+              <div className="row" style={{ gap: 12, marginTop: 6 }}>
+                {['checkIn', 'checkOut'].map((k) => (
+                  <label key={k} className="col" style={{ gap: 4, flex: 1, fontSize: 13 }}>
+                    <span style={{ color: 'var(--muted)' }}>{k === 'checkIn' ? 'Arrival' : 'Departure'}</span>
+                    <input
+                      type="date"
+                      value={moving[k]}
+                      min={k === 'checkIn' ? today() : moving.checkIn}
+                      onChange={(e) => setMoving({ ...moving, [k]: e.target.value })}
+                      style={{ background: 'var(--input-bg)', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6, padding: 8, font: 'inherit', colorScheme: 'dark' }}
+                    />
+                  </label>
+                ))}
+              </div>
+              <small style={{ color: 'var(--dim)', display: 'block', marginTop: 10 }}>
+                The price is recalculated at the residence rate. If the guest has paid more than the new total, the difference goes to HQ as a refund; if less, the balance is collected as usual.
+              </small>
+            </DialogContent>
+            <DialogActions>
+              <Button disabled={saving} onClick={() => setMoving(null)}>
+                Close
+              </Button>
+              <Button variant="contained" disabled={saving} onClick={confirmMove}>
+                {saving ? 'Saving…' : 'Move stay'}
+              </Button>
             </DialogActions>
           </>
         )}
@@ -640,7 +792,7 @@ export default function Reservations() {
         title="All Bookings"
         items={recent}
         searchText={(r) => `${r.number} ${r.guestName} ${r.residence} ${r.source}`}
-        filters={{ options: ['All', 'Confirmed', 'Pending', 'Cancelled'], get: (r) => r.status }}
+        filters={{ options: ['All', 'Confirmed', 'Pending', 'Cancelled', 'No-show'], get: (r) => r.status }}
         header={<BookingHeader />}
         renderItem={(r) => <BookingRow key={r.id} r={r} onOpen={setOpen} />}
         action={

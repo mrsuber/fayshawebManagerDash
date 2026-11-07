@@ -5,6 +5,9 @@ const guest = {
   overview: () => apiClient.get('/guest/overview'),
   stays: () => apiClient.get('/guest/stays'),
   stay: (id) => apiClient.get(`/guest/stays/${id}`),
+  cancellation: (id) => apiClient.get(`/guest/stays/${id}/cancellation`),
+  cancelStay: (id, reason) => apiClient.post(`/guest/stays/${id}/cancel`, { reason }),
+  askDateChange: (id, body) => apiClient.post(`/guest/stays/${id}/change`, body),
   folio: (stayId) => apiClient.get('/guest/folio', { params: stayId ? { stay: stayId } : {} }),
 
   requests: () => apiClient.get('/guest/requests'),

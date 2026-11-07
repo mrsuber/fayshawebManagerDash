@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Image, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Screen, Card, Loading, ErrorView, Pill, Button, ListRow, Sheet, Field, Notice, Body, SectionTitle, tap } from '../../components/ui';
+import { Screen, Card, Loading, ErrorView, Pill, Button, ListRow, Sheet, Field, Notice, Body, SectionTitle, PickerField, tap } from '../../components/ui';
 import { COLORS, FONTS } from '../../constants/theme';
 import guest from '../../services/guestService';
 import apiClient, { errorMessage } from '../../services/api';
 import useLoad from '../../hooks/useLoad';
 import { useAuth } from '../../contexts/AuthContext';
 import { fileUrl } from '../../config';
-import { dayLabel, xaf } from '../../utils/format';
+import { addDays, dayLabel, isoDay, parseDay, xaf } from '../../utils/format';
 import { STAY_STATUS } from './MyStaysScreen';
 
 /** One stay: dates, residence, payment, key and bill; feedback once it is over. */
@@ -19,6 +19,46 @@ export default function StayDetailScreen({ navigation, route }) {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
+  const [cancel, setCancel] = useState(null); // { quote, reason }
+  const [change, setChange] = useState(null); // { checkIn, checkOut, note }
+  const [changeSent, setChangeSent] = useState(null);
+
+  const openCancel = async () => {
+    setFormError('');
+    try {
+      setCancel({ quote: await guest.cancellation(stay.id), reason: '' });
+    } catch (e) {
+      setFormError(errorMessage(e));
+    }
+  };
+
+  const confirmCancel = async () => {
+    setBusy(true);
+    setFormError('');
+    try {
+      await guest.cancelStay(stay.id, cancel.reason.trim() || undefined);
+      setCancel(null);
+      reload();
+    } catch (e) {
+      setFormError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendChange = async () => {
+    setBusy(true);
+    setFormError('');
+    try {
+      const r = await guest.askDateChange(stay.id, { checkIn: isoDay(change.checkIn), checkOut: isoDay(change.checkOut), note: change.note.trim() || undefined });
+      setChange(null);
+      setChangeSent(r);
+    } catch (e) {
+      setFormError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const sendFeedback = async () => {
     if (!feedback.rating) {
@@ -97,6 +137,62 @@ export default function StayDetailScreen({ navigation, route }) {
           <Body>{stay.specialRequests}</Body>
         </>
       ) : null}
+
+      {changeSent ? (
+        <Notice tone={changeSent.available ? 'green' : 'gold'} icon="calendar-outline" style={{ marginTop: 18 }}>
+          {changeSent.available
+            ? `Your new dates are free. The front desk confirms the change shortly (new total ${xaf(changeSent.newTotal)}).`
+            : 'Your residence is not free on those dates — the front desk will suggest another residence or dates.'}
+        </Notice>
+      ) : null}
+
+      {['pending', 'confirmed', 'checked_in'].includes(stay.status) ? (
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 22 }}>
+          <Button
+            title={stay.status === 'checked_in' ? 'Change departure' : 'Change dates'}
+            icon="calendar-outline"
+            variant="ghost"
+            style={{ flex: 1 }}
+            onPress={() => { setFormError(''); setChange({ checkIn: parseDay(stay.checkIn), checkOut: parseDay(stay.checkOut), note: '' }); }}
+          />
+          {stay.status !== 'checked_in' ? <Button title="Cancel stay" icon="close-circle-outline" variant="danger" style={{ flex: 1 }} onPress={openCancel} /> : null}
+        </View>
+      ) : null}
+      {formError && !cancel && !change && !feedback ? <Notice tone="red" icon="alert-circle-outline" style={{ marginTop: 12 }}>{formError}</Notice> : null}
+
+      <Sheet visible={Boolean(cancel)} onClose={() => setCancel(null)} title="Cancel this stay?">
+        {cancel && (
+          <>
+            <Body style={{ marginBottom: 12 }}>
+              {cancel.quote.paid > 0
+                ? cancel.quote.refund > 0
+                  ? `You cancel ${cancel.quote.daysBefore} days before arrival: ${cancel.quote.percent}% of what you paid comes back — ${xaf(cancel.quote.refund)}.`
+                  : `You cancel ${cancel.quote.daysBefore} days before arrival: under our terms this is not refundable.`
+                : 'Nothing has been paid: the booking is simply released.'}
+            </Body>
+            <Body muted style={{ fontSize: 12, marginBottom: 14 }}>{cancel.quote.policy}</Body>
+            <Field label="Reason (optional)" value={cancel.reason} onChangeText={(reason) => setCancel({ ...cancel, reason })} multiline maxLength={300} />
+            {formError ? <Notice tone="red" icon="alert-circle-outline" style={{ marginBottom: 12 }}>{formError}</Notice> : null}
+            <Button title="Cancel my stay" variant="danger" onPress={confirmCancel} loading={busy} />
+            <Button title="Keep my stay" variant="ghost" onPress={() => setCancel(null)} style={{ marginTop: 10 }} />
+          </>
+        )}
+      </Sheet>
+
+      <Sheet visible={Boolean(change)} onClose={() => setChange(null)} title={stay.status === 'checked_in' ? 'Change your departure' : 'Change your dates'}>
+        {change && (
+          <>
+            {stay.status !== 'checked_in' ? (
+              <PickerField label="Arrival" value={change.checkIn} minimumDate={new Date()} onChange={(checkIn) => setChange({ ...change, checkIn, checkOut: change.checkOut <= checkIn ? addDays(checkIn, 1) : change.checkOut })} />
+            ) : null}
+            <PickerField label="Departure" value={change.checkOut} minimumDate={addDays(change.checkIn, 1)} onChange={(checkOut) => setChange({ ...change, checkOut })} />
+            <Field label="Anything we should know?" value={change.note} onChangeText={(note) => setChange({ ...change, note })} multiline maxLength={500} />
+            <Body muted style={{ fontSize: 12, marginBottom: 12 }}>We check your residence is free and the front desk confirms the change and the new price.</Body>
+            {formError ? <Notice tone="red" icon="alert-circle-outline" style={{ marginBottom: 12 }}>{formError}</Notice> : null}
+            <Button title="Send request" onPress={sendChange} loading={busy} />
+          </>
+        )}
+      </Sheet>
 
       {stay.status === 'checked_out' ? (
         sent ? (

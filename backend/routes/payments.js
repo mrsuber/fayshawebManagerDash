@@ -450,7 +450,8 @@ router.post('/webhook/camsol', express.raw({ type: '*/*' }), async (req, res) =>
 const refundError = (status, message) => Object.assign(new Error(message), { status });
 
 /**
- * Refunds a completed payment (through Stripe when it was a card payment) and cancels its booking.
+ * Refunds a completed payment (through Stripe when it was a card payment). A full refund cancels a booking that has
+ * not started; a partial one leaves the booking as it is.
  * Shared by POST /api/payments/:id/refund and HQ approvals. Throws errors carrying an HTTP status.
  */
 async function processRefund(id, refundAmount, refundReason) {
@@ -493,12 +494,16 @@ async function processRefund(id, refundAmount, refundReason) {
       WHERE id = $3
     `, [refundAmount || payment.amount, refundReason, id]);
 
-    await client.query(`
-      UPDATE bookings
-      SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP,
-          cancellation_reason = $1
-      WHERE id = $2
-    `, [refundReason, payment.booking_id]);
+    // A full refund ends the stay; a partial one (a price difference, a goodwill gesture) leaves it as it is.
+    const full = !refundAmount || Number(refundAmount) >= Number(payment.amount);
+    if (full && payment.booking_id) {
+      await client.query(`
+        UPDATE bookings
+        SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
+            cancellation_reason = COALESCE(cancellation_reason, $1)
+        WHERE id = $2 AND status IN ('pending', 'confirmed', 'cancelled')
+      `, [refundReason, payment.booking_id]);
+    }
 
     await client.query('COMMIT');
     return payment;

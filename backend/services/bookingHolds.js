@@ -14,8 +14,8 @@ const cardMinutes = () => parseInt(process.env.CARD_HOLD_MINUTES, 10) || 60;
 const momoHours = () => parseInt(process.env.MOBILE_MONEY_HOLD_HOURS, 10) || 48;
 
 /** Cancels expired holds (and fails their pending payments). `q` is the pool module or a transaction client. */
-async function releaseExpiredHolds(q = db) {
-  await q.query(
+async function releaseExpiredHolds(q = db, app = null) {
+  const { rows } = await q.query(
     `WITH expired AS (
        UPDATE bookings b
           SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, cancellation_reason = $1
@@ -26,17 +26,29 @@ async function releaseExpiredHolds(q = db) {
             OR (b.created_at < NOW() - make_interval(mins => $2)
                 AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.booking_id = b.id AND p.payment_method <> 'stripe' AND p.status IN ('pending', 'completed')))
           )
-        RETURNING b.id
+        RETURNING b.id, b.user_id, b.booking_number
+     ), failed AS (
+       UPDATE payments p SET status = 'failed', error_message = $1
+         FROM expired e WHERE p.booking_id = e.id AND p.status = 'pending'
      )
-     UPDATE payments p SET status = 'failed', error_message = $1
-       FROM expired e WHERE p.booking_id = e.id AND p.status = 'pending'`,
+     SELECT * FROM expired`,
     [HOLD_EXPIRED, cardMinutes(), momoHours()]
   );
+  // Tell the guest their unpaid booking was released, and close the team's "mobile money to confirm" alerts.
+  for (const b of rows || []) {
+    require('./notify').resolve(app, `momo:${b.id}`).catch(() => {});
+    if (b.user_id) {
+      require('./guestPush')
+        .notifyGuest(app, b.user_id, { title: `Booking ${b.booking_number} released`, body: 'We did not receive the payment in time, so the residence was released. You are welcome to book again.', event: 'stay:updated', data: { id: b.id, screen: 'MyStays' } })
+        .catch(() => {});
+    }
+  }
+  return rows || [];
 }
 
 /** Runs releaseExpiredHolds every few minutes for the life of the process. */
-function startHoldSweeper(intervalMs = 5 * 60 * 1000) {
-  const sweep = () => releaseExpiredHolds().catch((e) => console.error('Releasing expired booking holds failed:', e.message));
+function startHoldSweeper(app = null, intervalMs = 5 * 60 * 1000) {
+  const sweep = () => releaseExpiredHolds(db, app).catch((e) => console.error('Releasing expired booking holds failed:', e.message));
   sweep();
   return setInterval(sweep, intervalMs).unref();
 }

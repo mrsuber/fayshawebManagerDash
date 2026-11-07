@@ -385,7 +385,7 @@ router.get('/calendar', requireStaff, async (req, res) => {
       return res.status(400).json({ success: false, message: 'start_date and end_date (YYYY-MM-DD) are required' });
     }
     const params = [start_date, end_date];
-    let where = `b.check_in_date < $2::date AND b.check_out_date > $1::date AND b.status <> 'cancelled'`;
+    let where = `b.check_in_date < $2::date AND b.check_out_date > $1::date AND b.status NOT IN ('cancelled', 'no_show')`;
     if (apartment_id) {
       params.push(apartment_id);
       where += ` AND b.apartment_id = $3`;

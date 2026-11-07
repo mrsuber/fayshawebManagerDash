@@ -160,7 +160,7 @@ router.get(
     const row = await guestRow(req.params.id);
     const { rows } = await db.query(
       `SELECT b.*, a.unit_number FROM bookings b JOIN apartments a ON a.id = b.apartment_id
-        WHERE b.user_id = $1 AND b.status <> 'cancelled' ORDER BY b.check_in_date DESC`,
+        WHERE b.user_id = $1 AND b.status NOT IN ('cancelled', 'no_show') ORDER BY b.check_in_date DESC`,
       [row.id],
     );
     res.json(

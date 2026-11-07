@@ -244,7 +244,7 @@ const server = app.listen(PORT, () => {
 });
 
 // Unpaid booking holds expire so abandoned checkouts don't block residences (services/bookingHolds.js).
-require('./services/bookingHolds').startHoldSweeper();
+require('./services/bookingHolds').startHoldSweeper(app);
 // Automatic mobile money (PayWithCAMSOL): settles payments the webhook hasn't confirmed yet, every 30 seconds.
 require('./services/payments/mobileMoney').startPoller(app);
 
