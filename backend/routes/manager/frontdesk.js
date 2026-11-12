@@ -29,6 +29,7 @@ const { notifyGuest } = require('../../services/guestPush');
 const { toLoan, LOAN_SELECT, toPass, PASS_SELECT, CATEGORY, toStayGuest } = require('../guest/operations');
 const occupancy = require('../../services/occupancy');
 const { emailPassQuietly } = require('../../services/visitorPass');
+const { passOut, stayGuestOut, STAY_GUEST_SELECT } = require('./visitorData');
 
 const router = express.Router();
 const TZ = process.env.PROPERTY_TZ || 'Africa/Douala';
@@ -224,22 +225,6 @@ for (const [action, status] of [['decline', 'declined'], ['lost', 'lost']]) {
 }
 
 // ---------------------------------------------------------------- Visitors
-const passOut = async (id, { reveal = false } = {}) => {
-  const row = (await db.query(`${PASS_SELECT.replace('FROM visitor_passes p', ', u.full_name AS host, u.phone AS host_phone FROM visitor_passes p JOIN users u ON u.id = p.user_id')} WHERE p.id = $1`, [id])).rows[0];
-  if (!row) throw httpError(404, 'Pass not found');
-  const pass = { ...toPass(row), host: row.host, hostId: row.user_id, hostPhone: row.host_phone };
-  // Discreet: the list shows who the host is, not who visits; the gate sees the name when it checks the pass.
-  if (pass.discreet && !reveal) Object.assign(pass, { visitorName: 'Private visitor', visitorPhone: null, visitorEmail: null, vehicle: pass.vehicle ? 'Vehicle on file' : null, note: null });
-  // Staying the night on this pass: registered on the stay, so the pass also opens the gate on those nights.
-  const night = (await db.query(
-    `SELECT id, status, to_char(from_date, 'YYYY-MM-DD') AS from_date, to_char(to_date, 'YYYY-MM-DD') AS to_date FROM stay_guests
-      WHERE pass_id = $1 AND status IN ('pending', 'approved') ORDER BY id DESC LIMIT 1`,
-    [id],
-  )).rows[0];
-  pass.overnight = night ? { id: night.id, status: night.status, from: night.from_date, to: night.to_date } : null;
-  return pass;
-};
-
 router.get(
   '/visitors',
   ah(async (req, res) => {
@@ -372,26 +357,6 @@ router.put(
 );
 
 // ---------------------------------------------------------------- People added to a stay
-const STAY_GUEST_SELECT = `
-  SELECT g.*, b.booking_number, b.number_of_guests, b.apartment_id, b.check_in_date, b.check_out_date, a.unit_number, u.full_name AS host
-    FROM stay_guests g JOIN bookings b ON b.id = g.booking_id JOIN apartments a ON a.id = b.apartment_id LEFT JOIN users u ON u.id = g.user_id`;
-const stayGuestOut = async (id, { reveal = false } = {}) => {
-  const g = (await db.query(`${STAY_GUEST_SELECT} WHERE g.id = $1`, [id])).rows[0];
-  if (!g) throw httpError(404, 'Not found');
-  // Discreet: staff see the host and the nights, not who; the gate reveals the name to check it against the ID.
-  const hidden = g.discreet && !reveal ? { fullName: 'Private guest', phone: null, relation: null, note: null } : {};
-  return {
-    ...toStayGuest(g),
-    host: g.host,
-    booking: g.booking_number,
-    bookingId: g.booking_id,
-    residence: g.unit_number,
-    booked: g.number_of_guests,
-    capacity: await occupancy.capacityOf(g.apartment_id),
-    ...hidden,
-  };
-};
-
 router.get(
   '/visitors/guests',
   ah(async (req, res) => {

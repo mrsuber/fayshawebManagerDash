@@ -139,6 +139,32 @@ router.get(
          UNION ALL
          SELECT 'r' || id, created_at, 'Request created – ' || title, 'Service Request' FROM service_requests WHERE guest_id = $1
          UNION ALL
+         -- Overnight guests and visitors (discreet ones are never named here).
+         SELECT 'sg' || g.id, g.created_at,
+                'Overnight guest ' || CASE WHEN g.status = 'approved' AND g.decided_at <= g.created_at + INTERVAL '1 second' THEN 'registered' ELSE 'requested' END || ' – '
+                || CASE WHEN g.discreet THEN 'Private guest' ELSE g.full_name END
+                || ' · ' || to_char(g.from_date, 'DD Mon') || ' → ' || to_char(g.to_date, 'DD Mon') || CASE WHEN g.pass_id IS NOT NULL THEN ' (staying on from a visit)' ELSE '' END,
+                'Visitors'
+           FROM stay_guests g JOIN bookings b ON b.id = g.booking_id WHERE b.user_id = $1
+         UNION ALL
+         SELECT 'sd' || g.id, g.decided_at,
+                'Overnight guest ' || CASE g.status WHEN 'approved' THEN 'registered' WHEN 'declined' THEN 'declined' ELSE g.status END || ' – '
+                || CASE WHEN g.discreet THEN 'Private guest' ELSE g.full_name END || COALESCE(' (' || g.decline_reason || ')', ''),
+                'Visitors'
+           FROM stay_guests g JOIN bookings b ON b.id = g.booking_id WHERE b.user_id = $1 AND g.decided_at IS NOT NULL AND g.decided_at > g.created_at + INTERVAL '1 second'
+         UNION ALL
+         SELECT 'vp' || p.id, p.created_at,
+                'Visitor pass – ' || CASE WHEN p.discreet THEN 'Private visitor' ELSE p.visitor_name END || ' · ' || to_char(p.visit_date, 'DD Mon')
+                || CASE p.status WHEN 'pending' THEN ' (to approve)' WHEN 'declined' THEN ' (declined)' WHEN 'cancelled' THEN ' (cancelled)' ELSE '' END,
+                'Visitors'
+           FROM visitor_passes p WHERE p.user_id = $1
+         UNION ALL
+         SELECT 'va' || p.id, p.arrived_at, 'Visitor arrived – ' || CASE WHEN p.discreet THEN 'Private visitor' ELSE p.visitor_name END, 'Visitors'
+           FROM visitor_passes p WHERE p.user_id = $1 AND p.arrived_at IS NOT NULL
+         UNION ALL
+         SELECT 'vl' || p.id, p.left_at, 'Visitor left – ' || CASE WHEN p.discreet THEN 'Private visitor' ELSE p.visitor_name END, 'Visitors'
+           FROM visitor_passes p WHERE p.user_id = $1 AND p.left_at IS NOT NULL
+         UNION ALL
          SELECT 'n' || id, created_at, 'Staff note added', 'Note' FROM guest_notes WHERE guest_id = $1 AND deleted_at IS NULL
          UNION ALL
          SELECT 'm' || id, created_at,

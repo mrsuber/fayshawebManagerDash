@@ -6,6 +6,32 @@
  */
 export const UPDATES = [
   {
+    id: '2026-11-stay-people',
+    date: '2026-11-13',
+    title: 'Reservations and Guest 360 show everyone on the stay',
+    surfaces: ['fayos'],
+    summary:
+      'Overnight guests and visitors are no longer only in Visitors: the reservation, the booking list, the Reservations KPIs and Guest 360 show who sleeps in the residence and who visits — discreet people stay “Private guest” / “Private visitor” everywhere. Full flow: Journeys → Visitors & overnight guests.',
+    changes: [
+      'FAY OS → Reservations → booking: “People on this stay” — the booker’s party, each overnight guest (nights, status, “stayed on from a visit”) and recent and coming visitors, with “Tonight N of capacity”',
+      'FAY OS → Reservations → Booking list: “+N overnight” and “N to approve” next to the guest name',
+      'FAY OS → Reservations: new KPI “Guests tonight” (booked guests + registered overnight guests)',
+      'FAY OS → Guest 360: “People on this stay” card (Overview and Stay Details); the Current Stay card shows “+ N overnight guests tonight”',
+      'FAY OS → Guest 360 → Journey / Stay Timeline: visitor passes, arrivals and departures, overnight guests requested, registered or declined (category Visitors)',
+      'Discreet people are never named on these screens or in the timeline; “Check ID” on the reservation or Guest 360 reveals the name and is recorded in the gate log',
+    ],
+    setup: ['Deploy the backend and the website (no new migration)'],
+    tests: [
+      { who: 'Guest', where: 'App → Visitors', do: 'Add a discreet overnight guest to your stay and invite a visitor; approve both in FAY OS → Visitors.', expect: 'Both approved.' },
+      { who: 'Front desk', where: 'FAY OS → Reservations → Booking List', do: 'Find the stay.', expect: 'The guest name shows “+1 overnight” (and “1 to approve” while a request waits).' },
+      { who: 'Front desk', where: 'FAY OS → Reservations → booking', do: 'Open the reservation.', expect: '“People on this stay”: the booker, “Private guest” with its nights and Registered, the visitor, and “Tonight N of capacity”.' },
+      { who: 'Front desk', where: 'FAY OS → Reservations → booking', do: 'Click “Check ID” on the private guest.', expect: 'The real name appears; FAY OS → Visitors → Gate log shows “Checked overnight guest · Residence …”.' },
+      { who: 'Manager', where: 'FAY OS → Reservations → Overview', do: 'Look at the KPIs.', expect: '“Guests tonight” counts booked guests plus overnight guests (“incl. 1 overnight guest”).' },
+      { who: 'Front desk', where: 'FAY OS → Guest 360 → the host', do: 'Open Overview.', expect: 'Current Stay says “+ 1 overnight guest tonight”; the “People on this stay” card lists everyone.' },
+      { who: 'Front desk', where: 'FAY OS → Guest 360 → Journey', do: 'Read the timeline.', expect: 'Entries in Visitors: “Visitor pass – …”, “Visitor arrived – …”, “Overnight guest registered – Private guest …”. The discreet name never appears.' },
+    ],
+  },
+  {
     id: '2026-11-visitors-overnight',
     date: '2026-11-12',
     title: 'Visitors: email the pass, discreet overnight guests, “Staying the night”',

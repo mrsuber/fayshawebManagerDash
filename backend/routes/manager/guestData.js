@@ -156,6 +156,8 @@ async function fullGuest(row) {
     preferences: preferencesOf(row),
     services: await servicesOf(row),
     insights: await insightsOf(row),
+    // Everyone on the current stay: booked guests, registered overnight guests, visitors (discreet ones masked).
+    household: row.booking_id ? await require('./visitorData').peopleOnStay(row.booking_id).catch(() => null) : null,
     value: {
       revenue: Number(row.revenue || 0),
       stays: row.stays,

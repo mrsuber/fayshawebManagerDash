@@ -13,9 +13,18 @@ const router = express.Router();
 const STATUS_OUT = { pending: 'Pending', confirmed: 'Confirmed', checked_in: 'Confirmed', checked_out: 'Confirmed', cancelled: 'Cancelled', no_show: 'No-show' };
 const stays = require('../../services/stayChanges');
 
+// The property time zone, inlined in SELECT (a fixed, validated name, never request input).
+const TZ_SQL = /^[A-Za-z_]+(\/[A-Za-z_+-]+)*$/.test(process.env.PROPERTY_TZ || '') ? process.env.PROPERTY_TZ : 'Africa/Douala';
+
 const SELECT = `
   SELECT b.*, a.unit_number, c.display_name AS collection, p.name AS package_name,
-         COALESCE((SELECT SUM(amount - COALESCE(refund_amount, 0)) FROM payments WHERE booking_id = b.id AND status IN ('completed', 'refunded')), 0) AS paid
+         COALESCE((SELECT SUM(amount - COALESCE(refund_amount, 0)) FROM payments WHERE booking_id = b.id AND status IN ('completed', 'refunded')), 0) AS paid,
+         -- Registered overnight guests (FAY OS → Visitors): tonight, over the stay, and still waiting for approval.
+         (SELECT COUNT(*) FROM stay_guests g WHERE g.booking_id = b.id AND g.status = 'approved'
+             AND (NOW() AT TIME ZONE '${TZ_SQL}')::date >= g.from_date
+             AND (NOW() AT TIME ZONE '${TZ_SQL}')::date < g.to_date)::int AS added_tonight,
+         (SELECT COUNT(*) FROM stay_guests g WHERE g.booking_id = b.id AND g.status = 'approved')::int AS added_registered,
+         (SELECT COUNT(*) FROM stay_guests g WHERE g.booking_id = b.id AND g.status = 'pending')::int AS added_pending
     FROM bookings b
     JOIN apartments a ON a.id = b.apartment_id
     JOIN apartment_categories c ON c.id = a.category_id
@@ -47,6 +56,7 @@ function toReservation(b, cur) {
     package: b.package_name || undefined,
     totalAmount: Number(b.final_price),
     balanceDue: Math.max(0, Number(b.final_price) - Number(b.paid)),
+    addedGuests: { tonight: b.added_tonight || 0, registered: b.added_registered || 0, pending: b.added_pending || 0 },
     currency: cur,
   };
 }
@@ -185,6 +195,9 @@ router.patch(
     res.json(await one(req.params.id));
   }),
 );
+
+/** GET /:id/people — everyone on the stay: booker, registered overnight guests, visitors (discreet ones masked). */
+router.get('/:id/people', ah(async (req, res) => res.json(await require('./visitorData').peopleOnStay(req.params.id))));
 
 /** GET /:id/cancellation — what cancelling now would refund under the terms. */
 router.get('/:id/cancellation', ah(async (req, res) => res.json(await stays.cancellationQuote(req.params.id))));

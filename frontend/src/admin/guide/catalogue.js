@@ -175,7 +175,7 @@ export const FEATURES = [
   },
   {
     surface: 'fayos', area: 'Operations', name: 'Visitors & gate', where: 'Operations → Visitors & Gate', status: 'setup',
-    does: ['Approve visitor passes, check a pass by code or scanned link, open the gate, gate log; approval rules and directions', 'Overnight guests: approve or register at once within capacity; discreet ones show as “Private guest” with “Check ID” for the gate; a visitor registered for the night keeps using their pass'],
+    does: ['Approve visitor passes, check a pass by code or scanned link, open the gate, gate log; approval rules and directions', 'Overnight guests: approve or register at once within capacity; discreet ones show as “Private guest” with “Check ID” for the gate; a visitor registered for the night keeps using their pass', 'Everyone on a stay also shows on the reservation (People on this stay), in the booking list (+N overnight), the Guests tonight KPI and Guest 360 (card and timeline)'],
     limits: ['The gate opens automatically only when a gate controller is connected (GATE_WEBHOOK_URL)'],
   },
   {

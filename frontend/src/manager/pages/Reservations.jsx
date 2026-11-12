@@ -1,10 +1,11 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle } from '@mui/material';
 import moment from 'moment';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { reservationsApi } from '../api';
 import BookingCalendar, { colorFor } from '../components/BookingCalendar';
 import FormDialog from '../components/FormDialog';
 import PaymentDialog from '../components/PaymentDialog';
+import StayPeople from '../components/StayPeople';
 import { Avatar, Card, Chip, Donut, Icon, KpiGrid, MediaCard, conic } from '../components/ui';
 import ViewAllDialog from '../components/ViewAllDialog';
 import { useToast } from '../context/ToastContext';
@@ -70,7 +71,11 @@ function BookingRow({ r, onOpen }) {
       style={{ display: 'grid', gridTemplateColumns: '80px 1.2fr 1.2fr 1fr 80px 96px', gap: 8, alignItems: 'center', fontSize: 13, padding: '8px 4px', cursor: 'pointer' }}
     >
       <span style={{ color: 'var(--text-3)' }}>{r.number}</span>
-      <span>{r.guestName}</span>
+      <span>
+        {r.guestName}
+        {r.addedGuests?.registered ? <span style={{ color: 'var(--gold)', fontSize: 12 }}> +{r.addedGuests.registered} overnight</span> : null}
+        {r.addedGuests?.pending ? <span style={{ color: 'var(--dim)', fontSize: 12 }}> · {r.addedGuests.pending} to approve</span> : null}
+      </span>
       <span style={{ color: 'var(--text-3)' }}>{r.residence}</span>
       <span style={{ color: 'var(--text-3)' }}>{range(r)}</span>
       <span>{money(r.totalAmount)}</span>
@@ -105,6 +110,21 @@ export default function Reservations() {
   const [moving, setMoving] = useState(null);
   const [saving, setSaving] = useState(false);
   const refresh = useCallback(() => setRev((r) => r + 1), []);
+  // Who is on the stay open in the detail dialog (booker, overnight guests, visitors).
+  const [people, setPeople] = useState(null);
+  const [peopleRev, setPeopleRev] = useState(0);
+  useEffect(() => {
+    setPeople(null);
+    if (!open?.id) return undefined;
+    let live = true;
+    reservationsApi
+      .people(open.id)
+      .then((p) => live && setPeople(p))
+      .catch(() => live && setPeople({ booked: open.guests, tonight: { booked: open.guests, added: 0, total: open.guests }, guests: [], visitors: [] }));
+    return () => {
+      live = false;
+    };
+  }, [open?.id, open?.guests, peopleRev]);
 
   const all = useApi(() => reservationsApi.list(), [rev], []);
   const movements = useApi(reservationsApi.today, [rev], { arrivals: [], departures: [] });
@@ -133,10 +153,14 @@ export default function Reservations() {
     return { ...t, free, w: `${pct(t.units - free, t.units)}%` };
   });
   const occupancy = pct(busy.size, residences.length);
+  // People sleeping here tonight: each stay's booked guests plus its registered overnight guests.
+  const addedTonight = tonight.reduce((n, r) => n + (r.addedGuests?.tonight || 0), 0);
+  const peopleTonight = tonight.reduce((n, r) => n + (Number(r.guests) || 1), 0) + addedTonight;
   const next7 = moment().add(7, 'days').format('YYYY-MM-DD');
   const kpis = [
     { icon: 'bed', c: '#3fd283', n: `${occupancy}%`, l: 'Occupancy Tonight', d: `${busy.size} of ${residences.length} residences`, dc: '#8f897d' },
     { icon: 'groups', c: '#5b8ff0', n: String(active.length), l: 'Active Bookings' },
+    { icon: 'bedtime', c: '#3fd283', n: String(peopleTonight), l: 'Guests Tonight', d: addedTonight ? `incl. ${addedTonight} overnight guest${addedTonight > 1 ? 's' : ''}` : 'as booked', dc: '#8f897d' },
     { icon: 'payments', c: '#e8b84a', n: money(active.reduce((s, r) => s + (r.totalAmount || 0), 0)), l: 'Booking Revenue' },
     { icon: 'flight_land', c: '#9b7bf0', n: String(active.filter((r) => r.checkIn >= t0 && r.checkIn <= next7).length), l: 'Arrivals (7 days)' },
     { icon: 'logout', c: '#5b8ff0', n: String(active.filter((r) => r.checkOut >= t0 && r.checkOut <= next7).length), l: 'Departures (7 days)' },
@@ -601,7 +625,7 @@ export default function Reservations() {
       {content}
 
       {/* Reservation details */}
-      <Dialog open={!!open} onClose={() => setOpen(null)} fullWidth maxWidth="xs">
+      <Dialog open={!!open} onClose={() => setOpen(null)} fullWidth maxWidth="sm">
         {open && (
           <>
             <DialogTitle sx={{ fontFamily: 'var(--serif)', fontSize: 26 }}>
@@ -628,6 +652,9 @@ export default function Reservations() {
                 <span className="serif" style={{ fontSize: 22 }}>
                   {money(open.totalAmount)}
                 </span>
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                  <StayPeople people={people} onChanged={() => setPeopleRev((n) => n + 1)} />
+                </div>
               </div>
             </DialogContent>
             <DialogActions>

@@ -301,6 +301,17 @@ export const JOURNEYS = [
         steps: [
           { who: 'Front desk', where: 'FAY OS → Visitors → Added to a stay', status: 'live', text: 'A discreet overnight guest shows as “Private guest” in lists and alerts. “Check ID” shows the name to compare with their ID and is recorded in the gate log.', check: 'The gate log shows “Checked overnight guest · Residence …”.' },
           { who: 'System', where: 'Server', status: 'live', text: 'Cancelling, shortening or ending a stay voids its future passes and added guests.', check: 'Cancel a stay with a pass for tomorrow: the pass shows Cancelled.' },
+          { who: 'Front desk', where: 'FAY OS → Reservations · Guest 360', status: 'live', text: 'Discreet people stay private on every screen: “Private guest” / “Private visitor” on the reservation, in Guest 360 and in its timeline. “Check ID” there reveals the name and is recorded in the gate log.', check: 'The discreet name never appears in the Guest 360 Journey.' },
+        ],
+      },
+      {
+        title: 'Seeing everyone on the stay',
+        intro: 'The front desk knows who sleeps in each residence from the reservation itself, not only from Visitors.',
+        steps: [
+          { who: 'Front desk', where: 'FAY OS → Reservations → booking', status: 'live', text: '“People on this stay”: the booker’s party, each overnight guest with their nights and status (and “stayed on from a visit”), recent and coming visitors, and “Tonight N of capacity”.', check: 'Approve an overnight guest: it shows Registered here.' },
+          { who: 'Front desk', where: 'FAY OS → Reservations → Booking List', status: 'live', text: 'The guest name shows “+N overnight” and “N to approve”.' },
+          { who: 'Manager', where: 'FAY OS → Reservations → Overview', status: 'live', text: '“Guests tonight” counts the people sleeping on the property: booked guests plus registered overnight guests.', check: 'It goes up by one when an overnight guest for tonight is registered.' },
+          { who: 'Front desk', where: 'FAY OS → Guest 360 → the host', status: 'live', text: 'The Current Stay card says “+ N overnight guests tonight”; the “People on this stay” card lists everyone; the Journey shows passes, arrivals, departures and overnight guests (category Visitors).' },
         ],
       },
     ],

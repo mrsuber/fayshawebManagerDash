@@ -146,6 +146,24 @@ const monthsAgo = (m) => {
   check('overnight guest registered at once', r.status === 201 && r.body.status === 'approved', r);
   await call('PUT', '/manager/visitors/settings', policyNow, m);
 
+  // Reservations and Guest 360 show everyone on the stay; discreet people stay private there too.
+  const claire = (await db.query(`SELECT b.id AS booking, b.user_id FROM bookings b JOIN users u ON u.id = b.user_id WHERE u.email = 'claire.fontaine@example.com' AND b.status = 'checked_in' LIMIT 1`)).rows[0];
+  r = await call('GET', `/manager/reservations/${claire.booking}/people`, null, m);
+  const onStay = r.body;
+  check('reservation lists its overnight guests', r.status === 200 && onStay.guests.some((x) => x.fullName === 'Late Guest' && x.status === 'approved'), r);
+  check('a discreet overnight guest is private on the reservation', onStay.guests.some((x) => x.id === nightGuest.id && x.fullName === 'Private guest') && !JSON.stringify(onStay).includes('Amina'), onStay.guests);
+  check('tonight counts booked + registered guests', onStay.tonight.total === onStay.tonight.booked + onStay.tonight.added && onStay.tonight.added >= 1, onStay.tonight);
+  check('visitors appear on the reservation', onStay.visitors.some((x) => x.id === night.id && x.visitorName === 'Private visitor'), onStay.visitors);
+  r = await call('GET', '/manager/reservations', null, m);
+  const resRow = r.body.find((x) => x.id === claire.booking);
+  check('reservation list carries overnight counts', resRow && resRow.addedGuests.registered >= 2 && resRow.addedGuests.tonight >= 1, resRow && resRow.addedGuests);
+  r = await call('GET', `/manager/guests/${claire.user_id}/timeline`, null, m);
+  const visitsLine = r.body.filter((x) => x.category === 'Visitors').map((x) => x.title);
+  check('guest journey shows visitors and overnight guests', visitsLine.some((t) => /Overnight guest registered – Late Guest/.test(t)) && visitsLine.some((t) => /Visitor pass – Private visitor/.test(t)), visitsLine);
+  check('guest journey never names a discreet guest', !visitsLine.some((t) => /Amina/.test(t)), visitsLine);
+  r = await call('GET', `/manager/guests/${claire.user_id}`, null, m);
+  check('Guest 360 profile has the household', r.status === 200 && r.body.household && r.body.household.guests.length >= 2, r.body.household);
+
   r = await call('GET', '/guest/ratings/pending', null, g);
   const toRate = r.body.find((x) => x.context === 'loan');
   r = await call('POST', '/guest/ratings', { context: 'loan', contextId: toRate.contextId, rating: 2, comment: 'Late' }, g);

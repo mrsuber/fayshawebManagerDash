@@ -193,6 +193,11 @@ export function CurrentStayCard({ guest }) {
           </div>
           <div style={{ gridColumn: 'span 2', paddingTop: 8, borderTop: divider }}>
             {guest.adults} Adults · {guest.children} Children
+            {guest.household?.tonight?.added ? (
+              <div style={{ color: 'var(--gold)' }}>
+                + {guest.household.tonight.added} overnight guest{guest.household.tonight.added > 1 ? 's' : ''} tonight
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

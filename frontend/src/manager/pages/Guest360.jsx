@@ -3,7 +3,8 @@ import moment from 'moment';
 import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { guestsApi, serviceRequestsApi } from '../api';
-import { Icon, Placeholder } from '../components/ui';
+import { Card, Icon, Placeholder } from '../components/ui';
+import StayPeople from '../components/StayPeople';
 import ViewAllDialog from '../components/ViewAllDialog';
 import { useToast } from '../context/ToastContext';
 import useApi from '../hooks/useApi';
@@ -39,8 +40,8 @@ const TABS = ['Overview', 'Stay Details', 'Preferences', 'Journey', 'Communicati
 
 /** Which cards each tab shows (Overview = the original dashboard + All Guests). */
 const LAYOUT = {
-  Overview: ['stay', 'preferences', 'services', 'requests', 'bookings', 'timeline', 'guests', 'history', 'insights', 'quick'],
-  'Stay Details': ['stay', 'services', 'bookings', 'requests', 'timeline', 'quick'],
+  Overview: ['stay', 'people', 'preferences', 'services', 'requests', 'bookings', 'timeline', 'guests', 'history', 'insights', 'quick'],
+  'Stay Details': ['stay', 'people', 'services', 'bookings', 'requests', 'timeline', 'quick'],
   Preferences: ['preferences', 'insights', 'quick'],
   Journey: ['timelineFull'],
   Communications: ['conversation'],
@@ -85,6 +86,8 @@ export default function Guest360() {
   const mine = (p) => p && Number(p.guestId) === guestId && refresh();
   useSocketEvent('service-request:created', mine);
   useSocketEvent('service-request:updated', mine);
+  // Overnight guests and visitors change from the app and the Visitors page.
+  useSocketEvent('visitor:updated', refresh);
   useSocketEvent('message:new', (m) => conv.data?.conversation && m.conversationId === conv.data.conversation.id && refresh());
 
   const selectGuest = (g) => {
@@ -155,6 +158,12 @@ export default function Guest360() {
     switch (kind) {
       case 'stay':
         return <CurrentStayCard key={id} guest={guest} />;
+      case 'people':
+        return guest.household ? (
+          <Card key={id} title="People on this stay" gap={8}>
+            <StayPeople people={guest.household} compact heading={false} onChanged={refresh} />
+          </Card>
+        ) : null;
       case 'preferences':
         return <PreferencesCard key={id} guest={guest} onEdit={() => actions.open('preferences')} />;
       case 'services':

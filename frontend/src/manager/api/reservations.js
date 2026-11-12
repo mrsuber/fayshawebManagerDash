@@ -70,3 +70,16 @@ export const changeDates = (id, dates) =>
         return r;
       }),
   );
+
+/**
+ * GET /reservations/:id/people → { booked, capacity, tonight: { booked, added, total }, guests: StayGuest[], visitors: Pass[] }
+ * Everyone on the stay: the booker's party, registered overnight guests and visitors (discreet ones masked).
+ */
+export const people = (id) =>
+  withMock(
+    () => api.get(`/reservations/${id}/people`),
+    () => {
+      const r = getDb().reservations.find((x) => x.id === id) || {};
+      return { bookingId: id, booked: r.guests || 1, capacity: null, tonight: { booked: r.guests || 1, added: 0, total: r.guests || 1 }, guests: [], visitors: [], visitorsToday: 0 };
+    },
+  );
