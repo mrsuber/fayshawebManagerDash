@@ -3,6 +3,7 @@ import { Empty, Pill, SearchBox, Tabs, Toolbar } from '../../manager/components/
 import { Icon } from '../../manager/components/ui';
 import { FEATURES, STATUS, SURFACES } from '../guide/catalogue';
 import { ACTORS, JOURNEYS, STEP_STATUS, stepsOf } from '../guide/journeys';
+import { UPDATES } from '../guide/updates';
 import '../guide/guide.css';
 
 const surfaceName = (id) => SURFACES.find(([k]) => k === id)?.[1] || id;
@@ -60,6 +61,7 @@ export default function Guide() {
           onChange={setView}
           options={[
             ['journeys', 'Journeys', JOURNEYS.length],
+            ['updates', 'Updates', UPDATES.length],
             ['features', 'Features', FEATURES.length],
             ['backlog', 'To improve'],
           ]}
@@ -68,12 +70,90 @@ export default function Guide() {
 
       {view === 'journeys' ? (
         <Journeys onPresent={(id) => setPresent(slides.findIndex((s) => s.journey.id === id))} />
+      ) : view === 'updates' ? (
+        <Updates />
       ) : (
         <FeatureCatalogue backlogOnly={view === 'backlog'} />
       )}
 
       {present !== null ? <Presenter slides={slides} start={present} onClose={() => setPresent(null)} /> : null}
     </div>
+  );
+}
+
+// ------------------------------------------------------------------------------------------------ Updates
+/** What shipped, what to set up on the server, and a test checklist per update (ticks kept in this browser). */
+function Updates() {
+  const [tested, setTested] = useState(readTested);
+  const toggle = (key) =>
+    setTested((t) => {
+      const next = { ...t, [key]: !t[key] };
+      if (!next[key]) delete next[key];
+      try {
+        localStorage.setItem(TESTED_KEY, JSON.stringify(next));
+      } catch {
+        // checklist still works for this visit
+      }
+      return next;
+    });
+
+  return (
+    <>
+      {UPDATES.map((u) => {
+        const done = u.tests.filter((_, i) => tested[`update:${u.id}:${i}`]).length;
+        const tone = done === u.tests.length ? '#3fd283' : done ? '#5b8ff0' : '#e8b84a';
+        return (
+          <section key={u.id} className="card" style={{ gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <span className="sub">{u.date} · {u.surfaces.map(surfaceName).join(' · ')}</span>
+                <span className="serif" style={{ fontSize: 22, display: 'block' }}>{u.title}</span>
+                <p className="sub" style={{ margin: '4px 0 0', lineHeight: 1.6 }}>{u.summary}</p>
+              </div>
+              <Pill tone={tone}>{done === u.tests.length ? 'Tested' : `${done} / ${u.tests.length} tested`}</Pill>
+            </div>
+            <div>
+              <strong>What changed</strong>
+              <ul className="sub" style={{ margin: '6px 0 0', paddingLeft: 18, lineHeight: 1.7 }}>
+                {u.changes.map((c) => <li key={c}>{c}</li>)}
+              </ul>
+            </div>
+            {u.setup?.length ? (
+              <div>
+                <strong>Before testing</strong>
+                <ul className="sub" style={{ margin: '6px 0 0', paddingLeft: 18, lineHeight: 1.7 }}>
+                  {u.setup.map((c) => <li key={c}>{c}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            <div>
+              <strong>Test it</strong>
+              <ol className="guide-steps">
+                {u.tests.map((t, i) => {
+                  const key = `update:${u.id}:${i}`;
+                  return (
+                    <li key={key} className="guide-step guide-step--live">
+                      <div className="guide-step__body">
+                        <div className="guide-step__top">
+                          <span className="guide-who"><Icon name={ACTORS[t.who] || 'person'} size={17} color="var(--gold)" /> {t.who}</span>
+                          <span className="guide-where">{t.where}</span>
+                        </div>
+                        <p style={{ margin: '4px 0' }}>{t.do}</p>
+                        <span className="sub"><Icon name="task_alt" size={14} /> {t.expect}</span>
+                      </div>
+                      <label className="guide-tested" title="Tick when this works">
+                        <input type="checkbox" checked={Boolean(tested[key])} onChange={() => toggle(key)} />
+                        Tested
+                      </label>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          </section>
+        );
+      })}
+    </>
   );
 }
 

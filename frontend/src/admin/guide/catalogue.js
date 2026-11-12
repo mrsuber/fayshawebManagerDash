@@ -81,7 +81,7 @@ export const FEATURES = [
   // ------------------------------------------------------------------ Guest app
   {
     surface: 'app', area: 'Stay', name: 'Book a stay', where: 'Welcome → Book your stay; Residence → Book a stay', status: 'setup',
-    does: ['Same flow as the website, signed in or not; card (Stripe) or mobile money', 'Prices in the guest’s chosen currency'],
+    does: ['Residence details before choosing: every photo to swipe and the 360° view, like the website', 'Same flow as the website, signed in or not; card (Stripe) or mobile money', 'Prices in the guest’s chosen currency'],
     limits: ['Card payments need the Stripe key in the app build'],
   },
   {
