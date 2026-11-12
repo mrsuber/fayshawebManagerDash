@@ -71,7 +71,7 @@ export default function Guide() {
       {view === 'journeys' ? (
         <Journeys onPresent={(id) => setPresent(slides.findIndex((s) => s.journey.id === id))} />
       ) : view === 'updates' ? (
-        <Updates />
+        <Updates onPresent={(id) => setPresent(slides.findIndex((s) => (id ? s.update?.id === id : s.kind === 'news-cover')))} />
       ) : (
         <FeatureCatalogue backlogOnly={view === 'backlog'} />
       )}
@@ -83,7 +83,7 @@ export default function Guide() {
 
 // ------------------------------------------------------------------------------------------------ Updates
 /** What shipped, what to set up on the server, and a test checklist per update (ticks kept in this browser). */
-function Updates() {
+function Updates({ onPresent }) {
   const [tested, setTested] = useState(readTested);
   const toggle = (key) =>
     setTested((t) => {
@@ -99,6 +99,12 @@ function Updates() {
 
   return (
     <>
+      <section className="card" style={{ gap: 8, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', display: 'flex' }}>
+        <span className="sub" style={{ flex: 1, minWidth: 220 }}>Each update is also in the presentation, after the journeys: “What’s new”, one slide per update.</span>
+        <button type="button" className="btn-gold" onClick={() => onPresent(null)}>
+          <Icon name="slideshow" size={18} /> Present what’s new
+        </button>
+      </section>
       {UPDATES.map((u) => {
         const done = u.tests.filter((_, i) => tested[`update:${u.id}:${i}`]).length;
         const tone = done === u.tests.length ? '#3fd283' : done ? '#5b8ff0' : '#e8b84a';
@@ -111,6 +117,9 @@ function Updates() {
                 <p className="sub" style={{ margin: '4px 0 0', lineHeight: 1.6 }}>{u.summary}</p>
               </div>
               <Pill tone={tone}>{done === u.tests.length ? 'Tested' : `${done} / ${u.tests.length} tested`}</Pill>
+              <button type="button" className="fay-btn-outline" onClick={() => onPresent(u.id)}>
+                <Icon name="slideshow" size={18} /> Present
+              </button>
             </div>
             <div>
               <strong>What changed</strong>
@@ -296,6 +305,15 @@ function buildSlides() {
       }
     });
   });
+  // What's new: a cover, then each update (long change lists split over slides).
+  if (UPDATES.length) {
+    out.push({ kind: 'news-cover' });
+    UPDATES.forEach((update) => {
+      const size = 4;
+      const parts = Math.ceil(update.changes.length / size);
+      for (let p = 0; p < parts; p += 1) out.push({ kind: 'news', update, part: p, parts, offset: p * size, changes: update.changes.slice(p * size, p * size + size) });
+    });
+  }
   return out;
 }
 
@@ -330,17 +348,17 @@ function Presenter({ slides, start, onClose }) {
   }, [go, onClose, slides.length]);
 
   const s = slides[i];
-  const steps = stepsOf(s.journey);
+  const steps = s.journey ? stepsOf(s.journey) : [];
   const t = tally(steps);
+  const crumb = s.journey
+    ? `${s.journey.title}${s.kind === 'chapter' ? ` · ${s.chapter.title}${s.parts > 1 ? ` (${s.part + 1}/${s.parts})` : ''}` : ''}`
+    : `What’s new${s.update ? ` · ${s.update.title}${s.parts > 1 ? ` (${s.part + 1}/${s.parts})` : ''}` : ''}`;
 
   return (
     <div className="guide-present" role="dialog" aria-modal="true" aria-label="Platform presentation">
       <header className="guide-present__top">
         <span className="guide-present__brand">FAYSHA</span>
-        <span className="guide-present__crumb">
-          {s.journey.title}
-          {s.kind === 'chapter' ? ` · ${s.chapter.title}${s.parts > 1 ? ` (${s.part + 1}/${s.parts})` : ''}` : ''}
-        </span>
+        <span className="guide-present__crumb">{crumb}</span>
         <span className="guide-present__count">{i + 1} / {slides.length}</span>
         <button type="button" className="guide-present__close" onClick={onClose} aria-label="Close presentation">
           <Icon name="close" size={26} />
@@ -348,7 +366,52 @@ function Presenter({ slides, start, onClose }) {
       </header>
 
       <main className="guide-present__slide" onClick={(e) => (e.clientX > window.innerWidth / 3 ? go(1) : go(-1))}>
-        {s.kind === 'cover' ? (
+        {s.kind === 'news-cover' ? (
+          <div className="guide-cover">
+            <Icon name="new_releases" size={88} color="var(--gold)" />
+            <h1>What’s new</h1>
+            <p>The latest improvements to the platform, each one tested step by step before it is used with guests.</p>
+            <ol className="guide-cover__chapters">
+              {UPDATES.map((u, k) => (
+                <li key={u.id}>
+                  <span>{k + 1}</span> {u.title}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : s.kind === 'news' ? (
+          <div className="guide-deck">
+            <div className="guide-deck__head">
+              <span className="guide-chapter__n guide-chapter__n--big">{UPDATES.indexOf(s.update) + 1}</span>
+              <div>
+                <h2>{s.update.title}</h2>
+                {s.part === 0 ? <p>{s.update.summary.replace(/^Full flow: [^.]*\.\s*/, '').replace(/ Full flow: .*$/, '')}</p> : null}
+              </div>
+            </div>
+            <ol className="guide-steps guide-steps--big" start={s.offset + 1}>
+              {s.changes.map((c) => {
+                const [where, ...rest] = c.split(': ');
+                const hasWhere = rest.length && where.length < 70;
+                const text = hasWhere ? rest.join(': ') : c;
+                return (
+                  <li key={c} className="guide-step guide-step--live">
+                    <div className="guide-step__body">
+                      {hasWhere ? (
+                        <div className="guide-step__top">
+                          <span className="guide-where">{where}</span>
+                        </div>
+                      ) : null}
+                      <p className="guide-step__text">{text.charAt(0).toUpperCase() + text.slice(1)}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+            <span className="sub" style={{ marginTop: 12 }}>
+              {s.update.date} · {s.update.surfaces.map(surfaceName).join(' · ')}
+            </span>
+          </div>
+        ) : s.kind === 'cover' ? (
           <div className="guide-cover">
             <Icon name={s.journey.icon} size={88} color="var(--gold)" />
             <h1>{s.journey.title}</h1>
