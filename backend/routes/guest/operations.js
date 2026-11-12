@@ -11,8 +11,11 @@
  *   POST /loans/:id/cancel       while still requested
  * Visitors
  *   GET  /visitors               this guest's visitor passes
- *   POST /visitors               { visitorName, visitorPhone?, people?, vehicle?, date, from?, until?, note? }
+ *   POST /visitors               { visitorName, visitorPhone?, visitorEmail?, people?, vehicle?, date, from?, until?, note?, discreet? }
  *   POST /visitors/:id/cancel
+ *   POST /visitors/:id/email     { email? } — (re)send the pass to the visitor by email
+ *   POST /visitors/:id/stay      { to?, discreet? } — the visitor stays the night: registered on the stay
+ *   POST /visitors/guests        { fullName, phone?, relation?, from?, to?, note?, discreet? }
  */
 const express = require('express');
 const crypto = require('crypto');
@@ -21,6 +24,7 @@ const { db, ah, httpError, isoDate, isoTime, emit } = require('../manager/lib');
 const { staffAlert } = require('../../services/notify');
 const { requireStay, currentStay } = require('./index');
 const occupancy = require('../../services/occupancy');
+const { emailPass, emailPassQuietly, cleanEmail } = require('../../services/visitorPass');
 
 const router = express.Router();
 router.use(['/ratings', '/loans', '/visitors'], authenticateToken, checkPasswordChangeRequired);
@@ -215,6 +219,8 @@ const toPass = (p) => ({
   link: `${appUrl()}/visit/${p.token}`,
   visitorName: p.visitor_name,
   visitorPhone: p.visitor_phone,
+  visitorEmail: p.visitor_email || null,
+  emailedAt: p.emailed_at ? isoTime(p.emailed_at) : null,
   people: p.people,
   vehicle: p.vehicle,
   date: isoDate(p.visit_date),
@@ -249,7 +255,9 @@ router.get(
       policy: {
         visitFrom: p.visitFrom, visitUntil: p.visitUntil, maxPeoplePerVisit: p.maxPeoplePerVisit, maxVisitorsPerDay: p.maxVisitorsPerDay,
         maxPassesPerDay: p.maxPassesPerDay, maxPassesPerWeek: p.maxPassesPerWeek, allowDiscreet: p.allowDiscreet, extraGuestFeePerNight: p.extraGuestFeePerNight,
+        autoApproveStayGuests: p.autoApproveStayGuests,
       },
+      emailEnabled: require('../../services/email.service').configured,
     });
   }),
 );
@@ -260,6 +268,7 @@ router.post(
     const b = req.body || {};
     const name = String(b.visitorName || '').trim();
     if (!name) throw httpError(400, 'Who is visiting?');
+    const email = cleanEmail(b.visitorEmail);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date || '')) throw httpError(400, 'Choose the day of the visit');
     const time = (t) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(t || '') ? t : null);
     const stay = await requireStay(req.user);
@@ -278,12 +287,14 @@ router.post(
     // Managers choose whether passes need approval (FAY OS → Visitors); a flagged pass always does.
     const auto = p.autoApprove === true && !check.forceApproval;
     const { rows } = await db.query(
-      `INSERT INTO visitor_passes (token, code, user_id, booking_id, apartment_id, visitor_name, visitor_phone, people, vehicle, visit_date, arrive_from, arrive_until, note, status, decided_at, discreet, flag)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::text, CASE WHEN $14::text = 'approved' THEN NOW() END, $15, $16) RETURNING id`,
+      `INSERT INTO visitor_passes (token, code, user_id, booking_id, apartment_id, visitor_name, visitor_phone, people, vehicle, visit_date, arrive_from, arrive_until, note, status, decided_at, discreet, flag, visitor_email)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::text, CASE WHEN $14::text = 'approved' THEN NOW() END, $15, $16, $17) RETURNING id`,
       [crypto.randomBytes(18).toString('base64url'), String(crypto.randomInt(0, 1e6)).padStart(6, '0'), req.user.id, stay.id, stay.apartment_id, name.slice(0, 150),
         b.visitorPhone ? String(b.visitorPhone).slice(0, 50) : null, people, b.vehicle ? String(b.vehicle).slice(0, 40) : null,
-        b.date, from, until, b.note ? String(b.note).slice(0, 500) : null, auto ? 'approved' : 'pending', discreet, check.flag],
+        b.date, from, until, b.note ? String(b.note).slice(0, 500) : null, auto ? 'approved' : 'pending', discreet, check.flag, email],
     );
+    // An active pass with an email goes straight to the visitor; a pending one goes when the team approves it.
+    if (auto && email) await emailPassQuietly(rows[0].id);
     const pass = (await db.query(`${PASS_SELECT} WHERE p.id = $1`, [rows[0].id])).rows[0];
     // A discreet visit is announced without the visitor's name; the gate sees it when it checks the pass.
     const who = discreet ? 'Private visitor' : pass.visitor_name;
@@ -311,6 +322,58 @@ router.post(
   }),
 );
 
+/** The resident sends (or re-sends) the pass to the visitor by email; a new address replaces the old one. */
+router.post(
+  '/visitors/:id/email',
+  ah(async (req, res) => {
+    const email = cleanEmail(req.body?.email);
+    const pass = (await db.query(`${PASS_SELECT} WHERE p.id = $1 AND p.user_id = $2`, [req.params.id, req.user.id])).rows[0];
+    if (!pass) throw httpError(404, 'Pass not found');
+    if (email) await db.query(`UPDATE visitor_passes SET visitor_email = $2 WHERE id = $1`, [pass.id, email]);
+    if (!email && !pass.visitor_email) throw httpError(400, 'Which email should we send the pass to?');
+    if (!['approved', 'arrived'].includes(pass.status)) {
+      // Saved: it goes out when the team approves the pass.
+      return res.json({ sent: false, pass: toPass((await db.query(`${PASS_SELECT} WHERE p.id = $1`, [pass.id])).rows[0]) });
+    }
+    try {
+      await emailPass(pass.id);
+    } catch (e) {
+      throw httpError(503, 'The pass could not be emailed right now. Send it from your phone with “Send the pass”.');
+    }
+    res.json({ sent: true, pass: toPass((await db.query(`${PASS_SELECT} WHERE p.id = $1`, [pass.id])).rows[0]) });
+  }),
+);
+
+/**
+ * The visitor is staying the night: they are registered on the stay (within capacity) from the night of the visit.
+ * Their pass then stays valid at the gate for the registered nights, and no overstay alert is raised.
+ */
+router.post(
+  '/visitors/:id/stay',
+  ah(async (req, res) => {
+    const pass = (await db.query(`${PASS_SELECT} WHERE p.id = $1 AND p.user_id = $2`, [req.params.id, req.user.id])).rows[0];
+    if (!pass) throw httpError(404, 'Pass not found');
+    if (!['approved', 'arrived'].includes(pass.status)) throw httpError(409, `This pass is ${pass.status}`);
+    const open = await db.query(`SELECT id FROM stay_guests WHERE pass_id = $1 AND status IN ('pending', 'approved')`, [pass.id]);
+    if (open.rows.length) throw httpError(409, `${pass.visitor_name} is already registered for the night`);
+    const stay = await requireStay(req.user);
+    if (stay.id !== pass.booking_id) throw httpError(409, 'This pass belongs to another stay');
+    const from = isoDate(pass.visit_date);
+    const next = new Date(`${from}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    const g = await addStayGuest(req, stay, {
+      fullName: pass.visitor_name,
+      phone: pass.visitor_phone,
+      from,
+      to: req.body?.to || next.toISOString().slice(0, 10),
+      note: req.body?.note,
+      discreet: req.body?.discreet === undefined ? pass.discreet : req.body.discreet,
+      passId: pass.id,
+    });
+    res.status(201).json(g);
+  }),
+);
+
 // ---------------------------------------------------------------- Guests added to a stay
 const toStayGuest = (g) => ({
   id: g.id,
@@ -323,53 +386,68 @@ const toStayGuest = (g) => ({
   fee: Number(g.fee),
   note: g.note,
   status: g.status,
+  discreet: Boolean(g.discreet),
+  passId: g.pass_id || null,
   declineReason: g.decline_reason || null,
   createdAt: isoTime(g.created_at),
 });
 
 /**
  * Someone will sleep in the residence (a visitor staying over, family arriving later): they are registered on the
- * stay, within the residence's capacity, and the team approves. A visitor pass is never used for a night.
+ * stay, within the residence's capacity. A visitor pass is never used for a night. Like a hotel, the rule is
+ * "register them", not "no": with FAY OS → Visitors → "Register overnight guests at once" on, a request within
+ * capacity is registered straight away (no one waits on a manager at 23:00); otherwise the team approves.
+ * A discreet guest shows as "Private guest" to staff; the gate still checks their name and ID.
  */
+async function addStayGuest(req, stay, b) {
+  const fullName = String(b.fullName || '').trim();
+  if (!fullName) throw httpError(400, 'Who is joining your stay?');
+  const iso = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+  const checkIn = isoDate(stay.check_in_date);
+  const checkOut = isoDate(stay.check_out_date);
+  const now = (await db.query(
+    `SELECT to_char((NOW() AT TIME ZONE $1)::date, 'YYYY-MM-DD') AS d, to_char((NOW() AT TIME ZONE $1)::date - 1, 'YYYY-MM-DD') AS y`,
+    [TZ],
+  )).rows[0];
+  // From a pass the first night is the visit's, even when it is asked after midnight.
+  const earliest = b.passId ? now.y : now.d;
+  const from = iso(b.from) || (now.d > checkIn ? now.d : checkIn);
+  const to = iso(b.to) || checkOut;
+  if (from < checkIn || to > checkOut || from < earliest) throw httpError(400, `Choose nights within your stay (${checkIn} → ${checkOut})`);
+  if (to <= from) throw httpError(400, 'Add at least one night');
+  const cap = await occupancy.capacityOf(stay.apartment_id);
+  const peak = Number(stay.number_of_guests) + (await occupancy.peakOccupancy(stay.id, from, to));
+  if (peak + 1 > cap) {
+    throw httpError(409, `Residence ${stay.unit_number} sleeps up to ${cap}. With ${peak} already registered on some of those nights, no one else can be added — the concierge can suggest a larger residence.`);
+  }
+  const p = await occupancy.policy();
+  const discreet = Boolean(b.discreet) && p.allowDiscreet;
+  const auto = p.autoApproveStayGuests === true;
+  const nights = Math.round((new Date(to) - new Date(from)) / 86400000);
+  const fee = (Number(p.extraGuestFeePerNight) || 0) * nights;
+  const { rows } = await db.query(
+    `INSERT INTO stay_guests (booking_id, user_id, full_name, phone, relation, from_date, to_date, note, fee, discreet, pass_id, status, decided_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text, CASE WHEN $12::text = 'approved' THEN NOW() END) RETURNING *`,
+    [stay.id, req.user.id, fullName.slice(0, 150), b.phone ? String(b.phone).slice(0, 50) : null, b.relation ? String(b.relation).slice(0, 60) : null,
+      from, to, b.note ? String(b.note).slice(0, 500) : null, fee, discreet, b.passId || null, auto ? 'approved' : 'pending'],
+  );
+  const g = rows[0];
+  if (auto) await occupancy.postGuestFee(g);
+  const who = discreet ? 'a private guest' : `${g.full_name}${g.relation ? ` (${g.relation})` : ''}`;
+  const span = `${nights} night${nights > 1 ? 's' : ''} from ${from}${fee ? ` · fee ${fee.toLocaleString('en-US')} XAF` : ''}`;
+  await staffAlert(req.app, auto
+    ? { title: `Overnight guest registered · Residence ${stay.unit_number}`, body: `${discreet ? '' : `${req.user.fullName} · `}${who} · ${span}`, link: '/visitors', level: 'info', category: 'gate' }
+    : { title: `Guest to add · Residence ${stay.unit_number}`, body: `${discreet ? 'The resident' : req.user.fullName} asks to add ${who} for ${span}`, link: '/visitors', level: 'action', category: 'gate', dedupeKey: `stay-guest:${g.id}` });
+  emit(req, 'visitor:updated', { stayGuest: g.id });
+  return toStayGuest(g);
+}
+
 router.post(
   '/visitors/guests',
   ah(async (req, res) => {
     const b = req.body || {};
-    const fullName = String(b.fullName || '').trim();
-    if (!fullName) throw httpError(400, 'Who is joining your stay?');
     const stay = await requireStay(req.user);
-    const iso = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
-    const checkIn = isoDate(stay.check_in_date);
-    const checkOut = isoDate(stay.check_out_date);
-    const today = (await db.query(`SELECT to_char((NOW() AT TIME ZONE $1)::date, 'YYYY-MM-DD') AS d`, [TZ])).rows[0].d;
-    const from = iso(b.from) || (today > checkIn ? today : checkIn);
-    const to = iso(b.to) || checkOut;
-    if (from < checkIn || to > checkOut || from < today) throw httpError(400, `Choose nights within your stay (${checkIn} → ${checkOut})`);
-    if (to <= from) throw httpError(400, 'Add at least one night');
-    const cap = await occupancy.capacityOf(stay.apartment_id);
-    const peak = Number(stay.number_of_guests) + (await occupancy.peakOccupancy(stay.id, from, to));
-    if (peak + 1 > cap) {
-      throw httpError(409, `Residence ${stay.unit_number} sleeps up to ${cap}. With ${peak} already registered on some of those nights, no one else can be added — the concierge can suggest a larger residence.`);
-    }
-    const p = await occupancy.policy();
-    const nights = Math.round((new Date(to) - new Date(from)) / 86400000);
-    const fee = (Number(p.extraGuestFeePerNight) || 0) * nights;
-    const { rows } = await db.query(
-      `INSERT INTO stay_guests (booking_id, user_id, full_name, phone, relation, from_date, to_date, note, fee)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [stay.id, req.user.id, fullName.slice(0, 150), b.phone ? String(b.phone).slice(0, 50) : null, b.relation ? String(b.relation).slice(0, 60) : null, from, to, b.note ? String(b.note).slice(0, 500) : null, fee],
-    );
-    const g = rows[0];
-    await staffAlert(req.app, {
-      title: `Guest to add · Residence ${stay.unit_number}`,
-      body: `${req.user.fullName} asks to add ${g.full_name}${g.relation ? ` (${g.relation})` : ''} for ${nights} night${nights > 1 ? 's' : ''} from ${from}${fee ? ` · fee ${fee.toLocaleString('en-US')} XAF` : ''}`,
-      link: '/visitors',
-      level: 'action',
-      category: 'gate',
-      dedupeKey: `stay-guest:${g.id}`,
-    });
-    emit(req, 'visitor:updated', { stayGuest: g.id });
-    res.status(201).json(toStayGuest(g));
+    res.status(201).json(await addStayGuest(req, stay, { ...b, passId: null }));
   }),
 );
 

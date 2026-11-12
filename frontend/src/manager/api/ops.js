@@ -23,6 +23,8 @@ export const saveVisitorSettings = (data) => withMock(() => api.put('/visitors/s
 // People added to a stay (they sleep there): approved within the residence's capacity.
 export const stayGuests = () => get('/visitors/guests', undefined, []);
 export const stayGuestAction = (id, action, body) => post(`/visitors/guests/${id}/${action}`, body);
+/** The name of a discreet overnight guest, for the gate (recorded in the gate log). */
+export const revealStayGuest = (id) => post(`/visitors/guests/${id}/reveal`);
 
 // Quality
 export const qualitySummary = (days) => get('/quality/summary', { days }, { overall: {}, people: [], departments: [], inspections: {}, cleaners: [] });

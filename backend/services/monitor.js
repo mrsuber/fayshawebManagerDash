@@ -161,10 +161,13 @@ const RULES = [
     sql: `SELECT p.id, 'Visitor still in · Residence ' || COALESCE(a.unit_number, '') AS title,
                  CASE WHEN p.discreet THEN 'A private visitor' ELSE p.visitor_name END || ' was due out at ' || COALESCE(p.arrive_until, '22:00')
                    || CASE WHEN p.visit_date < (NOW() AT TIME ZONE $1)::date THEN ' on ' || to_char(p.visit_date, 'DD Mon') ELSE '' END
-                   || '. Check with the host; if they are staying, add them to the stay.' AS body,
+                   || '. Check with the host: if they are staying, the host registers them for the night in the app.' AS body,
                  '/visitors' AS link
             FROM visitor_passes p LEFT JOIN apartments a ON a.id = p.apartment_id
            WHERE p.status = 'arrived'
+             -- Registered (or asked to be) for the night: not an overstay.
+             AND NOT EXISTS (SELECT 1 FROM stay_guests g WHERE g.pass_id = p.id AND g.status IN ('pending', 'approved')
+                               AND g.to_date >= (NOW() AT TIME ZONE $1)::date)
              AND (p.visit_date + COALESCE(p.arrive_until, '22:00')::time
                   + make_interval(mins => COALESCE((SELECT (value->>'overstayMinutes')::int FROM app_settings WHERE key = 'visitors'), 30)))
                  < (NOW() AT TIME ZONE $1)`,
@@ -290,6 +293,32 @@ async function guestReminders(app, p) {
   }
 }
 
+/**
+ * Before a visitor's pass ends, the host is asked once whether they are staying the night, so registering them is
+ * one tap instead of a knock on the door at 22:30. A discreet visit is not named on the lock screen.
+ */
+async function visitorStayReminders(app) {
+  const { rows } = await db.query(
+    `SELECT p.id, p.user_id, p.visitor_name, p.discreet, COALESCE(p.arrive_until, '22:00') AS until
+       FROM visitor_passes p
+      WHERE p.status IN ('approved', 'arrived') AND p.visit_date = (NOW() AT TIME ZONE $1)::date
+        AND (NOW() AT TIME ZONE $1) BETWEEN p.visit_date + COALESCE(p.arrive_until, '22:00')::time - INTERVAL '30 minutes'
+                                        AND p.visit_date + COALESCE(p.arrive_until, '22:00')::time
+        AND NOT EXISTS (SELECT 1 FROM stay_guests g WHERE g.pass_id = p.id AND g.status IN ('pending', 'approved'))`,
+    [TZ],
+  );
+  for (const p of rows) {
+    const who = p.discreet ? 'your visitor' : p.visitor_name;
+    await notifyGuest(app, p.user_id, {
+      title: p.discreet ? 'Is your visitor staying tonight?' : `Is ${p.visitor_name} staying tonight?`,
+      body: `Visiting hours end at ${p.until}. If ${who} is staying the night, register them on your stay in the app: it takes a moment and can stay discreet.`,
+      event: 'visitor:updated',
+      data: { screen: 'Visitors', passId: p.id },
+      dedupeKey: `visitor-staying:${p.id}`,
+    });
+  }
+}
+
 async function tick(app) {
   const client = await db.pool.connect();
   try {
@@ -301,6 +330,7 @@ async function tick(app) {
       // The replacement reserve: this month's contribution per asset, posted once.
       await require('./assets').postMonthlyReserve().catch((e) => console.error('Asset reserve posting failed:', e.message));
       await guestReminders(app, p);
+      await visitorStayReminders(app).catch((e) => console.error('Visitor reminders failed:', e.message));
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [LOCK]);
     }

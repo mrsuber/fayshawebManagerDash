@@ -28,6 +28,8 @@ export default function VisitorsScreen({ navigation }) {
   useLiveEvent('visitor:updated', reload);
   const [form, setForm] = useState(null);
   const [guestForm, setGuestForm] = useState(null);
+  const [emailFor, setEmailFor] = useState(null); // { pass, email }
+  const [nightFor, setNightFor] = useState(null); // { pass, to, discreet }
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
   const policy = data?.policy || { visitFrom: '08:00', visitUntil: '22:00', maxPeoplePerVisit: 4, allowDiscreet: true };
@@ -42,14 +44,16 @@ export default function VisitorsScreen({ navigation }) {
     setFormError('');
     try {
       const p = await apiClient.post('/guest/visitors', {
-        visitorName: form.name.trim(), visitorPhone: form.phone.trim() || undefined, people: form.people, vehicle: form.vehicle.trim() || undefined,
+        visitorName: form.name.trim(), visitorPhone: form.phone.trim() || undefined, visitorEmail: form.email.trim() || undefined, people: form.people, vehicle: form.vehicle.trim() || undefined,
         date: isoDay(form.date), from: form.from ? hhmm(form.from) : undefined, until: hhmm(form.until), note: form.note.trim() || undefined, discreet: form.discreet,
       });
       setForm(null);
       await reload();
-      if (p.status === 'approved') share(p);
-      else if (p.flag) showAlert('Sent for approval', `${p.visitorName} has visited often this week, so the residence team will look at this pass. If they are staying with you, add them to your stay instead.`);
-      else showAlert('Request sent', 'The residence team approves visitor passes. You will be notified, and can then send the pass to your visitor.');
+      const mailed = p.visitorEmail ? ` We email the pass to ${p.visitorEmail}` : '';
+      if (p.status === 'approved' && p.emailedAt) showAlert('Pass sent', `${p.visitorEmail} has the pass with the QR code and directions. You can also send it from your phone.`);
+      else if (p.status === 'approved') share(p);
+      else if (p.flag) showAlert('Sent for approval', `${p.visitorName} has visited often this week, so the residence team will look at this pass. If they are staying with you, register them on your stay instead.`);
+      else showAlert('Request sent', `The residence team approves visitor passes. You will be notified.${mailed ? `${mailed} as soon as it is approved.` : ' You can then send the pass to your visitor.'}`);
     } catch (e) {
       setFormError(errorMessage(e));
     } finally {
@@ -61,13 +65,51 @@ export default function VisitorsScreen({ navigation }) {
     setBusy(true);
     setFormError('');
     try {
-      await apiClient.post('/guest/visitors/guests', {
+      const g = await apiClient.post('/guest/visitors/guests', {
         fullName: guestForm.name.trim(), phone: guestForm.phone.trim() || undefined, relation: guestForm.relation.trim() || undefined,
-        from: isoDay(guestForm.from), to: isoDay(guestForm.to), note: guestForm.note.trim() || undefined,
+        from: isoDay(guestForm.from), to: isoDay(guestForm.to), note: guestForm.note.trim() || undefined, discreet: guestForm.discreet,
       });
       setGuestForm(null);
       await reload();
-      showAlert('Request sent', 'The residence team will confirm. Your guest then comes in with you, or shows ID at the gate.');
+      showAlert(
+        g.status === 'approved' ? 'Guest registered' : 'Request sent',
+        `${g.status === 'approved' ? `${guestForm.name.trim()} is registered on your stay.` : 'The residence team will confirm.'} Your guest comes in with you, or shows ID at the gate.`,
+      );
+    } catch (e) {
+      setFormError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendEmail = async () => {
+    setBusy(true);
+    setFormError('');
+    try {
+      const r = await apiClient.post(`/guest/visitors/${emailFor.pass.id}/email`, { email: emailFor.email.trim() || undefined });
+      setEmailFor(null);
+      await reload();
+      showAlert(r.sent ? 'Pass emailed' : 'Saved', r.sent ? `${r.pass.visitorEmail} has the pass, the QR code and directions.` : 'We email the pass as soon as the residence team approves it.');
+    } catch (e) {
+      setFormError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stayNight = async () => {
+    setBusy(true);
+    setFormError('');
+    try {
+      const g = await apiClient.post(`/guest/visitors/${nightFor.pass.id}/stay`, { to: isoDay(nightFor.to), discreet: nightFor.discreet });
+      setNightFor(null);
+      await reload();
+      showAlert(
+        g.status === 'approved' ? 'Registered for the night' : 'Request sent',
+        g.status === 'approved'
+          ? `${nightFor.pass.visitorName} is registered on your stay. Their pass stays valid at the gate until ${dayLabel(g.to, { weekday: true })}.`
+          : 'The residence team will confirm shortly. Your visitor does not need to leave in the meantime.',
+      );
     } catch (e) {
       setFormError(errorMessage(e));
     } finally {
@@ -81,14 +123,17 @@ export default function VisitorsScreen({ navigation }) {
   const guests = data?.guests || [];
   const upcoming = passes.filter((p) => ['pending', 'approved', 'arrived'].includes(p.status));
   const past = passes.filter((p) => !['pending', 'approved', 'arrived'].includes(p.status));
+  const nightOf = (p) => guests.find((g) => g.passId === p.id && ['pending', 'approved'].includes(g.status));
+  const today = isoDay(new Date());
+  const yesterday = isoDay(addDays(new Date(), -1));
   const openInvite = () => {
     setFormError('');
-    setForm({ name: '', phone: '', people: 1, vehicle: '', date: new Date(), from: null, until: at(policy.visitUntil), note: '', discreet: false });
+    setForm({ name: '', phone: '', email: '', people: 1, vehicle: '', date: new Date(), from: null, until: at(policy.visitUntil), note: '', discreet: false });
   };
   const openGuest = () => {
     setFormError('');
     const start = new Date();
-    setGuestForm({ name: '', phone: '', relation: '', from: start, to: addDays(start, 1), note: '' });
+    setGuestForm({ name: '', phone: '', relation: '', from: start, to: addDays(start, 1), note: '', discreet: false });
   };
 
   return (
@@ -99,9 +144,9 @@ export default function VisitorsScreen({ navigation }) {
           <Text style={s.rulesTitle}>House rules for visitors</Text>
         </View>
         <Text style={s.rule}>• Visits from {policy.visitFrom} to {policy.visitUntil}, up to {policy.maxPeoplePerVisit} people per pass.</Text>
-        <Text style={s.rule}>• Visitors show the pass and their ID at the gate. We tell you when they arrive.</Text>
-        <Text style={s.rule}>• No one sleeps over on a visitor pass: add them to your stay below.</Text>
-        {policy.allowDiscreet ? <Text style={s.rule}>• Prefer privacy? Ask for a discreet visit: staff lists show “Private visitor”.</Text> : null}
+        <Text style={s.rule}>• Visitors show the pass and their ID at the gate. Add their email and we send them the pass. We tell you when they arrive.</Text>
+        <Text style={s.rule}>• Staying the night is welcome: register them on your stay (tap “Staying the night” on their pass, or below).</Text>
+        {policy.allowDiscreet ? <Text style={s.rule}>• Prefer privacy? Visits and overnight guests can be discreet: staff lists show “Private visitor”.</Text> : null}
       </Card>
 
       {!upcoming.length && !past.length ? <Empty icon="people-outline" title="No visitors yet" text="Invite friends or family for the days of your stay." /> : null}
@@ -122,8 +167,20 @@ export default function VisitorsScreen({ navigation }) {
               {p.vehicle ? ` · ${p.vehicle}` : ''}
             </Text>
             {p.status === 'approved' ? <Text style={s.code}>Gate code {p.code}</Text> : null}
-            <View style={{ flexDirection: 'row', gap: 18, marginTop: 10 }}>
+            {p.emailedAt ? <Text style={s.meta}>Pass emailed to {p.visitorEmail}</Text> : p.visitorEmail && p.status === 'pending' ? <Text style={s.meta}>Emailed to {p.visitorEmail} once approved</Text> : null}
+            {nightOf(p) ? (
+              <Text style={[s.meta, { color: COLORS.primary }]}>
+                <Ionicons name="moon-outline" size={12} color={COLORS.primary} /> Staying until {dayLabel(nightOf(p).to, { weekday: true })} · {nightOf(p).status === 'approved' ? 'registered' : 'awaiting confirmation'}
+              </Text>
+            ) : null}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 18, rowGap: 8, marginTop: 10 }}>
               {p.status === 'approved' ? <Text style={s.link} onPress={() => share(p)}>Send the pass</Text> : null}
+              {['pending', 'approved', 'arrived'].includes(p.status) ? (
+                <Text style={s.link} onPress={() => { setFormError(''); setEmailFor({ pass: p, email: p.visitorEmail || '' }); }}>{p.emailedAt ? 'Email again' : 'Email the pass'}</Text>
+              ) : null}
+              {['approved', 'arrived'].includes(p.status) && [today, yesterday].includes(p.date) && !nightOf(p) ? (
+                <Text style={s.link} onPress={() => { setFormError(''); setNightFor({ pass: p, to: addDays(new Date(`${p.date}T12:00:00`), 1), discreet: p.discreet }); }}>Staying the night</Text>
+              ) : null}
               {['pending', 'approved'].includes(p.status) ? (
                 <Text style={s.link} onPress={() => apiClient.post(`/guest/visitors/${p.id}/cancel`).then(reload).catch((e) => showAlert('Not cancelled', errorMessage(e)))}>Cancel</Text>
               ) : null}
@@ -144,7 +201,9 @@ export default function VisitorsScreen({ navigation }) {
           return (
             <View key={g.id} style={s.guest}>
               <View style={{ flex: 1 }}>
-                <Text style={s.title}>{g.fullName}{g.relation ? <Text style={s.meta}> · {g.relation}</Text> : null}</Text>
+                <Text style={s.title}>
+                  {g.discreet ? <Ionicons name="eye-off-outline" size={14} color={COLORS.textTertiary} /> : null} {g.fullName}{g.relation ? <Text style={s.meta}> · {g.relation}</Text> : null}
+                </Text>
                 <Text style={s.meta}>
                   {dayLabel(g.from, { year: false })} → {dayLabel(g.to, { year: false })} · {g.nights} night{g.nights > 1 ? 's' : ''}
                   {g.fee ? ` · ${xaf(g.fee)}` : ''}
@@ -174,6 +233,7 @@ export default function VisitorsScreen({ navigation }) {
           <>
             <Field label="Visitor's full name" value={form.name} onChangeText={(name) => setForm({ ...form, name })} autoComplete="name" hint="As on their ID: the gate checks it" />
             <Field label="Their phone (optional)" value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} keyboardType="phone-pad" />
+            <Field label="Their email (optional)" value={form.email} onChangeText={(email) => setForm({ ...form, email })} keyboardType="email-address" autoCapitalize="none" autoComplete="email" hint="We email them the pass with the QR code and directions, so they can come on their own" />
             <PickerField label="Day" value={form.date} minimumDate={new Date()} onChange={(date) => setForm({ ...form, date })} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 1 }}>
@@ -216,8 +276,55 @@ export default function VisitorsScreen({ navigation }) {
               </View>
             </View>
             <Field label="Note (optional)" value={guestForm.note} onChangeText={(note) => setGuestForm({ ...guestForm, note })} multiline maxLength={300} />
+            {policy.allowDiscreet ? (
+              <View style={s.switchRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.title}>Discreet</Text>
+                  <Text style={s.meta}>Staff lists show “Private guest”. Security still checks their name and ID at the gate.</Text>
+                </View>
+                <Switch value={guestForm.discreet} onValueChange={(discreet) => setGuestForm({ ...guestForm, discreet })} trackColor={{ true: COLORS.primary }} />
+              </View>
+            ) : null}
             {formError ? <Notice tone="red" icon="alert-circle-outline" style={{ marginBottom: 12 }}>{formError}</Notice> : null}
             <Button title="Send request" onPress={addGuest} loading={busy} disabled={!guestForm.name.trim()} />
+          </>
+        ) : null}
+      </Sheet>
+
+      <Sheet visible={Boolean(emailFor)} onClose={() => setEmailFor(null)} title="Email the pass">
+        {emailFor ? (
+          <>
+            <Body muted style={{ fontSize: 13, marginBottom: 12 }}>
+              {emailFor.pass.visitorName} receives the QR code, the gate code and directions, so they can come on their own.
+            </Body>
+            <Field label="Their email" value={emailFor.email} onChangeText={(email) => setEmailFor({ ...emailFor, email })} keyboardType="email-address" autoCapitalize="none" autoComplete="email" />
+            {data?.emailEnabled === false ? <Notice tone="gold" icon="information-circle-outline" style={{ marginBottom: 12 }}>Email is not set up at the residence yet: send the pass from your phone instead.</Notice> : null}
+            {formError ? <Notice tone="red" icon="alert-circle-outline" style={{ marginBottom: 12 }}>{formError}</Notice> : null}
+            <Button title={emailFor.pass.status === 'pending' ? 'Save — send once approved' : 'Send the pass'} onPress={sendEmail} loading={busy} disabled={!emailFor.email.trim()} />
+          </>
+        ) : null}
+      </Sheet>
+
+      <Sheet visible={Boolean(nightFor)} onClose={() => setNightFor(null)} title="Staying the night">
+        {nightFor ? (
+          <>
+            <Body muted style={{ fontSize: 13, marginBottom: 12 }}>
+              {nightFor.pass.visitorName} is registered on your stay, so security knows they are your guest tonight. Their pass keeps working at the gate until they leave.
+              {data?.capacity ? ` Your residence sleeps up to ${data.capacity}.` : ''}
+              {policy.extraGuestFeePerNight ? ` ${xaf(policy.extraGuestFeePerNight)} per night is added to your bill.` : ''}
+            </Body>
+            <PickerField label="Leaves on" value={nightFor.to} minimumDate={addDays(new Date(`${nightFor.pass.date}T12:00:00`), 1)} onChange={(to) => setNightFor({ ...nightFor, to })} />
+            {policy.allowDiscreet ? (
+              <View style={s.switchRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.title}>Discreet</Text>
+                  <Text style={s.meta}>Staff lists show “Private guest”.</Text>
+                </View>
+                <Switch value={nightFor.discreet} onValueChange={(discreet) => setNightFor({ ...nightFor, discreet })} trackColor={{ true: COLORS.primary }} />
+              </View>
+            ) : null}
+            {formError ? <Notice tone="red" icon="alert-circle-outline" style={{ marginBottom: 12 }}>{formError}</Notice> : null}
+            <Button title={policy.autoApproveStayGuests ? 'Register for the night' : 'Ask to register'} onPress={stayNight} loading={busy} />
           </>
         ) : null}
       </Sheet>

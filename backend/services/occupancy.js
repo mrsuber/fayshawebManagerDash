@@ -8,6 +8,7 @@ const db = require('../config/database');
  */
 const DEFAULTS = {
   autoApprove: false,
+  autoApproveStayGuests: false, // overnight guests within capacity are registered at once (no one waits on a manager at 23:00)
   visitFrom: '08:00',
   visitUntil: '22:00',
   maxPeoplePerVisit: 4,
@@ -38,6 +39,7 @@ async function policy() {
 function clean(b = {}) {
   return {
     autoApprove: Boolean(b.autoApprove),
+    autoApproveStayGuests: Boolean(b.autoApproveStayGuests),
     visitFrom: HHMM.test(b.visitFrom || '') ? b.visitFrom : DEFAULTS.visitFrom,
     visitUntil: HHMM.test(b.visitUntil || '') ? b.visitUntil : DEFAULTS.visitUntil,
     maxPeoplePerVisit: int(b.maxPeoplePerVisit, DEFAULTS.maxPeoplePerVisit, 1, 20),
@@ -71,6 +73,18 @@ async function peakOccupancy(bookingId, from, to, { excludeId = null } = {}) {
     [bookingId, from, to, excludeId],
   );
   return Number(rows[0].peak);
+}
+
+/** Puts an approved added guest's fee on the host's bill (once). */
+async function postGuestFee(g, by = null, q = db) {
+  if (!(Number(g.fee) > 0)) return;
+  const done = await q.query(`SELECT 1 FROM folio_charges WHERE source_type = 'stay_guest' AND source_id = $1`, [g.id]);
+  if (done.rows.length) return;
+  await q.query(
+    `INSERT INTO folio_charges (guest_id, booking_id, description, category, amount, source_type, source_id, created_by)
+     VALUES ($1, $2, $3, 'Accommodation', $4, 'stay_guest', $5, $6)`,
+    [g.user_id, g.booking_id, `Added guest · ${g.discreet ? 'private guest' : g.full_name}`.slice(0, 255), g.fee, g.id, by],
+  );
 }
 
 const normal = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -137,4 +151,4 @@ async function closeForStay(bookingId, { from = null, to = null } = {}, q = db) 
   );
 }
 
-module.exports = { closeForStay, DEFAULTS, policy, clean, capacityOf, peakOccupancy, checkVisit };
+module.exports = { closeForStay, DEFAULTS, policy, clean, capacityOf, peakOccupancy, checkVisit, postGuestFee };

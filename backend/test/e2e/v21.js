@@ -108,6 +108,44 @@ const monthsAgo = (m) => {
   r = await call('POST', '/manager/gate/open', { passId: pass.id }, m);
   check('gate recorded (no controller → manual)', r.status === 200 && r.body.controllerOk === null);
 
+  // A visitor who comes alone gets the pass by email; a discreet one who stays the night is registered, privately.
+  r = await call('POST', '/guest/visitors', { visitorName: 'Amina Bello', visitorEmail: 'not-an-email', date: day(0) }, g);
+  check('a bad visitor email is refused', r.status === 400, r);
+  r = await call('POST', '/guest/visitors', { visitorName: 'Amina Bello', visitorEmail: ' Amina@Example.com ', date: day(0), discreet: true }, g);
+  check('pass keeps the visitor email', r.status === 201 && r.body.visitorEmail === 'amina@example.com', r);
+  const night = r.body;
+  r = await call('POST', `/guest/visitors/${night.id}/email`, {}, g);
+  check('a pending pass saves the email for later', r.status === 200 && r.body.sent === false, r);
+  await call('POST', `/manager/visitors/${night.id}/approve`, {}, m);
+  r = await call('POST', `/guest/visitors/${night.id}/email`, {}, g);
+  check('emailing without SMTP says so (503)', r.status === 503, r);
+  r = await call('POST', `/guest/visitors/${night.id}/stay`, {}, g);
+  check('"staying the night" asks to register the visitor', r.status === 201 && r.body.status === 'pending' && r.body.passId === night.id && r.body.discreet === true, r);
+  const nightGuest = r.body;
+  r = await call('POST', `/guest/visitors/${night.id}/stay`, {}, g);
+  check('only once per pass', r.status === 409, r);
+  r = await call('GET', '/manager/visitors/guests', null, m);
+  const listed = r.body.find((x) => x.id === nightGuest.id);
+  check('staff see a private guest', listed && listed.fullName === 'Private guest' && listed.phone === null, listed);
+  r = await call('POST', `/manager/visitors/guests/${nightGuest.id}/reveal`, {}, m);
+  check('the gate can reveal the name', r.status === 200 && r.body.fullName === 'Amina Bello', r);
+  r = await call('POST', `/manager/visitors/guests/${nightGuest.id}/approve`, {}, m);
+  check('overnight guest approved', r.status === 200 && r.body.status === 'approved', r);
+  r = await call('POST', '/manager/visitors/verify', { token: night.link.split('/').pop() }, m);
+  check('their pass is valid as a registered overnight guest', r.status === 200 && r.body.valid === true && r.body.overnight?.status === 'approved', r);
+  await call('POST', '/manager/gate/open', { passId: night.id }, m);
+  await call('POST', `/manager/visitors/${night.id}/leave`, {}, m);
+  r = await call('POST', '/manager/gate/open', { passId: night.id }, m);
+  check('an overnight guest can come back in on the pass', r.status === 200, r);
+
+  // With "register overnight guests at once", a request within capacity does not wait for a manager.
+  const policyNow = (await call('GET', '/manager/visitors/settings', null, m)).body;
+  await call('PUT', '/manager/visitors/settings', { ...policyNow, autoApproveStayGuests: true }, m);
+  await db.query(`UPDATE apartments SET max_occupancy = 10 WHERE id = (SELECT apartment_id FROM bookings WHERE user_id = (SELECT id FROM users WHERE email = 'claire.fontaine@example.com') AND status = 'checked_in' LIMIT 1)`);
+  r = await call('POST', '/guest/visitors/guests', { fullName: 'Late Guest', to: day(1) }, g);
+  check('overnight guest registered at once', r.status === 201 && r.body.status === 'approved', r);
+  await call('PUT', '/manager/visitors/settings', policyNow, m);
+
   r = await call('GET', '/guest/ratings/pending', null, g);
   const toRate = r.body.find((x) => x.context === 'loan');
   r = await call('POST', '/guest/ratings', { context: 'loan', contextId: toRate.contextId, rating: 2, comment: 'Late' }, g);

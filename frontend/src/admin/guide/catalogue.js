@@ -110,7 +110,7 @@ export const FEATURES = [
   },
   {
     surface: 'app', area: 'Services', name: 'Visitors', where: 'Residence → Visitors', status: 'live',
-    does: ['Invite a visitor for a day of the stay; share the pass link; told when they arrive'],
+    does: ['Invite a visitor for a day of the stay; share the pass link or have it emailed to the visitor (QR, code, directions); told when they arrive', 'Register an overnight guest on the stay, or tap “Staying the night” on a visitor’s pass (reminded 30 min before the pass ends); visits and overnight guests can be discreet'],
   },
   {
     surface: 'app', area: 'Services', name: 'Experiences, rides and the bill', where: 'Residence', status: 'live',
@@ -175,7 +175,7 @@ export const FEATURES = [
   },
   {
     surface: 'fayos', area: 'Operations', name: 'Visitors & gate', where: 'Operations → Visitors & Gate', status: 'setup',
-    does: ['Approve visitor passes, check a pass by code or scanned link, open the gate, gate log; approval rule and directions'],
+    does: ['Approve visitor passes, check a pass by code or scanned link, open the gate, gate log; approval rules and directions', 'Overnight guests: approve or register at once within capacity; discreet ones show as “Private guest” with “Check ID” for the gate; a visitor registered for the night keeps using their pass'],
     limits: ['The gate opens automatically only when a gate controller is connected (GATE_WEBHOOK_URL)'],
   },
   {

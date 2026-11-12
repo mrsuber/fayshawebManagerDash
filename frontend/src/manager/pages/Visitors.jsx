@@ -20,6 +20,7 @@ export default function Visitors() {
   const [code, setCode] = useState('');
   const [checked, setChecked] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [revealed, setRevealed] = useState({}); // discreet overnight guests the gate has looked up: id → name
   const reload = () => {
     q.reload();
     events.reload();
@@ -103,7 +104,8 @@ export default function Visitors() {
                 <tr key={p.id}>
                   <td>
                     {p.discreet ? <Icon name="visibility_off" size={15} color="var(--dim)" /> : null} {p.visitorName}
-                    <div className="sub">{p.people} person{p.people > 1 ? 's' : ''}{p.visitorPhone ? ` · ${p.visitorPhone}` : ''}{p.discreet ? ' · discreet: the name shows when the gate checks the pass' : ''}</div>
+                    <div className="sub">{p.people} person{p.people > 1 ? 's' : ''}{p.visitorPhone ? ` · ${p.visitorPhone}` : ''}{p.visitorEmail ? ` · ${p.visitorEmail}` : ''}{p.discreet ? ' · discreet: the name shows when the gate checks the pass' : ''}</div>
+                    {p.overnight ? <div className="sub" style={{ color: 'var(--gold)' }}><Icon name="bedtime" size={14} /> Staying the night until {moment(p.overnight.to).format('ddd D MMM')} · {p.overnight.status === 'approved' ? 'registered' : 'to approve below'}</div> : null}
                     {p.flag ? <div className="sub" style={{ color: 'var(--gold)' }}><Icon name="flag" size={14} /> {p.flag}</div> : null}
                   </td>
                   <td>{p.host}<div className="sub">Residence {p.residence}</div></td>
@@ -119,6 +121,7 @@ export default function Visitors() {
                         </>
                       ) : null}
                       {p.status === 'approved' ? <button type="button" className="btn-gold" onClick={() => act(opsApi.openGate({ passId: p.id }), 'Gate')}><Icon name="door_open" size={18} /> Let in</button> : null}
+                      {p.status === 'left' && p.overnight?.status === 'approved' ? <button type="button" className="btn-gold" onClick={() => act(opsApi.openGate({ passId: p.id }), 'Gate')}><Icon name="door_open" size={18} /> Let in</button> : null}
                       {p.status === 'arrived' ? <button type="button" className="fay-btn-outline" onClick={() => act(opsApi.visitorAction(p.id, 'leave'), 'Marked as left')}>Left</button> : null}
                     </div>
                   </td>
@@ -131,12 +134,13 @@ export default function Visitors() {
 
       <section className="card" style={{ gap: 10 }}>
         <span className="card-title">Added to a stay</span>
-        <span className="sub">People who will sleep in a residence (a visitor staying over, family arriving later). They are registered guests, within the residence’s capacity; a visitor pass never covers a night.</span>
+        <span className="sub">People who will sleep in a residence (a visitor staying over, family arriving later). Like a hotel, overnight guests are welcome once registered, within the residence’s capacity. A visitor registered for the night keeps using their pass at the gate. Discreet guests show as “Private guest”: use “Check ID” at the gate to see the name.</span>
         {stayGuests.length === 0 ? <span className="sub">No requests.</span> : null}
         {stayGuests.map((g) => (
           <div key={g.id} className="row-line" style={{ display: 'flex', gap: 12, padding: '10px 0', alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 220 }}>
-              <strong>{g.fullName}</strong>{g.relation ? <span className="sub"> · {g.relation}</span> : null}
+              {g.discreet ? <Icon name="visibility_off" size={15} color="var(--dim)" /> : null} <strong>{revealed[g.id] || g.fullName}</strong>{g.relation ? <span className="sub"> · {g.relation}</span> : null}
+              {g.passId ? <span className="sub"> · from a visitor pass</span> : null}
               <div className="sub">
                 With {g.host} · Residence {g.residence} · {moment(g.from).format('D MMM')} → {moment(g.to).format('D MMM')} ({g.nights} night{g.nights > 1 ? 's' : ''}) · booked {g.booked} of {g.capacity}
                 {g.fee ? ` · ${g.fee.toLocaleString('en-US')} XAF to the bill` : ''}
@@ -144,6 +148,16 @@ export default function Visitors() {
               {g.note ? <div className="sub">“{g.note}”</div> : null}
             </div>
             <Pill tone={{ pending: '#e8b84a', approved: '#3fd283', declined: '#d94040' }[g.status] || '#8f897d'}>{{ pending: 'To approve', approved: 'Registered', declined: 'Declined' }[g.status] || g.status}</Pill>
+            {g.discreet && !revealed[g.id] ? (
+              <button
+                type="button"
+                className="fay-btn-outline"
+                title="Shows the name to check against their ID; recorded in the gate log"
+                onClick={() => opsApi.revealStayGuest(g.id).then((r) => setRevealed((m) => ({ ...m, [g.id]: `${r.fullName}${r.phone ? ` · ${r.phone}` : ''}` }))).catch((e) => toast(e.message, 'error'))}
+              >
+                <Icon name="badge" size={16} /> Check ID
+              </button>
+            ) : null}
             {g.status === 'pending' ? (
               <div className="kit-actions">
                 <button type="button" className="btn-gold" onClick={() => act(opsApi.stayGuestAction(g.id, 'approve'), `${g.fullName} is registered on the stay`)}>Approve</button>
@@ -199,10 +213,11 @@ function VisitorSettings({ value, onSaved }) {
     <section className="card" style={{ gap: 14 }}>
       <span className="card-title">Visitor policy</span>
       <span className="sub">
-        Day visits only: nobody sleeps over on a visitor pass — residents add an overnight guest to their stay instead, within the residence’s capacity (set per residence in HQ → Residences). A visitor who comes most days is flagged for the team.
+        Passes are for day visits. Overnight guests are welcome once registered on the stay, within the residence’s capacity (set per residence in HQ → Residences): residents tap “Staying the night” on a pass or add a guest, and are reminded 30 minutes before a visitor’s pass ends. A visitor who comes most days is flagged for the team.
       </span>
       <LabeledToggle on={v.autoApprove} onClick={() => setV({ ...v, autoApprove: !v.autoApprove })} text={v.autoApprove ? 'Passes are active as soon as a resident creates them (flagged ones still wait for the team)' : 'Each pass is approved by the team first'} />
-      <LabeledToggle on={v.allowDiscreet} onClick={() => setV({ ...v, allowDiscreet: !v.allowDiscreet })} text={v.allowDiscreet ? 'Residents may ask for a discreet visit (name hidden from staff lists; the gate still checks ID)' : 'No discreet visits'} />
+      <LabeledToggle on={v.autoApproveStayGuests} onClick={() => setV({ ...v, autoApproveStayGuests: !v.autoApproveStayGuests })} text={v.autoApproveStayGuests ? 'Overnight guests within capacity are registered at once (the team is told)' : 'The team approves each overnight guest'} />
+      <LabeledToggle on={v.allowDiscreet} onClick={() => setV({ ...v, allowDiscreet: !v.allowDiscreet })} text={v.allowDiscreet ? 'Residents may ask for discreet visits and overnight guests (name hidden from staff lists; the gate still checks ID)' : 'No discreet visits'} />
       <div className="kit-two">
         {field('visitFrom', 'Visiting hours from', null, { type: 'time' })}
         {field('visitUntil', 'Visitors leave by', 'Passes end at this time at the latest', { type: 'time' })}

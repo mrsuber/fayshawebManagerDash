@@ -18,6 +18,8 @@
  *   GET/PUT /visitors/settings              the visitor policy (services/occupancy.js) + directions, mapsUrl, gatePhone
  *   GET    /visitors/guests?status=        people added to stays (pending first)
  *   POST   /visitors/guests/:id/approve | /decline { reason? }
+ *   POST   /visitors/guests/:id/reveal      the name of a discreet overnight guest, for the gate
+ * Discreet overnight guests show as "Private guest" the same way.
  * Discreet passes show "Private visitor" in lists; the name is revealed when the gate verifies the pass.
  */
 const express = require('express');
@@ -26,6 +28,7 @@ const { staffAlert, resolve } = require('../../services/notify');
 const { notifyGuest } = require('../../services/guestPush');
 const { toLoan, LOAN_SELECT, toPass, PASS_SELECT, CATEGORY, toStayGuest } = require('../guest/operations');
 const occupancy = require('../../services/occupancy');
+const { emailPassQuietly } = require('../../services/visitorPass');
 
 const router = express.Router();
 const TZ = process.env.PROPERTY_TZ || 'Africa/Douala';
@@ -226,7 +229,14 @@ const passOut = async (id, { reveal = false } = {}) => {
   if (!row) throw httpError(404, 'Pass not found');
   const pass = { ...toPass(row), host: row.host, hostId: row.user_id, hostPhone: row.host_phone };
   // Discreet: the list shows who the host is, not who visits; the gate sees the name when it checks the pass.
-  if (pass.discreet && !reveal) Object.assign(pass, { visitorName: 'Private visitor', visitorPhone: null, vehicle: pass.vehicle ? 'Vehicle on file' : null, note: null });
+  if (pass.discreet && !reveal) Object.assign(pass, { visitorName: 'Private visitor', visitorPhone: null, visitorEmail: null, vehicle: pass.vehicle ? 'Vehicle on file' : null, note: null });
+  // Staying the night on this pass: registered on the stay, so the pass also opens the gate on those nights.
+  const night = (await db.query(
+    `SELECT id, status, to_char(from_date, 'YYYY-MM-DD') AS from_date, to_char(to_date, 'YYYY-MM-DD') AS to_date FROM stay_guests
+      WHERE pass_id = $1 AND status IN ('pending', 'approved') ORDER BY id DESC LIMIT 1`,
+    [id],
+  )).rows[0];
+  pass.overnight = night ? { id: night.id, status: night.status, from: night.from_date, to: night.to_date } : null;
   return pass;
 };
 
@@ -236,6 +246,7 @@ router.get(
     const day = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : (await db.query(`SELECT (NOW() AT TIME ZONE $1)::date::text AS d`, [TZ])).rows[0].d;
     const { rows } = await db.query(
       `SELECT p.id FROM visitor_passes p WHERE p.visit_date = $1 OR (p.status = 'pending' AND p.visit_date >= $1) OR p.status = 'arrived'
+          OR EXISTS (SELECT 1 FROM stay_guests g WHERE g.pass_id = p.id AND g.status = 'approved' AND $1::date BETWEEN g.from_date AND g.to_date)
         ORDER BY p.status = 'pending' DESC, p.status = 'arrived' DESC, p.arrive_from NULLS LAST, p.id`,
       [day],
     );
@@ -255,6 +266,11 @@ router.post(
     if (!rows[0]) throw httpError(404, 'No pass matches this code');
     const pass = await passOut(rows[0].id, { reveal: true });
     const today = (await db.query(`SELECT (NOW() AT TIME ZONE $1)::date::text AS d`, [TZ])).rows[0].d;
+    // A visitor registered for the night may come and go on their pass until the morning they leave.
+    const night = pass.overnight?.status === 'approved' && pass.overnight.from <= today && today <= pass.overnight.to;
+    if (night) {
+      return res.json({ ...pass, valid: true, reason: null, note: `${pass.note ? `${pass.note} · ` : ''}Registered overnight guest until ${pass.overnight.to}` });
+    }
     res.json({ ...pass, valid: pass.status === 'approved' && pass.date === today, reason: pass.status !== 'approved' ? `This pass is ${pass.status}` : pass.date !== today ? `This pass is for ${pass.date}` : null });
   }),
 );
@@ -276,6 +292,8 @@ for (const [action, [from, to, stamp]] of Object.entries(PASS_MOVES)) {
     );
     if (!rows[0]) throw httpError(409, `This pass cannot be marked ${to}`);
     await resolve(req.app, `visitor-approve:${req.params.id}`);
+    // The visitor gets the pass by email the moment it is active (when the resident gave their address).
+    if (action === 'approve') await emailPassQuietly(rows[0].id);
     const p = rows[0];
     const host = { approve: 'approved — your visitor can come in with the pass', decline: 'declined by the residence team', arrive: 'has arrived at the gate', leave: 'has left' }[action];
     notifyGuest(req.app, p.user_id, { title: `${p.visitor_name} ${action === 'arrive' ? 'is here' : action === 'leave' ? 'has left' : `· pass ${to}`}`, body: `${p.visitor_name} ${host}.`, event: 'visitor:updated', data: { screen: 'Visitors' } });
@@ -295,7 +313,12 @@ router.post(
     if (passId) {
       const p = (await db.query(`SELECT status FROM visitor_passes WHERE id = $1`, [passId])).rows[0];
       if (!p) throw httpError(404, 'Pass not found');
-      if (!['approved', 'arrived'].includes(p.status)) throw httpError(409, `This pass is ${p.status}`);
+      // A registered overnight guest comes back on the same pass (out for dinner, back at midnight).
+      const overnight = (await db.query(
+        `SELECT 1 FROM stay_guests WHERE pass_id = $1 AND status = 'approved' AND (NOW() AT TIME ZONE $2)::date BETWEEN from_date AND to_date`,
+        [passId, TZ],
+      )).rows.length > 0;
+      if (!['approved', 'arrived'].includes(p.status) && !(overnight && p.status === 'left')) throw httpError(409, `This pass is ${p.status}`);
     }
     let controllerOk = null;
     let message = 'Recorded. No gate controller is connected: the guard opens the gate.';
@@ -319,7 +342,7 @@ router.post(
       [String(req.body?.gate || 'main').slice(0, 40), passId, req.body?.bookingId || null, req.user.id, req.body?.note ? String(req.body.note).slice(0, 255) : null, controllerOk],
     );
     if (passId) {
-      const arrived = await db.query(`UPDATE visitor_passes SET status = 'arrived', arrived_at = NOW() WHERE id = $1 AND status = 'approved' RETURNING user_id, visitor_name`, [passId]);
+      const arrived = await db.query(`UPDATE visitor_passes SET status = 'arrived', arrived_at = NOW() WHERE id = $1 AND status IN ('approved', 'left') RETURNING user_id, visitor_name`, [passId]);
       if (arrived.rows[0]) notifyGuest(req.app, arrived.rows[0].user_id, { title: `${arrived.rows[0].visitor_name} is here`, body: `${arrived.rows[0].visitor_name} has arrived at the gate.`, event: 'visitor:updated', data: { screen: 'Visitors' } });
       emit(req, 'visitor:updated', { id: passId });
     }
@@ -352,9 +375,11 @@ router.put(
 const STAY_GUEST_SELECT = `
   SELECT g.*, b.booking_number, b.number_of_guests, b.apartment_id, b.check_in_date, b.check_out_date, a.unit_number, u.full_name AS host
     FROM stay_guests g JOIN bookings b ON b.id = g.booking_id JOIN apartments a ON a.id = b.apartment_id LEFT JOIN users u ON u.id = g.user_id`;
-const stayGuestOut = async (id) => {
+const stayGuestOut = async (id, { reveal = false } = {}) => {
   const g = (await db.query(`${STAY_GUEST_SELECT} WHERE g.id = $1`, [id])).rows[0];
   if (!g) throw httpError(404, 'Not found');
+  // Discreet: staff see the host and the nights, not who; the gate reveals the name to check it against the ID.
+  const hidden = g.discreet && !reveal ? { fullName: 'Private guest', phone: null, relation: null, note: null } : {};
   return {
     ...toStayGuest(g),
     host: g.host,
@@ -363,6 +388,7 @@ const stayGuestOut = async (id) => {
     residence: g.unit_number,
     booked: g.number_of_guests,
     capacity: await occupancy.capacityOf(g.apartment_id),
+    ...hidden,
   };
 };
 
@@ -391,22 +417,29 @@ router.post(
     const peak = Number(g.number_of_guests) + (await occupancy.peakOccupancy(g.booking_id, g.from_date, g.to_date, { excludeId: g.id }));
     if (peak + 1 > cap) throw httpError(409, `Residence ${g.unit_number} sleeps up to ${cap}: with ${peak} registered on some of those nights this guest cannot be added`);
     await db.query(`UPDATE stay_guests SET status = 'approved', decided_by = $2, decided_at = NOW() WHERE id = $1`, [g.id, req.user.id]);
-    if (Number(g.fee) > 0) {
-      await db.query(
-        `INSERT INTO folio_charges (guest_id, booking_id, description, category, amount, source_type, source_id, created_by)
-         VALUES ($1, $2, $3, 'Accommodation', $4, 'stay_guest', $5, $6)`,
-        [g.user_id, g.booking_id, `Added guest · ${g.full_name}`.slice(0, 255), g.fee, g.id, req.user.id],
-      );
-    }
+    await occupancy.postGuestFee(g, req.user.id);
     await resolve(req.app, `stay-guest:${g.id}`);
     notifyGuest(req.app, g.user_id, {
       title: `${g.full_name} is added to your stay`,
-      body: `${g.full_name} is registered in Residence ${g.unit_number} until ${toStayGuest(g).to}.${Number(g.fee) > 0 ? ` ${Number(g.fee).toLocaleString('en-US')} XAF is added to your bill.` : ''} They come in with you or show ID at the gate.`,
+      body: `${g.full_name} is registered in Residence ${g.unit_number} until ${toStayGuest(g).to}.${Number(g.fee) > 0 ? ` ${Number(g.fee).toLocaleString('en-US')} XAF is added to your bill.` : ''} ${g.pass_id ? 'Their visitor pass stays valid at the gate for these nights.' : 'They come in with you or show ID at the gate.'}`,
       event: 'visitor:updated',
       data: { screen: 'Visitors' },
     });
     emit(req, 'visitor:updated', { stayGuest: g.id });
     res.json(await stayGuestOut(g.id));
+  }),
+);
+
+/** The gate checks a discreet overnight guest's ID: the name is shown then, and the look-up is recorded. */
+router.post(
+  '/visitors/guests/:id/reveal',
+  ah(async (req, res) => {
+    const g = await stayGuestOut(req.params.id, { reveal: true });
+    await db.query(
+      `INSERT INTO gate_events (gate, action, booking_id, by_user, note) VALUES ('main', 'check', $1, $2, $3)`,
+      [g.bookingId, req.user.id, `Checked overnight guest · Residence ${g.residence}`],
+    );
+    res.json(g);
   }),
 );
 
