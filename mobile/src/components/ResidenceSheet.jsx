@@ -27,10 +27,26 @@ export default function ResidenceSheet({ option, onClose, onChoose, priceLine })
     setCat(null);
     setPage(0);
     setTour(null);
-    apiClient
-      .get(`/apartments/categories/${option.categoryId}`)
-      .then((r) => setCat(r.category || {}))
-      .catch(() => setCat({}));
+    // Photos and 360° views are often uploaded on a unit rather than on the category, and the category
+    // endpoint only returns category media. Like the website, also read a unit (GET /apartments/:id
+    // returns the unit's media plus its category's) and merge the two lists.
+    const unitId = option.unit?.id || option.units?.[0]?.id;
+    let live = true;
+    Promise.all([
+      apiClient.get(`/apartments/categories/${option.categoryId}`).then((r) => r.category || {}).catch(() => ({})),
+      unitId ? apiClient.get(`/apartments/${unitId}`).then((r) => r.apartment || {}).catch(() => ({})) : Promise.resolve({}),
+    ]).then(([category, unit]) => {
+      if (!live) return;
+      const seen = new Set();
+      const media = [...list(category.media), ...list(unit.media)].filter((m) => {
+        const key = m.id ?? m.file_url;
+        if (!m.file_url || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setCat({ ...category, media });
+    });
+    return () => { live = false; };
   }, [option]);
 
   if (!option) return null;
