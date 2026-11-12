@@ -218,7 +218,7 @@ export const JOURNEYS = [
     id: 'stay',
     title: 'The stay & access',
     icon: 'key',
-    summary: 'Arriving, getting in, living in the residence and its services, receiving visitors.',
+    summary: 'Arriving, getting in, living in the residence and its services, leaving. Visitors have their own journey.',
     chapters: [
       {
         title: 'Arriving and getting in',
@@ -238,27 +238,69 @@ export const JOURNEYS = [
         ],
       },
       {
-        title: 'Visitors & occupancy',
-        intro: 'Strict enough to protect the residences, light enough to live with: day visits under clear house rules; anyone who sleeps here is a registered guest.',
-        steps: [
-          { who: 'HQ', where: 'HQ → Residences → residence', status: 'live', text: 'Sets the maximum occupancy of each residence (everyone who sleeps there, children included); empty uses the category’s figure.', check: 'A booking above it is refused on the website, in the app and at the front desk.' },
-          { who: 'Manager', where: 'FAY OS → Visitors → Policy', status: 'live', text: 'Sets the house rules: visiting hours (08:00–22:00), people per pass (4), visitors per residence per day (6), passes per day (3) and per week (12), when a frequent visitor is flagged (4 days in a week), overstay alert (30 min), fee per added guest per night, discreet visits on/off, auto-approval of passes and of overnight guests within capacity.' },
-          { who: 'Guest', where: 'App → Residence → Visitors', status: 'live', text: 'Sees the house rules and invites a visitor for a day of the stay, until the end of visiting hours at the latest; the app explains any limit reached. Can ask for a discreet visit, and give the visitor’s email so the pass (QR, code, directions) is emailed to them when active.', check: 'With an email, the visitor receives the pass after approval; “Email the pass” resends it.' },
-          { who: 'Front desk', where: 'FAY OS → Visitors', status: 'live', text: 'Approves passes. A discreet pass shows “Private visitor”; the name appears only when the gate checks the pass. A visitor seen most days is flagged as possibly living there and always waits for approval.' },
-          { who: 'Visitor', where: 'Pass link /visit/…', status: 'setup', text: 'Shows the QR or 6-digit code and their ID at the gate; the host is told when they arrive.', check: 'The gate opens by itself only with a gate controller connected.' },
-          { who: 'System', where: 'Monitor (every minute)', status: 'live', text: 'A visitor still inside after their pass ended raises an alert to the team, unless they are registered for the night. 30 minutes before a pass ends, the host is asked by push whether the visitor is staying.' },
-          { who: 'Guest', where: 'App → Visitors → Staying the night', status: 'live', text: 'Adds someone who will sleep there (a visitor staying over, family arriving later) for some or all nights, within the residence’s capacity.', check: 'A request that would exceed capacity on any night is refused with the reason.' },
-          { who: 'Front desk', where: 'FAY OS → Visitors → Added to a stay', status: 'live', text: 'Approves or declines with a reason (or, with the policy on, guests within capacity are registered at once); approval rechecks capacity and adds the per-night fee to the bill. Cancelling, shortening or ending a stay voids its future passes and added guests.' },
-          { who: 'Guest', where: 'App → Visitors → pass → Staying the night', status: 'live', text: 'Registers a visitor who is staying the night in one tap, discreetly if wanted. Their pass keeps opening the gate for the registered nights.', check: 'After approval, checking the pass the next morning still shows Valid.' },
-          { who: 'Front desk', where: 'FAY OS → Visitors → Added to a stay', status: 'live', text: 'A discreet overnight guest shows as “Private guest”; “Check ID” shows the name to compare with their ID and is recorded in the gate log.' },
-        ],
-      },
-      {
         title: 'Leaving',
         steps: [
           { who: 'System', where: 'Server', status: 'live', text: 'Departure-morning message; late check-out alert to the front desk.' },
           { who: 'Front desk', where: 'FAY OS → Front desk', status: 'live', text: 'Checks the guest out; the residence goes to housekeeping.' },
           { who: 'Guest', where: 'App → Stay', status: 'live', text: 'Rates the stay and shares feedback.' },
+        ],
+      },
+    ],
+  },
+
+  // ===================================================================================================== Visitors
+  {
+    id: 'visitors',
+    title: 'Visitors & overnight guests',
+    icon: 'badge',
+    summary:
+      'A resident receives people: day visitors on a pass (sent by link or email, checked at the gate) and anyone who sleeps over registered on the stay, as in hotels — discreetly if they wish.',
+    chapters: [
+      {
+        title: 'Setting the rules',
+        intro: 'Strict enough to protect the residences, light enough to live with.',
+        steps: [
+          { who: 'HQ', where: 'HQ → Residences → residence', status: 'live', text: 'Sets the maximum occupancy of each residence (everyone who sleeps there, children included); empty uses the category’s figure.', check: 'A booking or an added guest above it is refused with the reason.' },
+          { who: 'Manager', where: 'FAY OS → Visitors → Policy', status: 'live', text: 'Sets the house rules: visiting hours (08:00–22:00), people per pass (4), visitors per residence per day (6), passes per day (3) and per week (12), frequent-visitor flag (4 days in a week), overstay alert (30 min), fee per added guest per night, discreet on/off, directions, map link and gate phone.', check: 'The app’s “House rules for visitors” card shows the hours and limits you saved.' },
+          { who: 'Manager', where: 'FAY OS → Visitors → Policy', status: 'live', text: 'Chooses two approval rules: passes active as soon as they are created (or approved by the team first), and overnight guests within capacity registered at once (or approved by the team). Both off by default.', check: 'With the overnight rule on, adding a guest from the app shows “Guest registered” immediately.' },
+        ],
+      },
+      {
+        title: 'Inviting a day visitor',
+        steps: [
+          { who: 'Guest', where: 'App → Residence → Visitors → Invite a visitor', status: 'live', text: 'Enters the visitor’s name (as on their ID), phone and email (optional), day, hours within visiting hours, people, car plate, a note for security, and Discreet if wanted.', check: 'A time after visiting hours or a limit reached is refused with a clear reason.' },
+          { who: 'System', where: 'Server', status: 'live', text: 'Checks the stay dates and the limits; a visitor seen on most days of the week is flagged as possibly living there and always waits for the team.', check: 'Invite the same person on 4 different days: the 4th pass is flagged.' },
+          { who: 'Front desk', where: 'FAY OS → Visitors', status: 'live', text: 'Gets a “Visitor to approve” alert and approves or declines. A discreet pass shows “Private visitor” (no name, phone, email or note).', check: 'The resident is notified of the decision in the app.' },
+          { who: 'System', where: 'Email', status: 'setup', text: 'Once the pass is active, a visitor with an email receives it: QR code, 6-digit gate code, day and hours, directions, map and gate phone.', check: 'Needs SMTP in the server .env. Without it the app says to send the pass from the phone.' },
+          { who: 'Guest', where: 'App → Visitors → pass', status: 'live', text: '“Send the pass” shares the link (WhatsApp, SMS…); “Email the pass” / “Email again” sends it by email, to a new address if needed.', check: 'The card says “Pass emailed to …”.' },
+        ],
+      },
+      {
+        title: 'At the gate',
+        steps: [
+          { who: 'Visitor', where: 'Pass link /visit/… or the email', status: 'live', text: 'Arrives alone and shows the QR code or gives the 6-digit code, with their ID.' },
+          { who: 'Front desk', where: 'FAY OS → Visitors → Check pass', status: 'setup', text: 'Scans the QR or types the code: Valid shows the real name (even for a discreet visit), host, residence and hours. “Open the gate · check in” records it and marks the visitor arrived.', check: 'The gate opens by itself only with a gate controller connected; otherwise the guard opens it.' },
+          { who: 'System', where: 'App push', status: 'live', text: 'The host is told “… is here”.', check: 'The host’s phone shows the arrival.' },
+          { who: 'Front desk', where: 'FAY OS → Visitors', status: 'live', text: 'Marks the visitor Left when they go.' },
+        ],
+      },
+      {
+        title: 'Staying the night',
+        intro: 'Overnight guests are welcome once registered — the rule is “register them”, not “no”.',
+        steps: [
+          { who: 'System', where: 'App push', status: 'live', text: '30 minutes before a pass ends, the host is asked “Is … staying tonight?” (a discreet visit says “your visitor”, so nothing shows on the lock screen).', check: 'Sent once per pass, only while no overnight registration exists.' },
+          { who: 'Guest', where: 'App → Visitors → pass → Staying the night', status: 'live', text: 'Registers the visitor on the stay in one tap: chooses the morning they leave and Discreet. Capacity is checked on every night.', check: 'Above capacity it is refused with the reason and a suggestion to ask the concierge.' },
+          { who: 'Guest', where: 'App → Visitors → Add a guest to my stay', status: 'live', text: 'Registers someone arriving on their own for some or all nights (family joining later), discreetly if wanted.' },
+          { who: 'Front desk', where: 'FAY OS → Visitors → Added to a stay', status: 'live', text: 'Approves or declines with a reason, unless the policy registers guests within capacity at once. Approval rechecks capacity and puts the per-night fee on the bill.', check: 'The fee appears on the guest’s folio.' },
+          { who: 'Front desk', where: 'FAY OS → Visitors', status: 'live', text: 'The pass shows “Staying the night until …”; it keeps opening the gate for the registered nights, including after going out and coming back.', check: 'Mark Left, check the pass again: still Valid, “Let in” works.' },
+          { who: 'System', where: 'Monitor (every minute)', status: 'live', text: 'A visitor still inside after their pass ended raises “Visitor still in”, unless they are registered (or asked to be) for the night.', check: 'Registered visitor: no alert. Unregistered: alert after the grace period.' },
+        ],
+      },
+      {
+        title: 'Privacy and the end of the stay',
+        steps: [
+          { who: 'Front desk', where: 'FAY OS → Visitors → Added to a stay', status: 'live', text: 'A discreet overnight guest shows as “Private guest” in lists and alerts. “Check ID” shows the name to compare with their ID and is recorded in the gate log.', check: 'The gate log shows “Checked overnight guest · Residence …”.' },
+          { who: 'System', where: 'Server', status: 'live', text: 'Cancelling, shortening or ending a stay voids its future passes and added guests.', check: 'Cancel a stay with a pass for tomorrow: the pass shows Cancelled.' },
         ],
       },
     ],

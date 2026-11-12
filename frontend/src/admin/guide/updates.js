@@ -11,7 +11,7 @@ export const UPDATES = [
     title: 'Visitors: email the pass, discreet overnight guests, “Staying the night”',
     surfaces: ['app', 'fayos', 'server'],
     summary:
-      'Overnight guests are welcome once registered, as in hotels. Visitors can receive their pass by email and come on their own; a visitor who stays is registered in one tap, discreetly if wanted, and keeps using their pass at the gate.',
+      'Full flow: Journeys → Visitors & overnight guests. Overnight guests are welcome once registered, as in hotels. Visitors can receive their pass by email and come on their own; a visitor who stays is registered in one tap, discreetly if wanted, and keeps using their pass at the gate.',
     changes: [
       'App → Visitors: optional visitor email; the QR, gate code and directions are emailed when the pass is active, or with “Email the pass”',
       'App → Visitors: “Staying the night” on a pass registers the visitor on the stay; their pass stays valid at the gate for those nights',
