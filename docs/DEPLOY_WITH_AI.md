@@ -5,6 +5,83 @@ of this repository on `main`. The assistant needs the SSH key in `~/.ssh/id_rsa_
 from [DEPLOY.md](DEPLOY.md) and stops to ask you before anything that cannot be undone.
 
 
+## Update: task timers, conduct, staff desk, stay pass (November 2026)
+
+Use this prompt to bring a running Faysha v2 up to the latest `main`. It adds three database migrations
+(021 task timers, 022 conduct and the new terms version, 023 staff desk) and one backend dependency (pdfkit).
+
+```text
+Update the live Faysha platform to the latest main of this repository. Faysha v2 is already running in production
+with its database (DB_NAME in backend/.env). This is an UPDATE: keep the database and its data, apply the new
+migrations, deploy the new backend and website. Read docs/DEPLOY.md in full first, and the top 3 entries of
+frontend/src/admin/guide/updates.js (what changed and how to test it).
+
+Server: ssh -i ~/.ssh/id_rsa_divisionalofficer -p 2222 divisionalofficeruser@76.13.41.99
+App folder: /home/divisionalofficeruser/fayshaa (confirm with `pm2 describe`)
+
+Rules:
+- Work step by step and show me the output of every command you run on the server.
+- Never drop, recreate or reset the database. Never run db/setup.js with --reset or --demo, never `npm run db:reset`.
+- Never use rsync --delete. Never overwrite backend/.env, backend/uploads or config/firebase-service-account.json.
+- Never print secrets from backend/.env; mask values when you show it.
+- Stop and ask me before: applying migrations, restarting PM2, changing nginx, and whenever something does not match
+  what the docs expect (folder, PM2 name, Node older than 18, PostgreSQL older than 13, a failing command,
+  check:sql reporting any failure, a migration failing).
+- If anything fails after the restart, follow "Roll back" in docs/DEPLOY.md (restore the backend and build from the
+  backup, and the database from the dump taken in step 3) and tell me.
+
+Steps:
+1. Locally: git checkout main && git pull. Run `cd backend && npm ci && npm test` and
+   `cd frontend && npm ci && npm run test:ci`. Stop if anything fails.
+2. On the server, look before changing anything and report: the PM2 process name and cwd, Node version,
+   psql --version, DB_NAME from .env (name only), the folder nginx serves the website from, the current
+   client_max_body_size in the fayshaa nginx server block, and the migrations already applied:
+   psql (host, port, user and database from .env) -c "SELECT name FROM schema_migrations ORDER BY name".
+   Tell me which of 012 … 023 are missing (021_task_timers, 022_conduct and 023_staff_desk are new in this update).
+3. Back up (docs/DEPLOY.md "2. Back up"): a full pg_dump of the database, backend.tgz (including backend/uploads)
+   and the current website build, in one dated folder. Show me the files and their sizes. Do not continue if the
+   database dump is empty or tiny.
+4. Backend: rsync backend/ with the exclusions in docs/DEPLOY.md "3. Backend" (no --delete; keep .env, uploads,
+   node_modules and the Firebase file), then on the server `npm ci --omit=dev` (this installs the new dependency
+   pdfkit — confirm `node -e "require('pdfkit')"` works). Compare backend/.env with backend/.env.example and list
+   the missing variable NAMES only. Make sure these are set: PROPERTY_TZ=Africa/Douala and
+   APP_URL=https://fayshaa.com (the WhatsApp stay-pass links are built from it). Make sure backend/uploads/chat
+   exists and is writable by the PM2 user (staff photos and chat photos are stored there).
+   Show me a masked diff of .env.
+5. Ask me, then apply the migrations: cd backend && NODE_ENV=production node db/setup.js
+   It must print "Applying migration …" for each missing one (021_task_timers.sql, 022_conduct.sql,
+   023_staff_desk.sql, plus any older missing ones) and "Base data is in place", with no "Setup failed".
+   Then `npm run check:sql`: it must say 0 failed. If a migration fails, stop and show me the error (each
+   migration runs in its own transaction, so nothing of a failed one is applied).
+   Then show: SELECT version FROM legal_documents WHERE slug = 'terms'; — it went up by one (022 published the
+   new terms sections 6.3 and 6.4).
+6. Ask me, then nginx: in the fayshaa server block make sure `client_max_body_size 25m;` is set (photos from the
+   staff phones are up to 10 MB). `sudo nginx -t`, and only if the test passes `sudo systemctl reload nginx`.
+7. Ask me, then restart: pm2 restart <name> --update-env && pm2 save. Show the last 60 log lines. There must be
+   no errors other than Firebase or email not being configured. Wait about two minutes and show the log again:
+   there must be no "Monitor rule … failed" lines (new rules: task-late, task-late-me, work-order-late,
+   work-order-late-me, visitor-closing); if there are, show them to me.
+8. Website: build locally with REACT_APP_API_URL=/api (ask me for the Stripe publishable key, or keep the one used
+   last time if I give it, or leave it empty) and rsync frontend/build/ to the folder nginx serves (step 2).
+9. Check, and show every result:
+   - https://fayshaa.com/ , /residences , /terms , /login , /work , /manager load (HTTP 200).
+   - https://fayshaa.com/api/content/legal/terms returns JSON whose body contains "Children, visitors and damage".
+   - Without a token these return 401 (not 500): /api/work , /api/manager/staff-desk/inbox ,
+     /api/manager/service-requests/performance , /api/manager/reservations/1/pass , /api/bookings/1/pass .
+   - https://fayshaa.com/api/stay-pass/1/wrongtoken returns 404 with "no longer valid".
+   - On the server: psql -c "SELECT COUNT(*) FROM staff_messages; SELECT COUNT(*) FROM guest_incidents;" works.
+10. Report: what was done, the backup folder name, the migrations applied, the new terms version, and anything
+    that needs my attention (email or Stripe not configured, missing .env values, nginx not changed).
+
+After you finish, remind me to:
+- open FAY OS → Settings → Team & Roles → Task times and set the standard minutes per department;
+- check that each team member has an HR record linked to their account (HQ → Staff), or time off and clock-in
+  will not be available to them in My work;
+- read the new terms (FAY OS → Content → Terms) and adjust the wording if needed;
+- test with the checklists in HQ → Platform guide → Updates;
+- ship a new build of the guest app (Visitors, Book a stay and Requests screens changed).
+```
+
 ## Updating a running site (v2.1 and later)
 
 Use this prompt when Faysha v2 is already live and you are deploying a newer `main` (for example v2.1). The database is
