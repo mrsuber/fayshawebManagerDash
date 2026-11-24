@@ -4,6 +4,7 @@ import { Icon } from '../../manager/components/ui';
 import { useToast } from '../../manager/context/ToastContext';
 import { hqApi } from '../api';
 import { Loading } from '../components/parts';
+import WhatsAppSettings from './WhatsAppSettings';
 
 const SOURCE = {
   settings: ['Keys saved here', '#3fd283'],
@@ -75,6 +76,7 @@ export default function Settings() {
           ['webhookSecret', 'Webhook signing secret', 'whsec_…'],
         ]}
       />
+      <WhatsAppSettings />
     </div>
   );
 }

@@ -221,7 +221,9 @@ async function finalizeStay(bookingId, { app = null, notify = true } = {}) {
         level: 'urgent', category: 'booking', dedupeKey: `confirmation-email:${b.id}`,
       });
     }
-    if (notify && out.keyIssued && b.user_id) {
+    // HQ → Settings → WhatsApp → "Send the stay pass when a booking is confirmed".
+    if (out.keyIssued) out.whatsapp = await require('./whatsapp').autoStayPass(b.id);
+        if (notify && out.keyIssued && b.user_id) {
       notifyGuest(app, b.user_id, {
         title: 'Your stay is confirmed',
         body: `${b.category_display_name} · ${longDay(b.check_in_date)}. Your digital key is ready in the app.`,

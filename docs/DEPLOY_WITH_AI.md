@@ -69,6 +69,8 @@ Steps:
    - Without a token these return 401 (not 500): /api/work , /api/manager/staff-desk/inbox ,
      /api/manager/service-requests/performance , /api/manager/reservations/1/pass , /api/bookings/1/pass .
    - https://fayshaa.com/api/stay-pass/1/wrongtoken returns 404 with "no longer valid".
+   - https://fayshaa.com/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=1 returns 403
+     (the WhatsApp webhook is reachable through nginx), and /api/admin/settings/whatsapp returns 401.
    - On the server: psql -c "SELECT COUNT(*) FROM staff_messages; SELECT COUNT(*) FROM guest_incidents;" works.
 10. Report: what was done, the backup folder name, the migrations applied, the new terms version, and anything
     that needs my attention (email or Stripe not configured, missing .env values, nginx not changed).
@@ -79,7 +81,9 @@ After you finish, remind me to:
   will not be available to them in My work;
 - read the new terms (FAY OS → Content → Terms) and adjust the wording if needed;
 - test with the checklists in HQ → Platform guide → Updates;
-- ship a new build of the guest app (Visitors, Book a stay and Requests screens changed).
+- ship a new build of the guest app (Visitors, Book a stay and Requests screens changed);
+- connect WhatsApp: HQ → Settings → WhatsApp → "How to connect" (phone number ID, permanent token, app secret, then
+  the callback URL and verify token in Meta → WhatsApp → Configuration, subscribed to "messages").
 ```
 
 ## Updating a running site (v2.1 and later)

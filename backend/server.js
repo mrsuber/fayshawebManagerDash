@@ -62,6 +62,32 @@ app.use(morgan('combined')); // HTTP request logging
 app.use('/api/payments/webhook/stripe', express.raw({ type: 'application/json' }));
 // PayWithCAMSOL signs the raw body too.
 app.use('/api/payments/webhook/camsol', express.raw({ type: '*/*' }));
+// WhatsApp (Meta Cloud API) signs the raw body too (X-Hub-Signature-256 with the app secret).
+app.use('/api/whatsapp/webhook', express.raw({ type: '*/*', limit: '5mb' }));
+// Meta checks the webhook address once with the verify token shown in HQ → Settings → WhatsApp.
+app.get('/api/whatsapp/webhook', async (req, res) => {
+  try {
+    const { verifyToken } = await require('./services/whatsapp').status();
+    if (req.query['hub.mode'] === 'subscribe' && verifyToken && req.query['hub.verify_token'] === verifyToken) return res.status(200).send(String(req.query['hub.challenge'] || ''));
+    res.sendStatus(403);
+  } catch (e) {
+    res.sendStatus(500);
+  }
+});
+app.post('/api/whatsapp/webhook', async (req, res) => {
+  const wa = require('./services/whatsapp');
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+  const cfg = await wa.load().catch(() => ({}));
+  if (!wa.verifySignature(raw, req.get('x-hub-signature-256'), cfg.appSecret)) return res.sendStatus(401);
+  res.sendStatus(200); // answer Meta at once; handle the messages after
+  let body = null;
+  try {
+    body = JSON.parse(raw.toString('utf8') || '{}');
+  } catch {
+    return;
+  }
+  wa.receive(app, body).catch((e) => console.error('WhatsApp webhook failed:', e.message));
+});
 app.use(express.json({ limit: '50mb' })); // Parse JSON bodies with 50MB limit for image uploads
 app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Parse URL-encoded bodies with 50MB limit
 

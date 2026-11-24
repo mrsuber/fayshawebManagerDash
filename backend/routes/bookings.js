@@ -1005,6 +1005,13 @@ router.get('/:id/pass', requireStaff, async (req, res) => {
     res.status(e.status || 500).json({ success: false, message: e.status ? e.message : 'Could not build the stay pass' });
   }
 });
+router.post('/:id/pass/whatsapp', requireStaff, async (req, res) => {
+  try {
+    res.json(await require('../services/whatsapp').sendStayPass(req.params.id));
+  } catch (e) {
+    res.status(e.status || 500).json({ success: false, message: e.status ? e.message : 'Could not send on WhatsApp' });
+  }
+});
 router.get('/:id/pass.pdf', requireStaff, async (req, res) => {
   try {
     const stayPass = require('../services/stayPass');

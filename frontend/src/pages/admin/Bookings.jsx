@@ -545,7 +545,8 @@ const Bookings = () => {
                     load={(id) => axios.get(`${API_URL}/bookings/${id}/pass`).then((r) => r.data)}
                     pdf={(id) => axios.get(`${API_URL}/bookings/${id}/pass.pdf`, { responseType: 'blob' }).then((r) => r.data)}
                     resend={(id) => axios.post(`${API_URL}/bookings/${id}/resend-confirmation`).then(() => ({ to: selectedBooking.guest_email }))}
-                    notify={(m, kind) => (kind === 'error' ? alert(m) : null)}
+                    sendWhatsapp={(id) => axios.post(`${API_URL}/bookings/${id}/pass/whatsapp`).then((r) => r.data)}
+                    notify={(m) => alert(m)}
                   />
 
                   {/* Mobile App Account Credentials */}

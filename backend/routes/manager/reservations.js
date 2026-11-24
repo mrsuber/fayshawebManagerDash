@@ -268,6 +268,8 @@ router.get(
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Faysha-${number}.pdf"`, 'Cache-Control': 'no-store' }).send(await stayPass.pdf(req.params.id));
   }),
 );
+/** POST /:id/pass/whatsapp — sends the stay pass PDF from the business WhatsApp number (HQ → Settings → WhatsApp). */
+router.post('/:id/pass/whatsapp', ah(async (req, res) => res.json(await require('../../services/whatsapp').sendStayPass(req.params.id))));
 router.post(
   '/:id/resend-confirmation',
   ah(async (req, res) => {

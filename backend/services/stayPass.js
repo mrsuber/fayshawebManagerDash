@@ -90,6 +90,8 @@ async function data(bookingId) {
     pdfLink: b.gate_qr_code && LIVE.includes(b.status) ? link(b) : null,
     whatsappText: `Hello ${b.guest_name}, here is your Faysha stay pass for ${b.booking_number}: ${b.category} · ${b.unit_number}, ${longDay(b.check_in_date)} to ${longDay(b.check_out_date)}. It has your gate QR code, door PIN and deposit box. Please keep it private.`,
     contact: { phone: s.phone, email: s.email },
+    // HQ → Settings → WhatsApp connected: the PDF can be sent from the business number.
+    whatsappConnected: await require('./whatsapp').isReady().catch(() => false),
   };
 }
 

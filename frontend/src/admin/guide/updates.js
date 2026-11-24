@@ -6,6 +6,32 @@
  */
 export const UPDATES = [
   {
+    id: '2026-11-whatsapp',
+    date: '2026-11-24',
+    title: 'WhatsApp Business connected: Communications, replies and the stay pass',
+    surfaces: ['hq', 'fayos', 'server'],
+    summary:
+      'Faysha’s WhatsApp Business number (Meta WhatsApp Cloud API) is set up in HQ → Settings → WhatsApp. Messages sent in FAY OS → Communications on the WhatsApp channel really reach the guest, their replies come back into the same conversation (photos and documents included), delivery shows ✓ sent, ✓✓ delivered/read or “not delivered”, and the stay pass PDF is sent from the business number — at any time with an approved template.',
+    changes: [
+      'HQ → Settings → WhatsApp: phone number ID, permanent access token and app secret (stored encrypted), default country code, Test connection, “Send test” (Meta’s hello_world), Pause / Disconnect',
+      'Webhook: callback URL and verify token to paste in Meta (field “messages”); replies are accepted only when signed by Meta with the app secret',
+      'FAY OS → Communications: the WhatsApp channel delivers text, photos and documents; a refusal (not connected, no number, Meta’s 24-hour rule) is shown and nothing is recorded as sent; delivery status on each message',
+      'A message from a number that matches no guest raises an alert (add the number in Guest 360, then reply)',
+      'FAY OS → Reservations and HQ → Bookings: “Send on WhatsApp” sends the PDF from the business number (with “or send it from my own WhatsApp”)',
+      'Stay pass template (Utility, Document header, body {{1}} name {{2}} booking {{3}} dates) for sending outside the 24-hour window; optional automatic sending at each confirmation',
+    ],
+    setup: ['No migration. Deploy the backend and the website', 'Then in Meta and HQ → Settings → WhatsApp follow “How to connect”'],
+    tests: [
+      { who: 'Super administrator', where: 'HQ → Settings → WhatsApp', do: 'Paste the phone number ID, the permanent token and the app secret; Save.', expect: '“Connected: <business name> · <number> · quality green”.' },
+      { who: 'Super administrator', where: 'Meta → WhatsApp → Configuration', do: 'Paste the callback URL and verify token, Verify and save, subscribe to “messages”.', expect: 'Meta shows the webhook as verified.' },
+      { who: 'Super administrator', where: 'HQ → Settings → WhatsApp', do: 'Send test to your own WhatsApp.', expect: '“Hello World” arrives from the business number.' },
+      { who: 'Guest', where: 'WhatsApp', do: 'From the number saved on the guest, write to the business number.', expect: 'FAY OS → Communications shows it in the guest’s conversation (channel WhatsApp); the team gets an alert.' },
+      { who: 'Manager', where: 'FAY OS → Communications', do: 'Reply on the WhatsApp channel, then send a photo.', expect: 'Both arrive in WhatsApp; the message shows ✓ then ✓✓ (blue when read).' },
+      { who: 'Manager', where: 'FAY OS → Reservations → booking', do: 'Send on WhatsApp (guest wrote in the last 24 hours).', expect: 'The PDF arrives as a document from the business number.' },
+      { who: 'Manager', where: 'Same, for a guest who has not written', do: 'Send on WhatsApp.', expect: 'With the approved template: the template with the PDF arrives. Without: a clear message to set the template or use the email.' },
+    ],
+  },
+  {
     id: '2026-11-stay-pass',
     date: '2026-11-24',
     title: 'Stay pass: resend the confirmation, download the PDF, send it on WhatsApp',

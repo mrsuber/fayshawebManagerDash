@@ -30,6 +30,9 @@ function messageOf(row) {
     internal: Boolean(row.is_internal),
     attachment: attachment && attachment.url ? { url: attachment.url, name: attachment.name, type: attachment.type, mimeType: attachment.mimeType } : undefined,
     createdAt: isoTime(row.created_at),
+    // WhatsApp delivery (Meta webhook): sent | delivered | read | failed, with Meta's reason when it failed.
+    delivery: row.metadata?.waStatus || undefined,
+    deliveryError: row.metadata?.waError || undefined,
   };
 }
 
@@ -87,14 +90,29 @@ async function sendStaffMessage(req, guestId, { channel = 'in_app', body, attach
   if ((!body || !String(body).trim()) && !attachment) throw httpError(400, 'Message body is required');
   if (!body || !String(body).trim()) body = attachment.type === 'image' ? '📷 Photo' : `📎 ${attachment.name}`;
   if (!CHANNELS.includes(channel)) throw httpError(400, `Unknown channel "${channel}"`);
-  const guest = await db.query('SELECT id, full_name, email FROM users WHERE id = $1 AND deleted_at IS NULL', [guestId]);
+  const guest = await db.query('SELECT id, full_name, email, phone FROM users WHERE id = $1 AND deleted_at IS NULL', [guestId]);
   if (!guest.rows.length) throw httpError(404, 'Guest not found');
+
+  // WhatsApp is really delivered (HQ → Settings → WhatsApp): sent first, so a refusal (not connected, no number,
+  // outside Meta's 24-hour window) is shown to the manager and nothing is recorded as sent.
+  let wa = null;
+  if (channel === 'whatsapp') {
+    const whatsapp = require('../../services/whatsapp');
+    if (!(await whatsapp.isReady())) throw httpError(409, 'WhatsApp is not connected yet — a super administrator sets it up in HQ → Settings → WhatsApp. Send in the app or by email meanwhile.');
+    if (!guest.rows[0].phone) throw httpError(400, 'This guest has no phone number — add it in Guest 360');
+    const text = String(body).trim();
+    wa = attachment
+      ? attachment.type === 'image'
+        ? await whatsapp.sendImage(guest.rows[0].phone, { link: whatsapp.publicLink(attachment.url), caption: text === '📷 Photo' ? undefined : text })
+        : await whatsapp.sendDocument(guest.rows[0].phone, { link: whatsapp.publicLink(attachment.url), filename: attachment.name, caption: text.startsWith('📎') ? undefined : text })
+      : await whatsapp.sendText(guest.rows[0].phone, text);
+  }
 
   const internal = channel === 'note';
   const { rows } = await db.query(
     `INSERT INTO concierge_messages (user_id, message, sender_type, metadata, channel, staff_id, is_internal, is_read)
      VALUES ($1, $2, 'concierge', $3, $4, $5, $6, true) RETURNING *`,
-    [guestId, String(body).trim(), JSON.stringify({ auto: false, staffName: req.user.fullName, ...(attachment ? { attachment } : {}) }), internal ? 'in_app' : channel, req.user.id, internal],
+    [guestId, String(body).trim(), JSON.stringify({ auto: false, staffName: req.user.fullName, ...(attachment ? { attachment } : {}), ...(wa ? { waMessageId: wa.id, waStatus: 'sent', waTo: wa.to } : {}) }), internal ? 'in_app' : channel, req.user.id, internal],
   );
   // Staff have now seen the guest's side of the thread.
   await db.query("UPDATE concierge_messages SET is_read = true WHERE user_id = $1 AND sender_type = 'user' AND is_read = false", [guestId]);

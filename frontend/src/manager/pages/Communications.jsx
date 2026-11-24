@@ -238,7 +238,7 @@ export default function Communications() {
               {m.attachment && /^(📷 Photo|📎 )/.test(m.body) ? null : m.body}
               <span style={{ fontSize: 11, color: 'var(--dim)', alignSelf: 'flex-end' }}>
                 {timeLabel(m.createdAt)}
-                {m.fromStaff ? ' ✓✓' : ''}
+                {m.fromStaff ? (m.delivery ? <span title={m.deliveryError || `WhatsApp: ${m.delivery}`} style={{ color: m.delivery === 'failed' ? '#ff6b6b' : m.delivery === 'read' ? '#5b8ff0' : undefined }}>{m.delivery === 'failed' ? ' · not delivered' : m.delivery === 'sent' ? ' ✓' : ' ✓✓'}</span> : ' ✓✓') : ''}
               </span>
             </div>
           </div>
@@ -647,7 +647,7 @@ export default function Communications() {
           { name: 'channel', label: 'Channel', type: 'select', options: CHANNELS },
           { name: 'body', label: 'Message', type: 'textarea', rows: 4, required: true },
         ]}
-        initial={{ guestId: guestOptions[0]?.[0] || '', channel: 'whatsapp' }}
+        initial={{ guestId: guestOptions[0]?.[0] || '', channel: 'in_app' }}
         onSubmit={({ guestId: gid, channel: chan, body }) =>
           guestsApi.sendMessage(gid, { channel: chan, body }).then((m) => {
             toast('Message sent');

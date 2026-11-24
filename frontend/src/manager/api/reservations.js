@@ -102,3 +102,5 @@ export const pass = (id) => withMock(() => api.get(`/reservations/${id}/pass`), 
 export const passPdf = (id) => api.get(`/reservations/${id}/pass.pdf`, { responseType: 'blob' }).then((r) => r.data);
 /** POST /reservations/:id/resend-confirmation → { sent, to } */
 export const resendConfirmation = (id) => withMock(() => api.post(`/reservations/${id}/resend-confirmation`), { sent: true });
+/** POST /reservations/:id/pass/whatsapp → { to, mode } — from the business number (HQ → Settings → WhatsApp). */
+export const passWhatsapp = (id) => withMock(() => api.post(`/reservations/${id}/pass/whatsapp`), () => Promise.reject(new Error('WhatsApp needs the API')));

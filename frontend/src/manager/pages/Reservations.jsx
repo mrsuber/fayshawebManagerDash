@@ -683,7 +683,7 @@ export default function Reservations() {
                 </span>
                 {['Confirmed', 'Pending'].includes(open.status) && open.review !== 'pending' ? (
                   <div style={{ marginTop: 12 }}>
-                    <StayPassPanel bookingId={open.id} load={reservationsApi.pass} pdf={reservationsApi.passPdf} resend={reservationsApi.resendConfirmation} notify={toast} />
+                    <StayPassPanel bookingId={open.id} load={reservationsApi.pass} pdf={reservationsApi.passPdf} resend={reservationsApi.resendConfirmation} sendWhatsapp={reservationsApi.passWhatsapp} notify={toast} />
                   </div>
                 ) : null}
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>

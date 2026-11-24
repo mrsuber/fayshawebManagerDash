@@ -878,6 +878,45 @@ router.post(
 );
 
 // ======================================================================
+// Settings → WhatsApp (Meta WhatsApp Cloud API): the number, the access token and app secret (encrypted), the
+// webhook verify token, the stay-pass template. Only a super administrator changes them; secrets are never sent back.
+// ======================================================================
+const whatsapp = require('../../services/whatsapp');
+const onlySuperWa = (req) => {
+  if (req.user.role !== 'superadmin' || req.user.impersonatedBy) throw httpError(403, 'Only a super administrator can change the WhatsApp settings');
+};
+router.get('/settings/whatsapp', requireArea('finance'), ah(async (req, res) => res.json({ ...(await whatsapp.status()), canEdit: req.user.role === 'superadmin' && !req.user.impersonatedBy })));
+router.put(
+  '/settings/whatsapp',
+  requireArea('finance'),
+  ah(async (req, res) => {
+    onlySuperWa(req);
+    const changed = await whatsapp.save(req.body || {}, req.user.id);
+    res.json({ changed, ...(await whatsapp.status()), canEdit: true });
+  }),
+);
+router.delete(
+  '/settings/whatsapp',
+  requireArea('finance'),
+  ah(async (req, res) => {
+    onlySuperWa(req);
+    await whatsapp.clear(req.user.id);
+    res.json({ ...(await whatsapp.status()), canEdit: true });
+  }),
+);
+router.post('/settings/whatsapp/check', requireArea('finance'), ah(async (req, res) => res.json(await whatsapp.check())));
+/** POST { to } — sends Meta's hello_world template to that number. */
+router.post(
+  '/settings/whatsapp/test',
+  requireArea('finance'),
+  ah(async (req, res) => {
+    onlySuperWa(req);
+    const sent = await whatsapp.test(req.body?.to);
+    res.json({ result: 'ok', message: `Sent to +${sent.to}: check that phone for “Hello World”`, ...sent });
+  }),
+);
+
+// ======================================================================
 router.use((req, res) => res.status(404).json({ message: `No HQ route ${req.method} ${req.path}` }));
 
 // eslint-disable-next-line no-unused-vars

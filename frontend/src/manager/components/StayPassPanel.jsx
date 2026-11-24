@@ -29,7 +29,7 @@ const download = (blob, name) => {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 };
 
-export default function StayPassPanel({ bookingId, load, pdf, resend, notify = () => {} }) {
+export default function StayPassPanel({ bookingId, load, pdf, resend, sendWhatsapp, notify = () => {} }) {
   const [pass, setPass] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
@@ -58,6 +58,12 @@ export default function StayPassPanel({ bookingId, load, pdf, resend, notify = (
       const r = await resend(bookingId);
       notify(`Confirmation sent to ${r?.to || pass.guest.email}`);
       refresh();
+    });
+  // From the business number (HQ → Settings → WhatsApp), when connected.
+  const onBusinessWhatsApp = () =>
+    run('wa', async () => {
+      const r = await sendWhatsapp(bookingId);
+      notify(`Stay pass sent on WhatsApp to +${r.to}${r.mode === 'template' ? ' (template)' : ''}`);
     });
   const onWhatsApp = () =>
     run('wa', async () => {
@@ -120,10 +126,21 @@ export default function StayPassPanel({ bookingId, load, pdf, resend, notify = (
           {busy === 'email' ? 'Sending…' : 'Resend confirmation email'}
         </button>
         <button type="button" style={S.btn} onClick={onDownload} disabled={!!busy}>{busy === 'pdf' ? 'Preparing…' : 'Download PDF'}</button>
-        <button type="button" style={{ ...S.btn, ...S.wa }} onClick={onWhatsApp} disabled={!pass.key || !live || !!busy} title={pass.guest.phone ? `To ${pass.guest.phone}` : 'No phone number on the booking'}>
-          {busy === 'wa' ? 'Opening…' : 'Send on WhatsApp'}
-        </button>
+        {pass.whatsappConnected && sendWhatsapp ? (
+          <button type="button" style={{ ...S.btn, ...S.wa }} onClick={onBusinessWhatsApp} disabled={!pass.key || !live || !pass.guest.phone || !!busy} title={pass.guest.phone ? `From the Faysha WhatsApp number to ${pass.guest.phone}` : 'No phone number on the booking'}>
+            {busy === 'wa' ? 'Sending…' : 'Send on WhatsApp'}
+          </button>
+        ) : (
+          <button type="button" style={{ ...S.btn, ...S.wa }} onClick={onWhatsApp} disabled={!pass.key || !live || !!busy} title={pass.guest.phone ? `To ${pass.guest.phone}` : 'No phone number on the booking'}>
+            {busy === 'wa' ? 'Opening…' : 'Send on WhatsApp'}
+          </button>
+        )}
       </div>
+      {pass.whatsappConnected && sendWhatsapp && pass.key && live ? (
+        <button type="button" onClick={onWhatsApp} disabled={!!busy} style={{ background: 'none', border: 0, color: '#8f897d', font: 'inherit', fontSize: 12.5, cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
+          or send it from my own WhatsApp
+        </button>
+      ) : null}
       <span style={S.sub}>The PDF has everything in the email: stay, gate QR code, door PIN, deposit box and app sign-in (never the password). Keep it between you and the guest.</span>
     </div>
   );
