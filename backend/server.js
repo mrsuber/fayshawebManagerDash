@@ -125,6 +125,19 @@ app.use('/api/contact', contactRoutes); // public contact form (website)
 app.use('/api/events', require('./routes/events')); // event requests and proposals (website and app)
 app.use('/api/content', require('./routes/content')); // public content managed in FAY OS → Content (places, legal, stay policy)
 // Chat attachments (guest app and FAY OS): multipart upload, type checked from the file itself.
+// The guest's stay pass PDF from a private link (sent on WhatsApp by the team); valid while the stay is live.
+app.get('/api/stay-pass/:id/:token', async (req, res) => {
+  try {
+    const stayPass = require('./services/stayPass');
+    const b = await stayPass.byToken(req.params.id, req.params.token);
+    if (!b) return res.status(404).send('This stay pass link is no longer valid. Please ask the Faysha team for a new one.');
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="Faysha-${b.booking_number}.pdf"`, 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex' })
+      .send(await stayPass.pdf(b.id));
+  } catch (e) {
+    console.error('Stay pass link failed:', e.message);
+    res.status(500).send('Something went wrong');
+  }
+});
 app.post('/api/chat/attachments', require('./middleware/auth').authenticateToken, require('./services/attachments').handler);
 app.use('/api/jobs', jobsRoutes); // listing and applications are public (Careers page); management is staff-only
 app.use('/api/employees', requireAreaByMethod('hr'), employeesRoutes); // super administrators, managers and HR roles

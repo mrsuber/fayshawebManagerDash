@@ -255,6 +255,32 @@ router.post(
   }),
 );
 
+/**
+ * The stay pass (services/stayPass): GET /:id/pass (JSON, with a private PDF link for WhatsApp), GET /:id/pass.pdf,
+ * and POST /:id/resend-confirmation (the confirmation email again, with the key).
+ */
+router.get('/:id/pass', ah(async (req, res) => res.json(await require('../../services/stayPass').data(req.params.id))));
+router.get(
+  '/:id/pass.pdf',
+  ah(async (req, res) => {
+    const stayPass = require('../../services/stayPass');
+    const { number } = await stayPass.data(req.params.id);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Faysha-${number}.pdf"`, 'Cache-Control': 'no-store' }).send(await stayPass.pdf(req.params.id));
+  }),
+);
+router.post(
+  '/:id/resend-confirmation',
+  ah(async (req, res) => {
+    const b = (await db.query('SELECT id, status, gate_qr_code FROM bookings WHERE id = $1', [req.params.id])).rows[0];
+    if (!b) throw httpError(404, 'Reservation not found');
+    if (!['confirmed', 'checked_in'].includes(b.status)) throw httpError(409, 'The confirmation is sent once the stay is confirmed');
+    if (!b.gate_qr_code) await finalizeStay(b.id, { app: req.app, notify: false });
+    const r = await require('../../services/stayKeys').sendConfirmation(b.id, { force: true });
+    if (!r.sent) throw httpError(502, `Not sent: ${r.error || 'email is not configured'}`);
+    res.json({ sent: true, to: r.to });
+  }),
+);
+
 /** GET /:id/people — everyone on the stay: booker, registered overnight guests, visitors (discreet ones masked). */
 router.get('/:id/people', ah(async (req, res) => res.json(await require('./visitorData').peopleOnStay(req.params.id))));
 

@@ -5,6 +5,7 @@ import { reservationsApi } from '../api';
 import BookingCalendar, { colorFor } from '../components/BookingCalendar';
 import FormDialog from '../components/FormDialog';
 import PaymentDialog from '../components/PaymentDialog';
+import StayPassPanel from '../components/StayPassPanel';
 import StayPeople from '../components/StayPeople';
 import { Avatar, Card, Chip, Donut, Icon, KpiGrid, MediaCard, conic } from '../components/ui';
 import ViewAllDialog from '../components/ViewAllDialog';
@@ -680,6 +681,11 @@ export default function Reservations() {
                 <span className="serif" style={{ fontSize: 22 }}>
                   {money(open.totalAmount)}
                 </span>
+                {['Confirmed', 'Pending'].includes(open.status) && open.review !== 'pending' ? (
+                  <div style={{ marginTop: 12 }}>
+                    <StayPassPanel bookingId={open.id} load={reservationsApi.pass} pdf={reservationsApi.passPdf} resend={reservationsApi.resendConfirmation} notify={toast} />
+                  </div>
+                ) : null}
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
                   <StayPeople people={people} onChanged={() => setPeopleRev((n) => n + 1)} />
                 </div>

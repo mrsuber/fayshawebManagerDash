@@ -6,6 +6,30 @@
  */
 export const UPDATES = [
   {
+    id: '2026-11-stay-pass',
+    date: '2026-11-24',
+    title: 'Stay pass: resend the confirmation, download the PDF, send it on WhatsApp',
+    surfaces: ['fayos', 'hq', 'server'],
+    summary:
+      'Every confirmed booking shows the guest’s real digital key — gate QR code, door PIN, deposit box and its PIN — in FAY OS → Reservations and in HQ → Bookings, with three buttons: resend the confirmation email, download the stay pass PDF (everything in the email on one page), or send it on WhatsApp.',
+    changes: [
+      'FAY OS → Reservations → booking: “Digital key & stay pass” with the QR code, door PIN, deposit box, app sign-in and whether the email went out',
+      'HQ → Bookings → booking: the same panel replaces the old “Access code” box (it was a legacy code, not the key) and the empty PIN / QR fields; Category is filled in again',
+      'Download PDF: stay, amount and payment, gate QR code, door PIN, deposit box and PIN, app sign-in email (never the password), how to reach us, house rules in short',
+      'Send on WhatsApp: on a phone the PDF itself is shared to WhatsApp; on a computer WhatsApp opens on the guest’s number with a private link to the PDF (it stops working after the stay or if the key is reissued)',
+    ],
+    setup: ['Deploy the backend (new dependency: pdfkit — run npm install) and the website', 'Set APP_URL (or API_PUBLIC_URL) on the server so the WhatsApp link points at your domain'],
+    tests: [
+      { who: 'Manager', where: 'FAY OS → Reservations → Booking List → a confirmed booking', do: 'Open it.', expect: 'Digital key & stay pass: QR code, door PIN, deposit box (and PIN), app sign-in, “Emailed …” or “Not emailed yet”.' },
+      { who: 'Manager', where: 'Same', do: 'Resend confirmation email.', expect: '“Confirmation sent to …”; the guest receives the email with the QR code and PINs.' },
+      { who: 'Manager', where: 'Same', do: 'Download PDF.', expect: 'Faysha-<booking>.pdf with the stay, the QR code, door PIN and deposit box, matching the email.' },
+      { who: 'Manager (phone)', where: 'Same', do: 'Send on WhatsApp.', expect: 'The share sheet offers WhatsApp with the PDF attached.' },
+      { who: 'Manager (computer)', where: 'Same', do: 'Send on WhatsApp.', expect: 'WhatsApp opens on the guest’s number with the message and a link; the link opens the PDF without signing in.' },
+      { who: 'Super administrator', where: 'HQ → Bookings → View details', do: 'Open a confirmed booking.', expect: 'The same panel and buttons; no “Access code” box.' },
+      { who: 'Anyone', where: 'The WhatsApp link', do: 'Open it after the guest checks out (or change one character).', expect: '“This stay pass link is no longer valid.”' },
+    ],
+  },
+  {
     id: '2026-11-staff-desk',
     date: '2026-11-24',
     title: 'My work becomes the staff desk: messages, time off, photos, warnings',

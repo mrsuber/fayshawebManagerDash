@@ -996,6 +996,25 @@ router.get('/user/my-keys', authenticateToken, async (req, res) => {
 
 // Resend confirmation email
 router.post('/:id/resend-confirmation', requireStaff, resendConfirmation);
+
+// The stay pass (services/stayPass): the confirmation as JSON and as a PDF, for HQ (download, WhatsApp).
+router.get('/:id/pass', requireStaff, async (req, res) => {
+  try {
+    res.json(await require('../services/stayPass').data(req.params.id));
+  } catch (e) {
+    res.status(e.status || 500).json({ success: false, message: e.status ? e.message : 'Could not build the stay pass' });
+  }
+});
+router.get('/:id/pass.pdf', requireStaff, async (req, res) => {
+  try {
+    const stayPass = require('../services/stayPass');
+    const buf = await stayPass.pdf(req.params.id);
+    const { number } = await stayPass.data(req.params.id);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="Faysha-${number}.pdf"`, 'Cache-Control': 'no-store' }).send(buf);
+  } catch (e) {
+    res.status(e.status || 500).json({ success: false, message: e.status ? e.message : 'Could not build the PDF' });
+  }
+});
 // v1 name for the same action (it used to reset the guest's password, which could lock out a signed-in guest).
 router.post('/:id/send-access-code', requireStaff, resendConfirmation);
 

@@ -95,3 +95,10 @@ export const review = (id, decision) =>
         return r;
       }),
   );
+
+/** GET /reservations/:id/pass → the digital key and stay pass (QR as a data URL, door PIN, deposit box, private PDF link). */
+export const pass = (id) => withMock(() => api.get(`/reservations/${id}/pass`), () => Promise.reject(new Error('The stay pass needs the API')));
+/** GET /reservations/:id/pass.pdf → Blob */
+export const passPdf = (id) => api.get(`/reservations/${id}/pass.pdf`, { responseType: 'blob' }).then((r) => r.data);
+/** POST /reservations/:id/resend-confirmation → { sent, to } */
+export const resendConfirmation = (id) => withMock(() => api.post(`/reservations/${id}/resend-confirmation`), { sent: true });

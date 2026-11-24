@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_URL } from '../../site/api';
+import StayPassPanel from '../../manager/components/StayPassPanel';
 
 const Bookings = () => {
   const [bookings, setBookings] = useState([]);
@@ -105,25 +106,9 @@ const Bookings = () => {
     }
   };
 
-  const sendAccessCode = async (bookingId) => {
-    try {
-      await axios.post(`${API_URL}/bookings/${bookingId}/send-access-code`);
-      alert('Access code sent successfully to guest email');
-    } catch (error) {
-      console.error('Error sending access code:', error);
-      alert('Failed to send access code: ' + (error.response?.data?.message || error.message));
-    }
-  };
 
-  const resendConfirmationEmail = async (bookingId) => {
-    try {
-      await axios.post(`${API_URL}/bookings/${bookingId}/resend-confirmation`);
-      alert('Confirmation email sent successfully to guest');
-    } catch (error) {
-      console.error('Error sending confirmation email:', error);
-      alert('Failed to send confirmation email: ' + (error.response?.data?.message || error.message));
-    }
-  };
+
+
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -534,7 +519,7 @@ const Bookings = () => {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sm text-gray-600">Category:</span>
-                        <span className="text-sm font-medium text-gray-900">{selectedBooking.category_display_name}</span>
+                        <span className="text-sm font-medium text-gray-900">{selectedBooking.category_display_name || selectedBooking.apartment_name}</span>
                       </div>
                       {selectedBooking.building && (
                         <div className="flex justify-between">
@@ -542,7 +527,7 @@ const Bookings = () => {
                           <span className="text-sm font-medium text-gray-900">{selectedBooking.building}</span>
                         </div>
                       )}
-                      {selectedBooking.floor !== null && (
+                      {selectedBooking.floor != null && (
                         <div className="flex justify-between">
                           <span className="text-sm text-gray-600">Floor:</span>
                           <span className="text-sm font-medium text-gray-900">{selectedBooking.floor}</span>
@@ -554,74 +539,14 @@ const Bookings = () => {
 
                 {/* Right Column - Dates & Payment */}
                 <div className="space-y-6">
-                  {/* Access Code */}
-                  {selectedBooking.access_code && (
-                    <div className="bg-primary-50 rounded-lg p-4 border-2 border-primary-200">
-                      <h3 className="text-sm font-medium text-gray-700 mb-3">Access Code</h3>
-                      <div className="text-center">
-                        <div className="text-3xl font-bold text-primary-600 tracking-wider mb-3">
-                          {selectedBooking.access_code}
-                        </div>
-                        <button
-                          onClick={() => sendAccessCode(selectedBooking.id)}
-                          className="bg-primary-500 hover:bg-primary-600 text-white py-2 px-4 rounded-lg text-sm font-medium"
-                        >
-                          Send to Guest Email
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Digital Key PIN */}
-                  {selectedBooking.digital_key_pin && (
-                    <div className="bg-amber-50 rounded-lg p-4 border-2 border-amber-200">
-                      <h3 className="text-sm font-medium text-gray-700 mb-3">🔑 Door PIN</h3>
-                      <div className="text-center">
-                        <div className="text-3xl font-bold text-amber-600 tracking-wider mb-2">
-                          {selectedBooking.digital_key_pin}
-                        </div>
-                        <p className="text-xs text-gray-600">Valid for entire stay</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Digital Key QR Code */}
-                  {selectedBooking.digital_key_qr_code && (
-                    <div className="bg-blue-50 rounded-lg p-4 border-2 border-blue-200">
-                      <h3 className="text-sm font-medium text-gray-700 mb-3">🔓 Gate QR Code</h3>
-                      <div className="bg-white rounded p-3 border border-blue-300">
-                        <code className="text-xs font-mono text-gray-800 break-all block mb-2">
-                          {selectedBooking.digital_key_qr_code}
-                        </code>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(selectedBooking.digital_key_qr_code);
-                            alert('QR Code copied to clipboard!');
-                          }}
-                          className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-3 rounded text-sm font-medium"
-                        >
-                          Copy QR Code
-                        </button>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-2">For main gate access</p>
-                    </div>
-                  )}
-
-                  {/* Resend Confirmation Email */}
-                  {selectedBooking.guest_email && (
-                    <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200">
-                      <h3 className="text-sm font-medium text-gray-700 mb-3">📧 Confirmation Email</h3>
-                      <button
-                        onClick={() => resendConfirmationEmail(selectedBooking.id)}
-                        className="w-full bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg text-sm font-medium"
-                      >
-                        Resend Confirmation to Guest
-                      </button>
-                      <p className="text-xs text-gray-600 mt-2 text-center">
-                        Includes booking details, door PIN, and gate QR code
-                      </p>
-                    </div>
-                  )}
+                  {/* The real digital key (gate QR, door PIN, deposit box) and the stay pass: resend, PDF, WhatsApp. */}
+                  <StayPassPanel
+                    bookingId={selectedBooking.id}
+                    load={(id) => axios.get(`${API_URL}/bookings/${id}/pass`).then((r) => r.data)}
+                    pdf={(id) => axios.get(`${API_URL}/bookings/${id}/pass.pdf`, { responseType: 'blob' }).then((r) => r.data)}
+                    resend={(id) => axios.post(`${API_URL}/bookings/${id}/resend-confirmation`).then(() => ({ to: selectedBooking.guest_email }))}
+                    notify={(m, kind) => (kind === 'error' ? alert(m) : null)}
+                  />
 
                   {/* Mobile App Account Credentials */}
                   {selectedBooking.user_email && (
