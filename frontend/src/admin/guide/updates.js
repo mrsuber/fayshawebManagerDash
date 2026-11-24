@@ -6,6 +6,62 @@
  */
 export const UPDATES = [
   {
+    id: '2026-11-staff-desk',
+    date: '2026-11-24',
+    title: 'My work becomes the staff desk: messages, time off, photos, warnings',
+    surfaces: ['fayos', 'server'],
+    summary:
+      'Everything a team member needs on their phone, in four tabs: Today (clock in/out, tasks with their clock, photos of the finished work), Messages (with the managers, about a task, with photos), Time off (balances, asking, decisions) and Me (timing, guest ratings — low ones stay visible —, warnings to acknowledge, HR notices). Managers answer in the new FAY OS → Team desk.',
+    changes: [
+      'My work → Today: clock in / out (hours this week); “Done…” takes photos with the phone camera; “Ask the manager” opens a message about that task',
+      'My work → Messages: one conversation with the managers, photos, read receipts; the managers are alerted, the team member gets a push when answered',
+      'My work → Time off: balances (annual, sick and any in use), ask for days with a reason, cancel while waiting, see who approved or why not',
+      'My work → Me: on-time %, average time, guest rating, “Needs attention” (ratings of 2★ or less in 90 days, with the manager’s follow-up), warnings with “I have read this” and their side, HR notices',
+      'FAY OS → Operations → Team desk: conversations with unread counts; time off to approve or decline (balance updated, the team member told; HQ → Approvals sees the same requests); warnings (verbal, written, final) with their acknowledgement',
+      'FAY OS → Service Requests and Maintenance: the photos of the finished work',
+    ],
+    setup: ['Run the database migration on the server (node db/setup.js) — adds 023_staff_desk.sql', 'Time off and the clock need the team member’s HR record (HQ → Staff, linked to their account)'],
+    tests: [
+      { who: 'Housekeeper', where: 'My work → Today', do: 'Clock in.', expect: '“On shift since …”; Clock out asks to confirm and shows the hours this week.' },
+      { who: 'Housekeeper', where: 'My work → Today', do: 'Finish a request with “Done…”, a note and a photo from the camera.', expect: 'Done today shows the photo; FAY OS → Service Requests shows it under “Photos of the work”.' },
+      { who: 'Housekeeper', where: 'My work → Today', do: 'Tap “Ask the manager” on a task, write and send.', expect: 'Messages opens with “About: <task>”; the manager gets “Message from …”.' },
+      { who: 'Manager', where: 'FAY OS → Team desk → Messages', do: 'Open the conversation and answer with a photo.', expect: 'Unread clears; the housekeeper gets a push and sees the answer and the photo; their message shows “read”.' },
+      { who: 'Housekeeper', where: 'My work → Time off', do: 'Ask for 3 days of annual leave with a reason.', expect: '“Waiting”; the balance shows “3 asked”; the managers get “Time off asked”.' },
+      { who: 'Manager', where: 'FAY OS → Team desk → Time off', do: 'Approve it (or decline with a reason).', expect: 'The housekeeper is told; Time off shows Approved by … (or the reason); the annual balance goes down by 3.' },
+      { who: 'Manager', where: 'FAY OS → Team desk → Warnings', do: 'Give a verbal warning with a reason.', expect: 'The team member gets a push; My work shows a red banner “You have a warning to read”.' },
+      { who: 'Housekeeper', where: 'My work → Me', do: 'Write your side and tap “I have read this”.', expect: 'The manager is told; Team desk → Warnings shows their side.' },
+      { who: 'Guest + housekeeper', where: 'App → Rate, then My work → Me', do: 'Rate a request 2★ with a comment.', expect: '“Needs attention” lists it; after Quality → follow up, it shows the manager’s follow-up.' },
+    ],
+  },
+  {
+    id: '2026-11-conduct-visitors',
+    date: '2026-11-24',
+    title: 'Visitor rules for the team only; guest conduct and booking review',
+    surfaces: ['fayos', 'app', 'website', 'server'],
+    summary:
+      'Residents are never shown the visitor limits or the capacity, nor reminded when visiting hours end: a request beyond the rules waits for the team with the reason, and the manager decides on the ground. Breaches of the house rules go on the guest’s record, and a guest who keeps breaking them can be flagged: their next bookings are held for Faysha to accept or decline, or declined automatically. The terms now say children, visitors and damage are the guest’s responsibility.',
+    changes: [
+      'App → Visitors: no more limits, capacity or “sleeps up to” — a pass or an overnight guest beyond them shows “awaiting confirmation”; visiting hours stay a house rule',
+      'FAY OS → Visitors: the reason on the pass (“Over the visitor policy: …”) or the overnight guest (“Over capacity: …”); “Approve anyway” records your name',
+      'No push to the resident before visiting hours end: managers get “Visiting hours end soon · Residence …” and decide whether to send someone',
+      'FAY OS → Guest 360 → Conduct (staff only): incidents (visitors, overcrowding, noise, damage, children, smoking, behaviour) with an optional charge on the bill; flag future bookings (held for review, or declined automatically)',
+      'Website and app: a flagged guest’s booking becomes a request (no payment, dates held); FAY OS → Reservations shows “To review” with Accept (confirmed, paid on the bill) or Decline (polite message, no reason)',
+      'Terms of Service: new 6.3 Children, visitors and damage and 6.4 Breaches of the house rules (published as a new version); the app booking summary and the house-rules checkbox say it too',
+    ],
+    setup: ['Run the database migration on the server (node db/setup.js) — adds 022_conduct.sql (and publishes the new terms version)', 'Ship a new app build (Visitors and Book a stay changed)'],
+    tests: [
+      { who: 'Guest', where: 'App → Visitors', do: 'Invite 8 people on one pass.', expect: 'Accepted as “awaiting confirmation”; nothing about a limit. FAY OS → Visitors shows “Over the visitor policy: 8 people on one pass (policy: 4)”.' },
+      { who: 'Guest', where: 'App → Visitors → Staying the night', do: 'Add more overnight guests than the residence sleeps.', expect: '“Awaiting confirmation”, no capacity shown. FAY OS → Visitors: red “Over capacity …” and “Approve anyway”.' },
+      { who: 'Manager', where: 'Bell', do: 'Let a visitor be on site 30 minutes before visiting hours end.', expect: '“Visiting hours end soon · Residence …” for the team; the resident gets nothing.' },
+      { who: 'Front desk', where: 'FAY OS → Guest 360 → Conduct', do: 'Record a serious damage incident with a charge.', expect: 'On the record; the charge is on the bill; “Consider flagging future bookings” alert.' },
+      { who: 'Front desk', where: 'Guest 360 → Conduct', do: 'Flag future bookings → Held for review.', expect: 'Card shows the flag and reason; the guest sees nothing.' },
+      { who: 'Guest', where: 'Website or app → Book', do: 'Book as that guest (same email or phone).', expect: '“Request received — no payment is taken until then”; no payment step.' },
+      { who: 'Manager', where: 'FAY OS → Reservations', do: 'Open the booking marked “To review”; Accept.', expect: 'Confirmed; the guest gets the confirmation and key; the stay is paid on the bill. (Decline: dates released, polite email and push without a reason.)' },
+      { who: 'Front desk', where: 'Guest 360 → Conduct', do: 'Switch to “Decline automatically instead”, then book online again.', expect: '“We are unable to accept this booking online. Please contact our reservations team.” Managers get “Booking declined automatically”.' },
+      { who: 'Guest', where: 'Website → Terms', do: 'Read section 6.', expect: '6.3 Children, visitors and damage and 6.4 Breaches of the house rules.' },
+    ],
+  },
+  {
     id: '2026-11-task-timers',
     date: '2026-11-24',
     title: 'Task timers: every job has a clock, late keeps counting',

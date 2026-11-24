@@ -144,6 +144,12 @@
       "title": "Paramètres",
       "sub": "Établissement, équipe, intégrations et préférences.",
       "tag": "Configuré pour l'excellence."
+    },
+    "team": {
+      "label": "Équipe",
+      "title": "Bureau de l’équipe",
+      "sub": "Messages avec l’équipe, congés à décider et avertissements — le côté managers de Mon travail.",
+      "tag": "Une équipe écoutée."
     }
   },
   "layout": {

@@ -25,6 +25,7 @@ import Reservations from './pages/Reservations';
 import Residences from './pages/Residences';
 import ServiceRequests from './pages/ServiceRequests';
 import Settings from './pages/Settings';
+import TeamDesk from './pages/TeamDesk';
 import Transportation from './pages/Transportation';
 import Wellness from './pages/Wellness';
 import { setCurrency } from './pages/guest360/format';
@@ -50,6 +51,7 @@ const VIEWS = {
   content: Content,
   analytics: Analytics,
   quality: Quality,
+  team: TeamDesk,
   ai: AICommand,
   settings: Settings,
 };

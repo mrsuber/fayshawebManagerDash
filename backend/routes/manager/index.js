@@ -23,6 +23,7 @@ router.use(authenticateToken, checkPasswordChangeRequired, requireRole('manager'
 router.use('/guests', guests.router);
 router.use('/conversations', conversations.router);
 router.use('/service-requests', serviceRequests);
+router.use('/staff-desk', require('./staffDesk')); // Team desk: messages with the team, time off, warnings
 // The team who can take work of a department, least busy first (assign menus): ?department=Housekeeping
 router.get('/team/candidates', require('./lib').ah(async (req, res) => res.json(await require('../../services/assignment').candidates(req.query.department))));
 router.use('/reservations', reservations);

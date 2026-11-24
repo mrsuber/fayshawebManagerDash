@@ -283,3 +283,29 @@ The client connects to `REACT_APP_SOCKET_URL` (defaults to the API origin) with 
 | `service-request:updated` | `ServiceRequest`, or a partial with `id` |
 | `housekeeping:updated` | `{ id, status, note? }` |
 | `notification:new` | `Notification` |
+
+
+## Team desk (`/staff-desk`)
+
+The managers' side of My work (`/api/work`, see `backend/routes/work.js`). Services: `backend/services/staffDesk.js`.
+
+| Method | Path | Result |
+|---|---|---|
+| GET | `/staff-desk/inbox` | team members with a conversation, newest first: `{ id, name, department, jobTitle, last: { body, at, fromStaff }, unread }[]` |
+| GET | `/staff-desk/messages/:staffId` | `{ staff, messages: [{ id, fromStaff, sender, body, attachments, about, read, at }] }` — marks the team member's messages read |
+| POST | `/staff-desk/messages/:staffId` `{ body, attachments?, about? }` | the message; the team member gets a push. Attachments come from `POST /attachments`. |
+| GET | `/staff-desk/leave` | time off asked, coming up and recently decided |
+| POST | `/staff-desk/leave/:id/approve` / `reject { reason }` | decided (balance updated, the team member told) — same requests as HQ → Approvals |
+| GET / POST | `/staff-desk/warnings` `{ staffId, level: verbal \| written \| final, reason }` | warnings with `acknowledgedAt` and the team member's `response` |
+
+## Guest conduct
+
+| Method | Path | Result |
+|---|---|---|
+| GET | `/guests/:id/conduct` | `{ incidents, lastYear, serious, advise, restriction: { mode: review \| decline, reason, at, by } \| null }` — staff only |
+| POST | `/guests/:id/incidents` `{ kind, severity, note, charge?, bookingId? }` | records it; a charge goes to the bill (category Damages) |
+| DELETE | `/guests/:id/incidents/:incidentId` | recorded by mistake |
+| POST | `/guests/:id/restrict` `{ mode, reason }` / `/guests/:id/unrestrict` | `review`: website/app bookings become requests; `decline`: declined at once |
+| POST | `/reservations/:id/review` `{ decision: accept \| decline }` | a booking request (`review: 'pending'` on the reservation) |
+
+`POST /reservations` and `POST /visitors/guests/:id/approve` answer 409 "… anyway?" for a flagged guest or over capacity; send `override: true` to go ahead.

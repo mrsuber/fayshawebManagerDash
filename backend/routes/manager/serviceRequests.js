@@ -51,6 +51,7 @@ function toRequest(r) {
     startedAt: isoTime(r.started_at),
     completedAt: isoTime(r.completed_at),
     resolution: r.resolution_notes || '',
+    photos: r.resolution_attachments || [],
     verifiedBy: r.verified_by ? r.verified_by_name : null,
     verifiedAt: isoTime(r.verified_at),
     rating: r.guest_rating || null,

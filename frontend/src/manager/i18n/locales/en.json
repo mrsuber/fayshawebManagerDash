@@ -144,6 +144,12 @@
       "title": "Settings",
       "sub": "Property, team, integrations and preferences.",
       "tag": "Configured for excellence."
+    },
+    "team": {
+      "label": "Team desk",
+      "title": "Team desk",
+      "sub": "Messages with the team, time off to decide, and warnings — the managers’ side of My work.",
+      "tag": "A team that is heard."
     }
   },
   "layout": {

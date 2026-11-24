@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import AICommand from '../pages/AICommand';
 import Communications from '../pages/Communications';
 import Housekeeping from '../pages/Housekeeping';
+import TeamDesk from '../pages/TeamDesk';
 import ServiceRequests from '../pages/ServiceRequests';
 import { renderWithProviders } from '../test-utils';
 
@@ -37,6 +38,13 @@ test('Service Requests shows a running clock and the late count', async () => {
   await screen.findAllByText('#1385');
   expect(screen.getByText('Late now')).toBeInTheDocument();
   expect(screen.getByText('Done on time')).toBeInTheDocument();
+});
+
+test('Team desk shows its tabs even without data', async () => {
+  renderWithProviders(<TeamDesk />);
+  expect(await screen.findByText('Unread messages')).toBeInTheDocument();
+  expect(screen.getByText('Time off to decide')).toBeInTheDocument();
+  expect(screen.getByText('Warnings')).toBeInTheDocument();
 });
 
 test('Housekeeping advances a vacant residence but not an occupied one', async () => {

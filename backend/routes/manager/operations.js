@@ -48,6 +48,7 @@ router.use(
       ...f('number', 'title', 'location', 'priority', 'technician', 'status', 'createdAt', 'assignedTo', 'assignedAt', 'assetId', 'cost', 'completionNotes', 'completedAt'),
       serviceRequestId: 'service_request_id',
       minutes: 'time_allowed_minutes',
+      photos: 'photos', // read-only: the technician's photos of the finished work (My work)
     },
     types: { createdAt: 'timestamp', assignedTo: 'number', assignedAt: 'timestamp', assetId: 'number', cost: 'number', completedAt: 'timestamp', serviceRequestId: 'number', minutes: 'number' },
     required: ['title'],
@@ -59,6 +60,7 @@ router.use(
       // Task timer: the time allowed (the work-order standard when not given); the clock starts when it is given to someone.
       const taskTimer = require('../../services/taskTimer');
       delete data.assignedAt;
+      delete data.photos;
       if (data.minutes !== undefined) data.minutes = taskTimer.cleanMinutes(data.minutes);
       if (ctx.op === 'create' && !data.minutes) data.minutes = await taskTimer.minutesFor('workOrder', null, ctx.q);
       if (data.assignedTo !== undefined && Number(data.assignedTo || 0) !== Number(ctx.before?.assignedTo || 0)) data.assignedAt = data.assignedTo ? new Date().toISOString() : null;

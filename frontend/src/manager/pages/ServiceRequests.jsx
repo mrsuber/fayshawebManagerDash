@@ -7,6 +7,7 @@ import { serviceRequestsApi } from '../api';
 import AssignPicker from '../components/AssignPicker';
 import FormDialog from '../components/FormDialog';
 import TaskTimer, { minutesText, timerState } from '../components/TaskTimer';
+import { mediaUrl } from '../config';
 import { Bar, Card, Chip, Donut, Field, Icon, KpiGrid, conic } from '../components/ui';
 import useGuestOptions from '../hooks/useGuestOptions';
 import { DEPARTMENTS, DEPARTMENT_ICON } from './guest360/format';
@@ -359,6 +360,17 @@ export default function ServiceRequests() {
               </Field>
             </div>
             {curRaw?.resolution ? <Field label="What was done">{curRaw.resolution}</Field> : null}
+            {curRaw?.photos?.length ? (
+              <Field label="Photos of the work">
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {curRaw.photos.map((p) => (
+                    <a key={p.url} href={mediaUrl(p.url)} target="_blank" rel="noreferrer">
+                      <img src={mediaUrl(p.url)} alt={p.name || 'Photo'} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+                    </a>
+                  ))}
+                </div>
+              </Field>
+            ) : null}
             {curRaw?.status === 'Completed' && !curRaw?.verifiedAt ? (
               <button type="button" className="fay-btn-outline" onClick={() => setField(cur.i, { verified: true, status: 'Completed' }, 'Checked — thank you')}>
                 <Icon name="fact_check" size={18} /> Mark as checked

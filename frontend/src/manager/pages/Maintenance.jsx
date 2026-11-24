@@ -3,6 +3,7 @@ import moment from 'moment';
 import { useState } from 'react';
 import AssignPicker from '../components/AssignPicker';
 import TaskTimer, { minutesText, orderTimer } from '../components/TaskTimer';
+import { mediaUrl } from '../config';
 import FormDialog from '../components/FormDialog';
 import { Avatar, Bar, Card, Chip, Icon, KpiGrid } from '../components/ui';
 import ViewAllDialog from '../components/ViewAllDialog';
@@ -249,6 +250,15 @@ export default function Maintenance() {
                   <div style={{ fontSize: 14 }}>
                     <span style={{ color: 'var(--dim)', fontSize: 12 }}>What was done</span>
                     <div>{open.completionNotes}{open.cost ? ` · ${Number(open.cost).toLocaleString('en-US')} XAF` : ''}</div>
+                    {open.photos?.length ? (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                        {open.photos.map((p) => (
+                          <a key={p.url} href={mediaUrl(p.url)} target="_blank" rel="noreferrer">
+                            <img src={mediaUrl(p.url)} alt={p.name || 'Photo'} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6 }} />
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {[
