@@ -6,6 +6,40 @@
  */
 export const UPDATES = [
   {
+    id: '2026-11-task-timers',
+    date: '2026-11-24',
+    title: 'Task timers: every job has a clock, late keeps counting',
+    surfaces: ['fayos', 'app', 'server'],
+    summary:
+      'The team is measured on how long a task takes once it lands in their to-do. Each request and work order carries the time allowed (the department standard, or what the manager gives). The person sees it count down in My work; past the time it keeps counting in red. Managers see the clocks on Service Requests and Maintenance, get an alert when something goes late, and compare people in Quality → Team timing, next to the guests’ ratings.',
+    changes: [
+      'FAY OS → Settings → Team & Roles → Task times: standard minutes per department, for the departure clean and for work orders (new tasks only)',
+      'FAY OS → Service Requests: “Clock” column, “Time allowed” (changeable), “Came from” (Guest · Manager · Automatic) and the live clock in the details; KPIs “Late now” (click to show only those) and “Done on time”',
+      'FAY OS → Service Requests → New Request: the guest is optional (a task for the property), “Time allowed”, and “Give it to” (a person or the least busy) — the clock starts at once',
+      'Check-out (Guest 360 or Reservations → Today) raises “Departure clean · <unit>” (Automatic, the departure-clean time, urgent when someone arrives the same day), given to the least busy housekeeper when auto-assign is on. Start → residence Cleaning; Done → Inspect',
+      'My work (/work): each request and work order shows “mm:ss left” or “Late +mm:ss”, late ones first; “Late now” and “My timing” (on time %, average over 30 days); Done today shows “Took 25 min · 10 min late”',
+      'Server: alerts “Running late · …” to managers and “You are behind · …” to the person, once per person given the task, cleared when done',
+      'FAY OS → Quality → Team timing: per person — tasks done, % on time, average time, average lateness, late now, guest rating',
+      'FAY OS → Maintenance: work orders get a time allowed (standard 2 h) and a clock from when they are assigned',
+      'App → Requests: finished requests show who looked after them and “★ Rate <name>” until rated (requests without a guest are not rated)',
+    ],
+    setup: ['Run the database migration on the server (node db/setup.js) — adds 021_task_timers.sql', 'Deploy the backend and the website', 'Ship a new app build (Requests screen)', 'Tasks created before the update have no clock and are not measured'],
+    tests: [
+      { who: 'Manager', where: 'FAY OS → Settings → Team & Roles', do: 'Set Housekeeping to 20 minutes.', expect: '“Housekeeping: 20 minutes”; a value under 5 is refused.' },
+      { who: 'Guest', where: 'App → Requests', do: 'Ask Housekeeping for towels.', expect: 'FAY OS → Service Requests shows it with “Came from: Guest” and “⏱ 20 min once assigned”.' },
+      { who: 'Manager', where: 'FAY OS → Service Requests', do: 'Assign it to a housekeeper.', expect: 'The clock starts (“19:59 left”); the housekeeper is notified.' },
+      { who: 'Housekeeper', where: 'My work (/work)', do: 'Open My work.', expect: 'The request shows the time left, ticking each second, “Guest request · 20 min allowed”.' },
+      { who: 'Housekeeper', where: 'My work', do: 'Wait past the time (or ask for a 5-minute task).', expect: 'The clock turns red “Late +00:12” and keeps counting; “Late now” = 1; a push “You are behind · …”. Managers get “Running late · …”.' },
+      { who: 'Housekeeper', where: 'My work', do: 'Mark it done.', expect: 'Done today: “Took N min · M min late”. The alerts clear. The guest is asked to rate it.' },
+      { who: 'Guest', where: 'App → Requests', do: 'Open the finished request.', expect: '“Looked after by …” and “★ Rate …”, which opens Rate your experience. After rating, the link is gone.' },
+      { who: 'Manager', where: 'FAY OS → Service Requests → New Request', do: 'No guest, “Clean the gym”, 45 minutes, give it to a person.', expect: '“Came from: Manager”, clock running; it is in their My work.' },
+      { who: 'Front desk', where: 'FAY OS → Guest 360', do: 'Check a guest out.', expect: '“Departure clean · <unit>”, Automatic, 90 min, assigned (auto-assign on) or an alert “Departure clean to assign”. Housekeeping shows Dirty.' },
+      { who: 'Housekeeper', where: 'My work', do: 'Start, then finish the departure clean.', expect: 'FAY OS → Housekeeping: Cleaning, then Inspect (“Cleaned by …”).' },
+      { who: 'Manager', where: 'FAY OS → Quality → Team timing', do: 'Open the tab.', expect: 'Each person with done, % on time, average time, average lateness, late now and guest rating.' },
+      { who: 'Manager', where: 'FAY OS → Maintenance', do: 'Create a work order with 30 minutes and assign it.', expect: 'Its clock runs in the list and in My work; late alerts as for requests.' },
+    ],
+  },
+  {
     id: '2026-11-stay-people',
     date: '2026-11-13',
     title: 'Reservations and Guest 360 show everyone on the stay',

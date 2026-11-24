@@ -88,6 +88,8 @@ async function moveGuest(req, res, kind) {
     });
     await handOverDepositBox(row.apartment_id);
     emit(req, 'housekeeping:updated', { id: row.apartment_id, status: 'Dirty', note: 'Departure clean' });
+    // The clean is a timed Housekeeping task (source: system), assigned and tracked like any request.
+    await require('../../services/departureClean').raise(req.app, { apartmentId: row.apartment_id, bookingId: row.booking_id });
     await notify(req, 'Guest checked out', `${row.full_name} · ${row.unit_number}`, { link: '/housekeeping' });
   }
   res.json(await fullGuest(await guestRow(row.id)));

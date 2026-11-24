@@ -2,6 +2,7 @@ import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Te
 import moment from 'moment';
 import { useState } from 'react';
 import AssignPicker from '../components/AssignPicker';
+import TaskTimer, { minutesText, orderTimer } from '../components/TaskTimer';
 import FormDialog from '../components/FormDialog';
 import { Avatar, Bar, Card, Chip, Icon, KpiGrid } from '../components/ui';
 import ViewAllDialog from '../components/ViewAllDialog';
@@ -12,7 +13,7 @@ const STATUSES = Object.keys(SC);
 const PC = { High: '#ff6b6b', Medium: '#e8b84a', Low: '#3fd283' };
 const TECH_STATUS = { Available: '#3fd283', 'On job': '#5b8ff0', 'Off shift': '#8f897d' };
 const LOCATIONS = ['Serenity 1', 'Serenity 2', 'Serenity 3', 'Riviera 1', 'Riviera 2', 'Riviera 3', 'Villa Spectra 1', 'Villa Spectra 2', 'Allure Penthouse 1', 'Allure Penthouse 2', 'Wellness Club', 'Riviera Restaurant', 'Pool Club', 'Smart Locker Hub', 'Plant Room'];
-const COLS = '60px 1.4fr 1.2fr 70px 1fr 110px';
+const COLS = '60px 1.4fr 1.2fr 70px 1fr 110px 128px';
 const healthColor = (h) => (h >= 95 ? '#3fd283' : h >= 85 ? '#e8b84a' : '#ff6b6b');
 
 export default function Maintenance() {
@@ -49,7 +50,7 @@ export default function Maintenance() {
       key={o.id}
       className="row-line hov-row"
       onClick={() => setOpen(o)}
-      style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, alignItems: 'center', fontSize: 13, padding: '9px 6px', minWidth: 620, cursor: 'pointer' }}
+      style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, alignItems: 'center', fontSize: 13, padding: '9px 6px', minWidth: 760, cursor: 'pointer' }}
     >
       <span>{o.number}</span>
       <span>{o.title}</span>
@@ -57,16 +58,18 @@ export default function Maintenance() {
       <span style={{ color: PC[o.priority] }}>{o.priority}</span>
       <span style={{ color: 'var(--text-3)' }}>{o.technician}</span>
       <span style={{ padding: '3px 6px', borderRadius: 3, fontSize: 12, textAlign: 'center', background: SC[o.status] }}>{o.status}</span>
+      <TaskTimer timer={orderTimer(o)} minutes={o.minutes} assigned={Boolean(o.assignedTo)} />
     </div>
   );
   const header = (
-    <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, fontSize: 12, color: 'var(--dim)', padding: 6, borderBottom: '1px solid var(--border)', minWidth: 620 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 8, fontSize: 12, color: 'var(--dim)', padding: 6, borderBottom: '1px solid var(--border)', minWidth: 760 }}>
       <span>ID</span>
       <span>Issue</span>
       <span>Location</span>
       <span>Priority</span>
       <span>Technician</span>
       <span>Status</span>
+      <span>Clock</span>
     </div>
   );
   const preventiveRow = (p) => (
@@ -232,10 +235,16 @@ export default function Maintenance() {
                     onChange={(assignedTo) => {
                       const id = assignedTo;
                       orders.update(open.id, { assignedTo: id }, id ? `${open.number} assigned — they are notified` : `${open.number} unassigned`);
-                      setOpen({ ...open, assignedTo: id });
+                      setOpen({ ...open, assignedTo: id, assignedAt: id && id !== open.assignedTo ? new Date().toISOString() : id ? open.assignedAt : null });
                     }}
                   />
                 </label>
+                {open.minutes ? (
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: 'var(--muted)' }}>
+                    {minutesText(open.minutes)} allowed — counts from when it is assigned
+                    <TaskTimer timer={orderTimer(open)} minutes={open.minutes} assigned={Boolean(open.assignedTo)} size="lg" />
+                  </div>
+                ) : null}
                 {open.completionNotes ? (
                   <div style={{ fontSize: 14 }}>
                     <span style={{ color: 'var(--dim)', fontSize: 12 }}>What was done</span>
@@ -331,9 +340,16 @@ export default function Maintenance() {
           { name: 'location', label: 'Location', type: 'select', options: LOCATIONS, required: true },
           { name: 'priority', label: 'Priority', type: 'select', options: Object.keys(PC) },
           { name: 'technician', label: 'Technician', type: 'select', options: techs.items.map((t) => t.name) },
+          {
+            name: 'minutes',
+            label: 'Time allowed',
+            type: 'select',
+            options: [['', 'Standard for work orders'], ...[30, 60, 90, 120, 180, 240, 480, 1440].map((m) => [m, minutesText(m)])],
+            helperText: 'Counts from when a person is assigned. Standard: Settings → Team & Roles → Task times',
+          },
         ]}
         initial={{ priority: 'Medium', location: LOCATIONS[0], technician: techs.items.find((t) => t.status === 'Available')?.name || techs.items[0]?.name, ...(form || {}) }}
-        onSubmit={({ title, location, priority, technician }) => createOrder({ title, location, priority, technician })}
+        onSubmit={({ title, location, priority, technician, minutes }) => createOrder({ title, location, priority, technician, ...(minutes ? { minutes: Number(minutes) } : {}) })}
         onClose={() => setForm(null)}
       />
       <FormDialog

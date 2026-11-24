@@ -32,3 +32,6 @@ body.faywork .work-alert { padding: 10px 14px; border-radius: 10px; background: 
 body.faywork .work-alert--error { background: rgba(255, 107, 107, 0.12); border-color: rgba(255, 107, 107, 0.45); }
 body.faywork .work-alert button { background: none; border: 0; color: inherit; font-size: 18px; cursor: pointer; }
 body.faywork .work-empty { text-align: center; padding: 50px 10px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+body.faywork .work-stat--danger { border-color: rgba(255, 107, 107, 0.55); }
+body.faywork .work-stat--danger strong { color: #ff6b6b; }
+body.faywork .work-card__clock { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }

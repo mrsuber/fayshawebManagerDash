@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 /**
  * Small form in a dialog. `fields`: [{ name, label, type, options, required, rows, helperText }]
- * type: text | textarea | select | number | datetime | date | tags (free-text multi-select; `options` are suggestions).
+ * type: text | textarea | select | number | datetime | date | tags (free-text multi-select; `options` are suggestions)
+ *       | custom ({ render(values, set) }: drawn by the page).
  * `onSubmit(values)` returns a promise; the dialog closes when it resolves and shows the error if it rejects.
  */
 export default function FormDialog({ open, title, subtitle, fields, initial, submitLabel, onSubmit, onClose }) {
@@ -43,6 +44,8 @@ export default function FormDialog({ open, title, subtitle, fields, initial, sub
             {error && <Alert severity="error">{error}</Alert>}
             {fields.map((f) => {
               const common = { label: f.label, required: f.required, helperText: f.helperText, fullWidth: true };
+              // A field the page draws itself: render(values, set) (e.g. a picker that depends on another field).
+              if (f.type === 'custom') return <div key={f.name}>{f.render(values, set)}</div>;
               if (f.type === 'tags') {
                 return (
                   <Autocomplete

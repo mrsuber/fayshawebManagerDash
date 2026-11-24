@@ -259,6 +259,7 @@ router.patch(
         [b.apartment_id],
       );
       await handOverDepositBox(b.apartment_id);
+      await require('../../services/departureClean').raise(req.app, { apartmentId: b.apartment_id, bookingId: b.id });
       await notify(req, 'Guest checked out', `${b.guest_name} · ${b.unit_number}`, { link: '/housekeeping' });
     } else {
       throw httpError(400, 'Use status "Checked In" for arrivals or "Checked Out" for departures');

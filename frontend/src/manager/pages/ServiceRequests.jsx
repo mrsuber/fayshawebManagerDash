@@ -1,10 +1,12 @@
 import { Divider, ListItemIcon, Menu, MenuItem } from '@mui/material';
 import moment from 'moment';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { serviceRequestsApi } from '../api';
 import AssignPicker from '../components/AssignPicker';
 import FormDialog from '../components/FormDialog';
+import TaskTimer, { minutesText, timerState } from '../components/TaskTimer';
 import { Bar, Card, Chip, Donut, Field, Icon, KpiGrid, conic } from '../components/ui';
 import useGuestOptions from '../hooks/useGuestOptions';
 import { DEPARTMENTS, DEPARTMENT_ICON } from './guest360/format';
@@ -25,7 +27,9 @@ const RANGES = [
   ['Last 7 days', 6],
   ['Last 30 days', 29],
 ];
-const SLA = { High: 15, Normal: 30, Low: 60 };
+const SOURCE = { guest: ['Guest', 'person', '#e8b84a'], manager: ['Manager', 'badge', '#5b8ff0'], system: ['Automatic', 'autorenew', '#9b7bf0'] };
+const MINUTE_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 480];
+const minuteOptions = (current) => [...new Set([...MINUTE_CHOICES, ...(current ? [current] : [])])].sort((a, b) => a - b);
 const pct = (n, total) => (total ? Math.round((n / total) * 100) : 0);
 
 /** What happened to the request, from its real timestamps. */
@@ -33,9 +37,13 @@ function updatesFor(r) {
   if (!r) return [];
   const at = (iso) => (iso ? moment(iso).format('HH:mm') : '—');
   const rows = [{ t: at(r.createdAt), d: 'Request received', by: r.guestName ? 'Guest' : 'Team', c: '#e8b84a' }];
-  if (r.assignedTo) rows.push({ t: at(r.assignedAt), d: `Assigned to ${r.assignedTo.name}`, by: 'Manager', c: '#e8b84a' });
+  if (r.assignedTo) rows.push({ t: at(r.assignedAt), d: `Assigned to ${r.assignedTo.name}${r.minutes ? ` — the clock starts (${minutesText(r.minutes)})` : ''}`, by: 'Manager', c: '#e8b84a' });
   if (r.startedAt || r.acknowledgedAt) rows.push({ t: at(r.startedAt || r.acknowledgedAt), d: 'Work started', by: r.assignedTo?.name || 'Team', c: '#2f6fe8' });
-  if (r.completedAt) rows.push({ t: at(r.completedAt), d: r.resolution ? `Done: ${r.resolution}` : 'Done', by: r.assignedTo?.name || 'Team', c: '#1f9d55' });
+  if (r.completedAt) {
+    const late = r.timer && !r.timer.onTime;
+    const took = r.timer ? ` · took ${minutesText(r.timer.takenMinutes)}${late ? `, ${minutesText(r.timer.lateMinutes)} late` : ', on time'}` : '';
+    rows.push({ t: at(r.completedAt), d: `${r.resolution ? `Done: ${r.resolution}` : 'Done'}${took}`, by: r.assignedTo?.name || 'Team', c: late ? '#ff6b6b' : '#1f9d55' });
+  }
   if (r.verifiedAt) rows.push({ t: at(r.verifiedAt), d: 'Checked', by: r.verifiedBy || 'Manager', c: '#1f9d55' });
   if (r.rating) rows.push({ t: '', d: `Guest rating ${'★'.repeat(r.rating)}${r.ratingComment ? ` — “${r.ratingComment}”` : ''}`, by: 'Guest', c: '#e8b84a' });
   if (r.status !== 'Completed' && r.status !== 'Cancelled') rows.push({ t: '—', d: r.assignedTo ? 'Waiting to be done' : 'Waiting to be assigned', by: 'Pending', c: '#3a3f48' });
@@ -49,13 +57,18 @@ const responseMinutes = (r) => {
 };
 const avg = (xs) => (xs.length ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : null);
 
-const COLS = '50px 46px 76px 1.2fr 1.2fr 56px 92px 1fr';
+const COLS = '50px 46px 76px 1.2fr 1.1fr 56px 92px 1fr 128px';
 
 export default function ServiceRequests() {
   const toast = useToast();
   const navigate = useNav();
   const { options: guestOptions, byId } = useGuestOptions();
-  const [sel, setSel] = useState(1385);
+  const [params] = useSearchParams();
+  const [sel, setSel] = useState(Number(params.get('id')) || null);
+  useEffect(() => {
+    // Alerts link here with ?id= (a late task, a departure clean to assign).
+    if (params.get('id')) setSel(Number(params.get('id')));
+  }, [params]);
   const [cat, setCat] = useState(0);
   const [q, setQ] = useState('');
   const [range, setRange] = useState(0);
@@ -76,8 +89,20 @@ export default function ServiceRequests() {
     pri: r.priority,
     s: r.status,
     team: r.assignedTo ? r.assignedTo.name : r.department,
+    dept: r.department,
+    timer: r.timer,
+    minutes: r.minutes,
+    assigned: Boolean(r.assignedTo),
+    source: SOURCE[r.source] ? r.source : 'guest',
+    late: Boolean(timerState(r.timer)?.late),
   }));
-  const rows = all.filter((r) => (cat === 0 || r.team === CATS[cat]) && (!query || `${r.id} ${r.guest} ${r.cat} ${r.loc} ${r.team}`.toLowerCase().includes(query)));
+  const [lateOnly, setLateOnly] = useState(false);
+  const rows = all.filter(
+    (r) =>
+      (cat === 0 || r.dept === CATS[cat] || r.team === CATS[cat]) &&
+      (!lateOnly || (r.late && r.s !== 'Completed')) &&
+      (!query || `${r.id} ${r.guest} ${r.cat} ${r.loc} ${r.team}`.toLowerCase().includes(query)),
+  );
   const cur = rows.find((r) => r.i === sel) ?? rows[0];
   const curRaw = cur && inRange.find((r) => r.id === cur.i);
 
@@ -90,6 +115,17 @@ export default function ServiceRequests() {
     { icon: 'verified', c: '#3fd283', n: count('Completed'), l: 'Completed', d: `${pct(count('Completed'), total)}% done` },
     { icon: 'pause_circle', c: '#9b7bf0', n: count('On Hold'), l: 'On Hold' },
     { icon: 'report', c: '#ff6b6b', n: count('Escalated'), l: 'Escalated', dc: '#ff6b6b' },
+    { icon: 'alarm', c: '#ff6b6b', n: all.filter((r) => r.late && r.s !== 'Completed' && r.s !== 'Cancelled').length, l: 'Late now', d: lateOnly ? 'showing only these' : 'past their time', dc: '#ff6b6b', onClick: () => setLateOnly((v) => !v) },
+    {
+      icon: 'avg_time',
+      c: '#3fd283',
+      n: (() => {
+        const timed = inRange.filter((r) => r.timer?.endedAt);
+        return timed.length ? `${pct(timed.filter((r) => r.timer.onTime).length, timed.length)}%` : '—';
+      })(),
+      l: 'Done on time',
+      d: 'assigned → done',
+    },
     { icon: 'timer', c: '#5b8ff0', n: (() => { const m = avg(inRange.map(responseMinutes).filter((x) => x !== null)); return m === null ? '—' : `${m} min`; })(), l: 'Avg Response', d: 'request → first action' },
   ];
   // Average response per day over the last 7 days, from the real requests.
@@ -194,7 +230,7 @@ export default function ServiceRequests() {
               color: 'var(--dim)',
               padding: 6,
               borderBottom: '1px solid var(--border)',
-              minWidth: 680,
+              minWidth: 820,
             }}
           >
             <span>ID</span>
@@ -205,6 +241,7 @@ export default function ServiceRequests() {
             <span>Priority</span>
             <span>Status</span>
             <span>Assigned</span>
+            <span>Clock</span>
           </div>
           {rows.map((r) => (
             <div
@@ -219,7 +256,7 @@ export default function ServiceRequests() {
                 fontSize: 13,
                 padding: '8px 6px',
                 cursor: 'pointer',
-                minWidth: 680,
+                minWidth: 820,
                 background: r.i === cur?.i ? 'rgba(47,111,232,.18)' : 'transparent',
               }}
             >
@@ -230,7 +267,11 @@ export default function ServiceRequests() {
               <span style={{ color: 'var(--text-3)' }}>{r.loc}</span>
               <span style={{ color: PC[r.pri] }}>{r.pri}</span>
               <span style={{ padding: '3px 6px', borderRadius: 3, fontSize: 12, textAlign: 'center', background: SC[r.s] }}>{r.s}</span>
-              <span style={{ color: 'var(--text-3)' }}>{r.team}</span>
+              <span style={{ color: 'var(--text-3)' }}>
+                {r.source === 'system' ? <Icon name="autorenew" size={13} color="#9b7bf0" style={{ verticalAlign: -2, marginRight: 3 }} /> : null}
+                {r.team}
+              </span>
+              <span>{r.s === 'Cancelled' ? null : <TaskTimer timer={r.timer} minutes={r.minutes} assigned={r.assigned} />}</span>
             </div>
           ))}
         </section>
@@ -263,7 +304,39 @@ export default function ServiceRequests() {
               <Field label="Requested">
                 {cur.date} · {cur.time}
               </Field>
-              <Field label="SLA">{SLA[cur.pri] || 30} minutes</Field>
+              <Field label="Came from">
+                <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center', color: SOURCE[cur.source][2] }}>
+                  <Icon name={SOURCE[cur.source][1]} size={16} /> {SOURCE[cur.source][0]}
+                </span>
+              </Field>
+              <Field label="Time allowed">
+                <select
+                  className="kit-input"
+                  style={{ padding: '6px 8px', fontSize: 13.5 }}
+                  aria-label="Time allowed"
+                  value={curRaw?.minutes || ''}
+                  disabled={curRaw?.status === 'Completed' || curRaw?.status === 'Cancelled'}
+                  onChange={(e) =>
+                    serviceRequestsApi
+                      .update(cur.i, { minutes: Number(e.target.value) })
+                      .then((r) => {
+                        upsert(r?.data || r);
+                        toast(`${cur.id}: ${minutesText(Number(e.target.value))} allowed`);
+                      })
+                      .catch((err) => toast(err.message, 'error'))
+                  }
+                >
+                  {!curRaw?.minutes ? <option value="">Not timed</option> : null}
+                  {minuteOptions(curRaw?.minutes).map((m) => (
+                    <option key={m} value={m}>
+                      {minutesText(m)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Clock">
+                <TaskTimer timer={curRaw?.timer} minutes={curRaw?.minutes} assigned={Boolean(curRaw?.assignedTo)} size="lg" />
+              </Field>
               <Field label="Priority">
                 <span style={{ color: PC[cur.pri] }}>{cur.pri}</span>
               </Field>
@@ -431,21 +504,39 @@ export default function ServiceRequests() {
         open={creating}
         title="New Service Request"
         submitLabel="Create Request"
+        subtitle="For a guest, or a task for the property (e.g. a clean after a departure). The clock starts when it is assigned."
         fields={[
-          { name: 'guestId', label: 'Guest', type: 'select', options: guestOptions, required: true },
-          { name: 'title', label: 'Request', required: true, helperText: 'e.g. Extra towels, AC check, Late checkout' },
+          { name: 'guestId', label: 'Guest', type: 'select', options: [['', 'No guest — a task for the property'], ...guestOptions] },
+          { name: 'title', label: 'Request', required: true, helperText: 'e.g. Extra towels, AC check, Clean Residence A12' },
           { name: 'department', label: 'Department', type: 'select', options: DEPARTMENTS },
           { name: 'priority', label: 'Priority', type: 'select', options: ['High', 'Normal', 'Low'] },
           { name: 'location', label: 'Location', helperText: 'Leave empty to use the guest’s residence' },
+          {
+            name: 'minutes',
+            label: 'Time allowed',
+            type: 'select',
+            options: [['', 'Standard for the department'], ...MINUTE_CHOICES.map((m) => [m, minutesText(m)])],
+            helperText: 'Counts from when the person gets it. Standards: Settings → Team & Roles → Task times',
+          },
+          {
+            name: 'assignedTo',
+            type: 'custom',
+            render: (v, set) => (
+              <label className="col" style={{ gap: 6, fontSize: 13, color: 'var(--muted)' }}>
+                Give it to
+                <AssignPicker department={v.department} value={v.assignedTo || ''} onChange={(x) => set('assignedTo', x)} />
+              </label>
+            ),
+          },
           { name: 'notes', label: 'Notes for the team', type: 'textarea', rows: 2 },
         ]}
-        initial={{ guestId: guestOptions[0]?.[0] || '', department: CATS[cat] !== 'All Requests' ? CATS[cat] : 'Housekeeping', priority: 'Normal' }}
+        initial={{ guestId: '', department: CATS[cat] !== 'All Requests' ? CATS[cat] : 'Housekeeping', priority: 'Normal', minutes: '', assignedTo: null }}
         onSubmit={(v) =>
-          serviceRequestsApi.create({ ...v, location: v.location || byId[v.guestId]?.residence || 'Front desk' }).then((r) => {
+          serviceRequestsApi.create({ ...v, guestId: v.guestId || null, minutes: v.minutes || null, location: v.location || byId[v.guestId]?.residence || 'Front desk' }).then((r) => {
             upsert(r);
             setSel(r.id);
             setQ('');
-            toast(`${r.number} created – ${r.title}`);
+            toast(`${r.number} created – ${r.title}${r.assignedTo ? ` · given to ${r.assignedTo.name}, the clock is running` : ''}`);
           })
         }
         onClose={() => setCreating(false)}

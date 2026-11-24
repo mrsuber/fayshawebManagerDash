@@ -3,7 +3,10 @@
  * it forward: service requests, wellness sessions, work orders, and the events they lead. The web page is /work;
  * the staff app will use the same endpoints.
  *
- *   GET  /                                 { me, requests, wellness, workOrders, events, ratings }
+ *   GET  /                                 { me, requests, wellness, workOrders, events, ratings, timing }
+ *
+ * Requests and work orders carry `timer` (services/taskTimer): the clock starts when the task is given to me and keeps
+ * counting past the time allowed, so I can see I am late. `timing` is my record over 30 days (on time, average time).
  *   POST /requests/:id/start               I'm on it (the guest is told)
  *   POST /requests/:id/done   { note }     done, with what was done (the guest is told and asked to rate it)
  *   POST /wellness/check-in   { code }     the guest's booking code (or PIN journey code) — my sessions or unassigned ones
@@ -17,6 +20,10 @@ const { db, ah, httpError, isoTime, isoDate, emit, addTimeline } = require('./ma
 const { notifyGuest } = require('../services/guestPush');
 const wellness = require('./manager/wellnessBookings');
 const { cleanCode } = require('../services/wellnessBooking');
+const taskTimer = require('../services/taskTimer');
+const departureClean = require('../services/departureClean');
+
+const SOURCE = { guest: 'Guest request', manager: 'From the manager', system: 'Automatic' };
 
 const router = express.Router();
 router.use(authenticateToken, checkPasswordChangeRequired, (req, res, next) => {
@@ -32,7 +39,7 @@ router.get(
   '/',
   ah(async (req, res) => {
     const uid = req.user.id;
-    const [me, requests, sessions, orders, events, ratings] = await Promise.all([
+    const [me, requests, sessions, orders, events, ratings, timing] = await Promise.all([
       db.query(`SELECT u.id, u.full_name, u.department, u.job_title, r.display_name AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1`, [uid]),
       db.query(
         `SELECT r.*, COALESCE(r.guest_name, g.full_name) AS guest, a.unit_number
@@ -62,8 +69,10 @@ router.get(
         `SELECT rating, comment, context, department, created_at FROM staff_ratings WHERE staff_id = $1 ORDER BY created_at DESC LIMIT 50`,
         [uid],
       ),
+      taskTimer.performance({ days: 30, userId: uid }),
     ]);
     const m = me.rows[0];
+    const now = new Date();
     const rs = ratings.rows;
     res.json({
       me: { id: m.id, name: m.full_name, department: m.department, jobTitle: m.job_title, role: m.role },
@@ -83,6 +92,9 @@ router.get(
         createdAt: isoTime(r.created_at),
         completedAt: isoTime(r.completed_at),
         resolution: r.resolution_notes || '',
+        source: r.source || 'guest',
+        sourceLabel: SOURCE[r.source] || SOURCE.guest,
+        timer: taskTimer.requestClock(r, now),
       })),
       wellness: sessions.rows.map((r) => wellness.toItem(r)),
       workOrders: orders.rows.map((o) => ({
@@ -98,6 +110,7 @@ router.get(
         completedAt: isoTime(o.completed_at),
         notes: o.completion_notes || '',
         cost: o.cost === null ? null : Number(o.cost),
+        timer: taskTimer.orderClock(o, now),
       })),
       events: events.rows.map((e) => ({ id: e.id, reference: e.reference, name: e.name, title: e.title, type: e.event_type, date: isoDate(e.event_date), guests: e.guests, status: e.status })),
       ratings: {
@@ -105,6 +118,7 @@ router.get(
         count: rs.length,
         recent: rs.slice(0, 5).map((r) => ({ rating: r.rating, comment: r.comment, context: r.context, at: isoTime(r.created_at) })),
       },
+      timing: timing[0] || { done: 0, onTime: 0, onTimeRate: null, avgMinutes: null, avgLateMinutes: null, open: 0, lateNow: 0 },
     });
   }),
 );
@@ -128,7 +142,8 @@ router.post(
     if (r.guest_id) notifyGuest(req.app, r.guest_id, { title: r.department || 'Your request', body: `Your request “${r.title}” is being taken care of by ${req.user.fullName}.`, event: 'request:updated', data: { id: r.id, status: 'In Progress', screen: 'Requests' } });
     await addTimeline(null, r.guest_id, `${r.title} – started by ${req.user.fullName}`, 'Service Request', { performedBy: req.user.id });
     require('../services/notify').resolve(req.app, `request-sla:${r.id}`).catch(() => {});
-    emit(req, 'service-request:updated', { id: r.id, status: 'In Progress' });
+    await departureClean.progress(req.app, r, 'start');
+    emit(req, 'service-request:updated', await require('./manager/serviceRequests').one(r.id));
     res.json({ ok: true });
   }),
 );
@@ -150,8 +165,10 @@ router.post(
     }
     await addTimeline(null, r.guest_id, `${r.title} – done by ${req.user.fullName}: ${note.slice(0, 120)}`, 'Service Request', { performedBy: req.user.id });
     require('../services/notify').resolve(req.app, `request-sla:${r.id}`).catch(() => {});
-    emit(req, 'service-request:updated', { id: r.id, status: 'Completed' });
-    res.json({ ok: true });
+    await departureClean.progress(req.app, r, 'done', req.user.fullName);
+    const clock = taskTimer.requestClock({ ...r, completed_at: new Date() });
+    emit(req, 'service-request:updated', await require('./manager/serviceRequests').one(r.id));
+    res.json({ ok: true, timer: clock });
   }),
 );
 
@@ -223,7 +240,7 @@ router.post(
     }
     await require('../services/notify').staffAlert(req.app, { title: `Work order done · ${o.number || o.id}`, body: `${o.title} — ${req.user.fullName}: ${note.slice(0, 120)}`, link: '/maintenance', level: 'info', category: 'maintenance' });
     emit(req, 'maintenance:updated', { id: o.id });
-    res.json({ ok: true });
+    res.json({ ok: true, timer: taskTimer.orderClock({ ...o, completed_at: new Date() }) });
   }),
 );
 

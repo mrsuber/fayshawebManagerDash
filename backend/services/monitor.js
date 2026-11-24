@@ -80,6 +80,53 @@ const RULES = [
              AND r.created_at < NOW() - make_interval(mins => CASE r.priority WHEN 'urgent' THEN ${SLA_MINUTES.urgent} WHEN 'high' THEN ${SLA_MINUTES.high} WHEN 'low' THEN ${SLA_MINUTES.low} ELSE ${SLA_MINUTES.normal} END)`,
   },
   {
+    // Task timers (services/taskTimer): a request past its time allowed. The managers are told once per person given it
+    // (the key is request.assignee, so a reassigned task can go late again); it clears when done.
+    prefix: 'task-late',
+    level: 'action',
+    category: 'requests',
+    sql: `SELECT r.id || '.' || r.assigned_to AS id, 'Running late · ' || r.title AS title,
+                 s.full_name || ' · ' || r.time_allowed_minutes || ' min allowed · ' || COALESCE(NULLIF(r.location, ''), r.department, '') AS body,
+                 '/requests?id=' || r.id AS link
+            FROM service_requests r JOIN users s ON s.id = r.assigned_to
+           WHERE r.status NOT IN ('completed', 'cancelled') AND r.time_allowed_minutes IS NOT NULL AND r.assigned_at IS NOT NULL
+             AND r.assigned_at + make_interval(mins => r.time_allowed_minutes) < LOCALTIMESTAMP`,
+  },
+  {
+    // …and the person doing it (only to them: user_id).
+    prefix: 'task-late-me',
+    level: 'urgent',
+    category: 'assignment',
+    sql: `SELECT r.id || '.' || r.assigned_to AS id, r.assigned_to AS user_id, 'You are behind · ' || r.title AS title,
+                 'The ' || r.time_allowed_minutes || ' minutes are up — the clock keeps counting until you mark it done.' AS body,
+                 '/work' AS link
+            FROM service_requests r
+           WHERE r.status NOT IN ('completed', 'cancelled') AND r.time_allowed_minutes IS NOT NULL AND r.assigned_to IS NOT NULL AND r.assigned_at IS NOT NULL
+             AND r.assigned_at + make_interval(mins => r.time_allowed_minutes) < LOCALTIMESTAMP`,
+  },
+  {
+    prefix: 'work-order-late',
+    level: 'action',
+    category: 'maintenance',
+    sql: `SELECT o.id || '.' || o.assigned_to AS id, 'Running late · ' || COALESCE(o.number || ' ', '') || o.title AS title,
+                 s.full_name || ' · ' || o.time_allowed_minutes || ' min allowed' || COALESCE(' · ' || o.location, '') AS body,
+                 '/maintenance' AS link
+            FROM work_orders o JOIN users s ON s.id = o.assigned_to
+           WHERE o.status NOT IN ('Completed', 'Closed', 'Cancelled') AND o.time_allowed_minutes IS NOT NULL AND o.assigned_at IS NOT NULL
+             AND o.assigned_at + make_interval(mins => o.time_allowed_minutes) < NOW()`,
+  },
+  {
+    prefix: 'work-order-late-me',
+    level: 'urgent',
+    category: 'assignment',
+    sql: `SELECT o.id || '.' || o.assigned_to AS id, o.assigned_to AS user_id, 'You are behind · ' || COALESCE(o.number || ' ', '') || o.title AS title,
+                 'The ' || o.time_allowed_minutes || ' minutes are up — the clock keeps counting until you mark it done.' AS body,
+                 '/work' AS link
+            FROM work_orders o
+           WHERE o.status NOT IN ('Completed', 'Closed', 'Cancelled') AND o.time_allowed_minutes IS NOT NULL AND o.assigned_to IS NOT NULL AND o.assigned_at IS NOT NULL
+             AND o.assigned_at + make_interval(mins => o.time_allowed_minutes) < NOW()`,
+  },
+  {
     prefix: 'guest-waiting',
     level: 'action',
     category: 'messages',
@@ -246,7 +293,8 @@ async function runRules(app, p) {
       );
       const live = new Set(rows.map((r) => `${rule.prefix}:${r.id}`));
       for (const r of rows) {
-        await staffAlert(app, { title: r.title, body: r.body, link: r.link, level: r.level || rule.level, category: rule.category, dedupeKey: `${rule.prefix}:${r.id}` });
+        // A row with user_id is for that person only (e.g. "you are behind" to the one doing the task).
+        await staffAlert(app, { title: r.title, body: r.body, link: r.link, level: r.level || rule.level, category: rule.category, dedupeKey: `${rule.prefix}:${r.id}`, userId: r.user_id || null });
       }
       const open = await db.query(`SELECT dedupe_key FROM staff_notifications WHERE resolved_at IS NULL AND dedupe_key LIKE $1`, [`${rule.prefix}:%`]);
       for (const { dedupe_key: key } of open.rows) if (!live.has(key)) await resolve(app, key);

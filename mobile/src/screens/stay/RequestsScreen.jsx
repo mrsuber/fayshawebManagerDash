@@ -105,7 +105,7 @@ export default function RequestsScreen({ navigation, route }) {
           ))}
           {past.length ? <SectionTitle>EARLIER</SectionTitle> : null}
           {past.map((r) => (
-            <RequestCard key={r.id} request={r} />
+            <RequestCard key={r.id} request={r} onRate={r.canRate ? () => navigation.navigate('Rate') : null} />
           ))}
         </>
       )}
@@ -141,7 +141,7 @@ export default function RequestsScreen({ navigation, route }) {
   );
 }
 
-function RequestCard({ request: r, onCancel }) {
+function RequestCard({ request: r, onCancel, onRate }) {
   return (
     <Card style={{ marginBottom: 10 }} highlight={r.open && r.priority === 'urgent'}>
       <View style={s.top}>
@@ -151,9 +151,11 @@ function RequestCard({ request: r, onCancel }) {
       <Text style={s.title}>{r.title}</Text>
       {!!r.notes && <Body muted style={{ marginTop: 4, fontSize: 12.5 }} numberOfLines={3}>{r.notes}</Body>}
       {!!r.resolution && <Body style={{ marginTop: 8, fontSize: 12.5 }}>“{r.resolution}”</Body>}
+      {!!r.staff && <Text style={[s.meta, { marginTop: 8 }]}>Looked after by {r.staff}</Text>}
       <View style={s.bottom}>
         <Text style={s.meta}>{r.number} · {ago(r.createdAt)}</Text>
         {onCancel ? <Text style={s.cancel} onPress={onCancel}>Cancel</Text> : null}
+        {onRate ? <Text style={s.rate} onPress={onRate}>★ Rate{r.staff ? ` ${r.staff.split(' ')[0]}` : ''}</Text> : null}
       </View>
     </Card>
   );
@@ -166,6 +168,7 @@ const s = StyleSheet.create({
   bottom: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   meta: { fontFamily: FONTS.body, color: COLORS.textTertiary, fontSize: 11.5 },
   cancel: { fontFamily: FONTS.body, color: '#ff8a80', fontSize: 12 },
+  rate: { fontFamily: FONTS.body, color: COLORS.primary, fontSize: 12.5 },
   ideas: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: -4, marginBottom: 16 },
   idea: { fontFamily: FONTS.body, color: COLORS.textSecondary, fontSize: 11.5, borderWidth: 1, borderColor: COLORS.border, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, overflow: 'hidden' },
   urgentRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },

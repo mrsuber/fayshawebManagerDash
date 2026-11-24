@@ -27,8 +27,16 @@ test('Service Requests marks the selected request completed', async () => {
   renderWithProviders(<ServiceRequests />);
   const row = (await screen.findAllByText('#1385'))[0].closest('.hov-row');
   expect(within(row).getByText('In Progress')).toBeInTheDocument();
+  await userEvent.click(row);
   await userEvent.click(screen.getByText('Mark as Completed'));
   expect(within(row).getByText('Completed')).toBeInTheDocument();
+});
+
+test('Service Requests shows a running clock and the late count', async () => {
+  renderWithProviders(<ServiceRequests />);
+  await screen.findAllByText('#1385');
+  expect(screen.getByText('Late now')).toBeInTheDocument();
+  expect(screen.getByText('Done on time')).toBeInTheDocument();
 });
 
 test('Housekeeping advances a vacant residence but not an occupied one', async () => {

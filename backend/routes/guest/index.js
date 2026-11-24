@@ -250,12 +250,21 @@ const toRequest = (r) => ({
   createdAt: isoTime(r.created_at),
   completedAt: isoTime(r.completed_at),
   resolution: r.resolution_notes || '',
+  // Who looked after it, and whether the guest can still rate them (once done, until they have).
+  staff: r.staff_name || null,
+  canRate: r.status === 'completed' && !r.rated,
 });
 
 router.get(
   '/requests',
   ah(async (req, res) => {
-    const { rows } = await db.query('SELECT * FROM service_requests WHERE guest_id = $1 ORDER BY created_at DESC LIMIT 100', [req.user.id]);
+    const { rows } = await db.query(
+      `SELECT r.*, s.full_name AS staff_name,
+              EXISTS (SELECT 1 FROM staff_ratings sr WHERE sr.user_id = r.guest_id AND sr.context = 'request' AND sr.context_id = r.id) AS rated
+         FROM service_requests r LEFT JOIN users s ON s.id = r.assigned_to
+        WHERE r.guest_id = $1 ORDER BY r.created_at DESC LIMIT 100`,
+      [req.user.id],
+    );
     res.json(rows.map(toRequest));
   }),
 );
@@ -270,11 +279,14 @@ router.post(
     const stay = await requireStay(req.user);
     const { rows } = await db.query(
       `WITH n AS (SELECT nextval(pg_get_serial_sequence('service_requests', 'id')) AS id)
-       INSERT INTO service_requests (id, request_number, guest_id, guest_name, booking_id, apartment_id, request_type, department, title, description, priority, location, metadata)
-       SELECT n.id, '#' || n.id, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11 FROM n RETURNING *`,
+       INSERT INTO service_requests (id, request_number, guest_id, guest_name, booking_id, apartment_id, request_type, department, title, description, priority, location, metadata,
+                                     source, time_allowed_minutes)
+       SELECT n.id, '#' || n.id, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'guest', $12 FROM n RETURNING *`,
       [
         req.user.id, req.user.fullName, stay.id, stay.apartment_id, DEPARTMENTS[department], department, String(title).trim().slice(0, 200),
         notes || null, urgent ? 'urgent' : 'normal', location || `Residence ${stay.unit_number}`, JSON.stringify({ source: 'guest_app' }),
+        // The time the team has for it once someone takes it: the department's standard (FAY OS → Settings → Team).
+        await require('../../services/taskTimer').minutesFor(department),
       ],
     );
     const request = toRequest(rows[0]);

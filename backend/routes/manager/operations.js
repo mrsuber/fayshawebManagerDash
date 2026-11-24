@@ -44,14 +44,24 @@ router.use(
   '/maintenance/work-orders',
   crud({
     table: 'work_orders',
-    fields: { ...f('number', 'title', 'location', 'priority', 'technician', 'status', 'createdAt', 'assignedTo', 'assetId', 'cost', 'completionNotes', 'completedAt'), serviceRequestId: 'service_request_id' },
-    types: { createdAt: 'timestamp', assignedTo: 'number', assetId: 'number', cost: 'number', completedAt: 'timestamp', serviceRequestId: 'number' },
+    fields: {
+      ...f('number', 'title', 'location', 'priority', 'technician', 'status', 'createdAt', 'assignedTo', 'assignedAt', 'assetId', 'cost', 'completionNotes', 'completedAt'),
+      serviceRequestId: 'service_request_id',
+      minutes: 'time_allowed_minutes',
+    },
+    types: { createdAt: 'timestamp', assignedTo: 'number', assignedAt: 'timestamp', assetId: 'number', cost: 'number', completedAt: 'timestamp', serviceRequestId: 'number', minutes: 'number' },
     required: ['title'],
     order: 'created_at DESC',
-    async prepare(req, data) {
+    async prepare(req, data, ctx) {
       // Assigning a person also shows their name in the technician column; Completed stamps the time.
       if (data.assignedTo) data.technician = (await require('../../services/assignment').person(data.assignedTo)).name;
       if (data.status === 'Completed' && !data.completedAt) data.completedAt = new Date().toISOString();
+      // Task timer: the time allowed (the work-order standard when not given); the clock starts when it is given to someone.
+      const taskTimer = require('../../services/taskTimer');
+      delete data.assignedAt;
+      if (data.minutes !== undefined) data.minutes = taskTimer.cleanMinutes(data.minutes);
+      if (ctx.op === 'create' && !data.minutes) data.minutes = await taskTimer.minutesFor('workOrder', null, ctx.q);
+      if (data.assignedTo !== undefined && Number(data.assignedTo || 0) !== Number(ctx.before?.assignedTo || 0)) data.assignedAt = data.assignedTo ? new Date().toISOString() : null;
     },
     async after(req, item, ctx) {
       await autoNumber('work_orders', 'WO-')(req, item, ctx);

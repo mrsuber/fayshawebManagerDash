@@ -3,12 +3,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Icon } from '../manager/components/ui';
+import TaskTimer, { minutesText, timerState } from '../manager/components/TaskTimer';
 import '../manager/styles.css';
 import './work.css';
 
 /**
  * My work (/work): what is assigned to me — guest requests, wellness sessions, work orders, events I lead — with the
- * buttons to move each forward, and my ratings. For every team member; made for a phone. The staff app will use the
+ * buttons to move each forward, and my ratings. Requests and work orders show their clock: the time left, or how late
+ * (it keeps counting past the time allowed until the task is done); "My timing" is my record over 30 days. For every team member; made for a phone. The staff app will use the
  * same API (/api/work).
  */
 const API = (process.env.REACT_APP_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? '/api' : 'http://localhost:5001/api')).replace(/\/$/, '');
@@ -87,6 +89,13 @@ export default function WorkApp() {
   const sessions = data.wellness.filter((w) => ['requested', 'upcoming', 'in_progress'].includes(w.status));
   const openOrders = data.workOrders.filter((o) => !['Completed', 'Closed', 'Cancelled'].includes(o.status));
   const total = openRequests.length + sessions.length + openOrders.length;
+  const lateNow = [...openRequests, ...openOrders].filter((x) => timerState(x.timer)?.late).length;
+  const tm = data.timing || {};
+  // Late first, then the least time left.
+  const byClock = (a, b) => {
+    const left = (x) => (x.timer ? new Date(x.timer.dueAt).getTime() : Infinity);
+    return left(a) - left(b);
+  };
 
   return (
     <div className="work-shell">
@@ -108,6 +117,12 @@ export default function WorkApp() {
         <Stat label="Requests" value={openRequests.length} />
         <Stat label="Sessions" value={sessions.length} />
         <Stat label="Work orders" value={openOrders.length} />
+        <Stat label="Late now" value={lateNow} danger={lateNow > 0} hint={lateNow ? 'finish these first' : 'all on time'} />
+        <Stat
+          label="My timing"
+          value={tm.onTimeRate === null || tm.onTimeRate === undefined ? '—' : `${tm.onTimeRate}%`}
+          hint={tm.done ? `on time · ${tm.done} done in 30 days · avg ${minutesText(tm.avgMinutes)}` : 'no timed tasks yet'}
+        />
         <Stat label="My rating" value={data.ratings.average ? `${data.ratings.average}★` : '—'} hint={data.ratings.count ? `${data.ratings.count} rating${data.ratings.count > 1 ? 's' : ''}` : 'no ratings yet'} />
       </div>
 
@@ -117,8 +132,8 @@ export default function WorkApp() {
       {total === 0 && !data.events.length ? <div className="work-empty"><Icon name="task_alt" size={40} color="var(--gold)" /><p>Nothing assigned to you right now.</p></div> : null}
 
       {openRequests.length ? (
-        <Section title="Guest requests" icon="room_service">
-          {openRequests.map((r) => <RequestCard key={r.id} r={r} api={api} act={act} />)}
+        <Section title="Requests" icon="room_service">
+          {[...openRequests].sort(byClock).map((r) => <RequestCard key={r.id} r={r} api={api} act={act} />)}
         </Section>
       ) : null}
 
@@ -131,7 +146,7 @@ export default function WorkApp() {
 
       {data.workOrders.length ? (
         <Section title="Work orders" icon="construction">
-          {data.workOrders.map((o) => <OrderCard key={o.id} o={o} api={api} act={act} />)}
+          {[...data.workOrders].sort(byClock).map((o) => <OrderCard key={o.id} o={o} api={api} act={act} />)}
         </Section>
       ) : null}
 
@@ -152,6 +167,7 @@ export default function WorkApp() {
           {doneRequests.map((r) => (
             <article key={r.id} className="work-card work-card--done">
               <div className="work-card__top"><strong>{r.title}</strong><span className="sub">{time(r.completedAt)}</span></div>
+              <TaskTimer timer={r.timer} />
               <span className="sub">{r.resolution}</span>
             </article>
           ))}
@@ -172,9 +188,9 @@ export default function WorkApp() {
   );
 }
 
-function Stat({ label, value, hint }) {
+function Stat({ label, value, hint, danger }) {
   return (
-    <div className="work-stat">
+    <div className={`work-stat${danger ? ' work-stat--danger' : ''}`}>
       <strong>{value}</strong>
       <span>{label}</span>
       {hint ? <small>{hint}</small> : null}
@@ -195,10 +211,14 @@ function RequestCard({ r, api, act }) {
   const [closing, setClosing] = useState(false);
   const [note, setNote] = useState('');
   return (
-    <article className={`work-card${r.urgent ? ' work-card--urgent' : ''}`}>
+    <article className={`work-card${r.urgent || timerState(r.timer)?.late ? ' work-card--urgent' : ''}`}>
       <div className="work-card__top">
         <strong>{r.department}{r.urgent ? ' · URGENT' : ''}</strong>
         <span className="work-pill">{r.status}</span>
+      </div>
+      <div className="work-card__clock">
+        <TaskTimer timer={r.timer} size="lg" />
+        <span className="sub">{r.sourceLabel}{r.timer ? ` · ${minutesText(r.timer.minutes)} allowed` : ''}</span>
       </div>
       <p className="work-card__title">{r.title}</p>
       {r.notes ? <p className="work-card__notes">{r.notes}</p> : null}
@@ -270,6 +290,10 @@ function OrderCard({ o, api, act }) {
       <div className="work-card__top">
         <strong>{o.number} · {o.priority}</strong>
         <span className="work-pill">{o.status}</span>
+      </div>
+      <div className="work-card__clock">
+        <TaskTimer timer={o.timer} size={done ? 'md' : 'lg'} />
+        {o.timer && !done ? <span className="sub">{minutesText(o.timer.minutes)} allowed</span> : null}
       </div>
       <p className="work-card__title">{o.title}</p>
       <span className="sub">{[o.location, o.asset ? `Asset: ${o.asset}` : null].filter(Boolean).join(' · ')}</span>

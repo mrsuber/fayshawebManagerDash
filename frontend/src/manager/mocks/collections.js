@@ -45,6 +45,7 @@ export function buildCollections({ at, past, day }) {
     ),
     preferences: {
       ai: { autoReply: true, recommendations: true, autoAssign: true, smartHome: true, approvalOver500: false },
+      taskTimes: { Housekeeping: 45, Maintenance: 60, Concierge: 20, Dining: 30, Wellness: 30, Transportation: 20, Experiences: 30, departureClean: 90, workOrder: 120 },
       notifications: {
         vipArrival: { push: true, email: true, sms: false },
         escalation: { push: true, email: true, sms: true },

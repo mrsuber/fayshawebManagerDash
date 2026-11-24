@@ -155,23 +155,28 @@ router.put(
 
 router.get(
   '/settings/preferences',
-  ah(async (req, res) => res.json(await getSetting('preferences'))),
+  ah(async (req, res) => res.json({ ...(await getSetting('preferences')), taskTimes: await require('../../services/taskTimer').standards() })),
 );
 
-/** PATCH { ai?, notifications?, billing? } — each group is merged into what's stored. */
+/**
+ * PATCH { ai?, notifications?, billing?, taskTimes? } — each group is merged into what's stored.
+ * taskTimes: standard minutes per department (Housekeeping, Maintenance…), departureClean and workOrder.
+ */
 router.patch(
   '/settings/preferences',
   ah(async (req, res) => {
+    const taskTimer = require('../../services/taskTimer');
     const current = await getSetting('preferences');
     for (const group of ['ai', 'notifications', 'billing']) {
       if (req.body?.[group] && typeof req.body[group] === 'object') current[group] = { ...(current[group] || {}), ...req.body[group] };
     }
+    if (req.body?.taskTimes && typeof req.body.taskTimes === 'object') current.taskTimes = { ...(current.taskTimes || {}), ...taskTimer.cleanStandards(req.body.taskTimes) };
     await db.query(
       `INSERT INTO app_settings (key, value, updated_by) VALUES ('preferences', $1, $2)
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_by = $2`,
       [JSON.stringify(current), req.user.id],
     );
-    res.json(current);
+    res.json({ ...current, taskTimes: await taskTimer.standards() });
   }),
 );
 

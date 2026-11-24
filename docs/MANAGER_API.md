@@ -88,8 +88,15 @@ Sign-in is the site's `POST /api/auth/login`; managers land on `/manager` after 
 | Method | Path | Response |
 |---|---|---|
 | GET | `/service-requests?department=&guestId=` | `ServiceRequest[]` newest first |
-| POST | `/service-requests` `{ guestId, title, department, priority, location, notes }` | `ServiceRequest` with status `New`. Also emit `service-request:created`. |
-| PATCH | `/service-requests/:id` `{ status }` | `ServiceRequest` — also emit `service-request:updated` |
+| GET | `/service-requests/performance?days=30` | `{ days, standards, people: [{ id, name, department, done, onTime, onTimeRate, avgMinutes, avgLateMinutes, open, lateNow, rating, ratings }] }` — timing per person (requests and work orders with a time allowed, assigned → done) |
+| POST | `/service-requests` `{ guestId?, guestName?, title, department, priority, location, notes, minutes?, assignedTo? }` | `ServiceRequest` with status `New`, `source: 'manager'`. No guest = a task for the property. `minutes` = time allowed (default: the department's standard, `preferences.taskTimes`). `assignedTo`: user id or `'auto'`; the clock starts at once. Also emit `service-request:created`. |
+| PATCH | `/service-requests/:id` `{ status?, priority?, department?, location?, notes?, title?, resolution?, verified?, assignedTo?, minutes? }` | `ServiceRequest` — also emit `service-request:updated`. Reassigning restarts the clock for the new person. |
+
+`ServiceRequest` also carries `source` (`guest` \| `manager` \| `system`), `kind` (`departure_clean` for the automatic clean raised at check-out), `minutes` (time allowed) and
+`timer`: `null` until the request is assigned, then `{ minutes, startedAt, dueAt, endedAt, running, takenMinutes, lateMinutes, onTime }` — the clock runs from assignment to done and keeps
+counting past `dueAt`. The monitor raises `task-late:<id>.<user>` (managers) and `task-late-me:<id>.<user>` (the person) once it is late; work orders the same with `work-order-late*`.
+
+Task times: `GET /settings/preferences` returns `taskTimes` (minutes per department, `departureClean`, `workOrder`); `PATCH /settings/preferences { taskTimes: { Housekeeping: 40 } }` (5–10080).
 
 `ServiceRequest`: `{ id, number, createdAt, guestId, guestName, title, location, priority, status, department, notes }`
 - `priority`: `High | Normal | Low`
@@ -235,7 +242,7 @@ DELETE {path}/:id           → { ok: true }
 | Housekeeping staff | `/housekeeping/staff` | `name, zone, shift` |
 | Linen & amenities | `/housekeeping/stock` | `item, level (0–100), par` |
 | Guest notes for housekeeping | `/housekeeping/guest-notes` | `icon, residence, guest, text` |
-| Work orders | `/maintenance/work-orders` | `number, title, location, priority: High \| Medium \| Low, technician, status: Open \| In Progress \| Scheduled \| Awaiting Parts \| Completed, createdAt` |
+| Work orders | `/maintenance/work-orders` | `number, title, location, priority: High \| Medium \| Low, technician, status: Open \| In Progress \| Scheduled \| Awaiting Parts \| Completed, createdAt, assignedTo, assignedAt (set by the server), minutes (time allowed; default the work-order standard)` |
 | Preventive maintenance | `/maintenance/preventive` | `date, title, location, duration, status: Planned \| Done` |
 | System health | `/maintenance/systems` | `icon, name, health (0–100), checkedAt` |
 | Maintenance device alerts | `/maintenance/alerts` | `icon, severity, title, detail, location, status: Open \| Converted, workOrder?` |

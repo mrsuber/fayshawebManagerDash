@@ -1,6 +1,7 @@
 import moment from 'moment';
 import { useState } from 'react';
-import { opsApi } from '../api';
+import { opsApi, serviceRequestsApi } from '../api';
+import { minutesText } from '../components/TaskTimer';
 import { Empty, Pill, Tabs, TextInput, Toolbar } from '../components/kit';
 import { Bar, Icon, KpiGrid } from '../components/ui';
 import { useToast } from '../context/ToastContext';
@@ -20,6 +21,7 @@ export default function Quality() {
   const summary = useApi(() => opsApi.qualitySummary(days), [days], null);
   const ratings = useApi(() => opsApi.ratings({ days, max: tab === 'low' ? 2 : 5 }), [days, tab], []);
   const inspections = useApi(() => opsApi.inspections(days), [days], []);
+  const timing = useApi(() => (tab === 'timing' ? serviceRequestsApi.performance(days) : Promise.resolve(null)), [days, tab], null);
   const [editing, setEditing] = useState(null);
   const [followUp, setFollowUp] = useState('');
   useSocketEvent('rating:new', () => {
@@ -53,10 +55,10 @@ export default function Quality() {
     <div className="stack">
       <KpiGrid items={kpis} min={190} />
       <Toolbar right={<Tabs value={days} onChange={setDays} options={[[7, '7 days'], [30, '30 days'], [90, '90 days']]} />}>
-        <Tabs value={tab} onChange={setTab} options={[['low', 'Low ratings'], ['all', 'All ratings'], ['team', 'Team'], ['inspections', 'Inspections']]} />
+        <Tabs value={tab} onChange={setTab} options={[['low', 'Low ratings'], ['all', 'All ratings'], ['team', 'Team'], ['timing', 'Team timing'], ['inspections', 'Inspections']]} />
       </Toolbar>
 
-      {tab === 'team' ? (
+      {tab === 'timing' ? <TeamTiming data={timing.data} days={days} onOpen={() => navigate('/requests')} /> : tab === 'team' ? (
         <div className="grid-cols">
           <section className="card" style={{ gap: 10 }}>
             <span className="card-title">Team members</span>
@@ -151,5 +153,64 @@ export default function Quality() {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * How fast each person works: tasks with a time allowed (requests and work orders), measured from when the task was given
+ * to them to when they marked it done. Next to it, what guests said (only tasks for a guest can be rated).
+ */
+function TeamTiming({ data, days, onOpen }) {
+  const people = [...(data?.people || [])].sort((a, b) => (b.onTimeRate ?? -1) - (a.onTimeRate ?? -1) || b.done - a.done);
+  const COLS = 'minmax(150px,1.4fr) 70px minmax(110px,1fr) 90px 90px 80px 90px';
+  const color = (r) => (r === null ? 'var(--muted)' : r >= 85 ? 'var(--green-bright)' : r >= 60 ? 'var(--gold)' : 'var(--red-soft)');
+  return (
+    <section className="card" style={{ gap: 10, overflowX: 'auto' }}>
+      <span className="card-title">Team timing · last {days} days</span>
+      <span className="sub">
+        The clock starts when a task is given to the person and stops when they mark it done; past the time allowed it keeps counting.
+        Times allowed: Settings → Team &amp; Roles → Task times.
+      </span>
+      {!data ? <span className="sub">Loading…</span> : null}
+      {data && !people.length ? <Empty icon="timer" title="No timed tasks yet" text="Tasks assigned from now on are timed; results appear here once they are done." /> : null}
+      {people.length ? (
+        <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 10, fontSize: 12, color: 'var(--dim)', padding: '4px 0', borderBottom: '1px solid var(--border)', minWidth: 720 }}>
+          <span>Team member</span>
+          <span>Done</span>
+          <span>On time</span>
+          <span>Avg time</span>
+          <span>Avg when late</span>
+          <span>Late now</span>
+          <span>Guest rating</span>
+        </div>
+      ) : null}
+      {people.map((p) => (
+        <div key={p.id} className="row-line" style={{ display: 'grid', gridTemplateColumns: COLS, gap: 10, alignItems: 'center', fontSize: 14, padding: '6px 0', minWidth: 720 }}>
+          <span>
+            {p.name}
+            <div className="sub">{p.department || '—'} · {p.open} open</div>
+          </span>
+          <span>{p.done}</span>
+          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ flex: 1 }}>
+              <Bar value={`${p.onTimeRate || 0}%`} color={color(p.onTimeRate)} />
+            </span>
+            <span style={{ color: color(p.onTimeRate), minWidth: 38 }}>{p.onTimeRate === null ? '—' : `${p.onTimeRate}%`}</span>
+          </span>
+          <span>{minutesText(p.avgMinutes)}</span>
+          <span style={{ color: p.avgLateMinutes ? 'var(--red-soft)' : 'var(--muted)' }}>{p.avgLateMinutes ? `+${minutesText(p.avgLateMinutes)}` : '—'}</span>
+          <span>
+            {p.lateNow ? (
+              <button type="button" className="fay-btn-outline" style={{ padding: '3px 8px', fontSize: 12, color: '#ff6b6b' }} onClick={onOpen}>
+                {p.lateNow} late
+              </button>
+            ) : (
+              <span className="sub">0</span>
+            )}
+          </span>
+          <span>{p.rating ? `${p.rating} ★` : '—'}<div className="sub">{p.ratings ? `${p.ratings} rating${p.ratings > 1 ? 's' : ''}` : 'no guest'}</div></span>
+        </div>
+      ))}
+    </section>
   );
 }

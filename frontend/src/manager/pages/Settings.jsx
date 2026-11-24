@@ -63,6 +63,18 @@ const NOTIFY_EVENTS = [
 ];
 const ROLES = ['Administrator', 'General Manager', 'Supervisor', 'Staff', 'Technician', 'Chauffeur', 'Therapist'];
 const DEPARTMENTS = ['Management', 'Front Office', 'Housekeeping', 'Maintenance', 'Dining', 'Wellness', 'Transportation', 'Experiences'];
+/** Standard time allowed for a task, per kind: [preferences.taskTimes key, label, hint]. */
+const TASK_TIMES = [
+  ['Housekeeping', 'Housekeeping request', 'Towels, a tidy-up, turndown'],
+  ['departureClean', 'Departure clean', 'Raised automatically when a guest checks out'],
+  ['Maintenance', 'Maintenance request', 'A light, the AC, water pressure'],
+  ['workOrder', 'Work order', 'Repairs from FAY OS → Maintenance'],
+  ['Concierge', 'Concierge', 'Luggage, a booking, a question'],
+  ['Dining', 'Dining', 'In-residence orders and requests'],
+  ['Wellness', 'Wellness', 'Wellness requests (sessions keep their booked time)'],
+  ['Transportation', 'Transport', 'A driver, a pick-up'],
+  ['Experiences', 'Experiences', 'Arranging an outing'],
+];
 const INTEGRATION_COLOR = { Connected: '#3fd283', 'Action needed': '#e8b84a', Disconnected: '#8f897d' };
 
 export default function Settings() {
@@ -160,6 +172,49 @@ export default function Settings() {
         <Toggle size="lg" on={!!prefs?.ai[key]} label={title} onClick={() => savePrefs('ai', { [key]: !prefs.ai[key] }, `${title} ${prefs.ai[key] ? 'off' : 'on'}`)} />
       </div>
     )),
+  );
+
+  const taskTimesCard = sectionCard(
+    'Task times',
+    <>
+      <span className="sub" style={{ marginBottom: 4 }}>
+        The time a person has for a task. It counts from the moment the task is given to them and keeps counting when they are
+        late; they see it in My work, you see it on Service Requests and in Quality → Team timing. A manager can give a different
+        time when creating a request. Changes apply to new tasks.
+      </span>
+      {TASK_TIMES.map(([key, title, d]) => (
+        <div key={key} className="row-line" style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '8px 0' }}>
+          <div className="col" style={{ flex: 1 }}>
+            <span style={{ fontSize: 15 }}>{title}</span>
+            <span className="sub">{d}</span>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
+            <input
+              key={`${key}-${prefs?.taskTimes?.[key] ?? ''}`}
+              type="number"
+              min={5}
+              max={10080}
+              step={5}
+              defaultValue={prefs?.taskTimes?.[key] ?? ''}
+              disabled={!prefs}
+              aria-label={`${title} minutes`}
+              style={{ ...inputStyle, width: 90, textAlign: 'right' }}
+              onBlur={(e) => {
+                const n = Number(e.target.value);
+                if (!n || n === prefs?.taskTimes?.[key]) return;
+                if (n < 5 || n > 10080) {
+                  toast('Between 5 minutes and 7 days (10080)', 'error');
+                  e.target.value = prefs?.taskTimes?.[key] ?? '';
+                  return;
+                }
+                savePrefs('taskTimes', { [key]: Math.round(n) }, `${title}: ${Math.round(n)} minutes`);
+              }}
+            />
+            min
+          </label>
+        </div>
+      ))}
+    </>,
   );
 
   const integrationTile = (x) => (
@@ -358,7 +413,7 @@ export default function Settings() {
 
   const content = [
     [propertyCard, <CurrencySettings key="currencies" />, aiCard, integrationsCard],
-    [teamCard],
+    [taskTimesCard, teamCard],
     [residencesCard],
     [aiCard],
     [notificationsCard],

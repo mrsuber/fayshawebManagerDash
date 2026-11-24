@@ -1,5 +1,13 @@
 /**
  * Service requests (table from migration 019/020), in the dashboard's vocabulary.
+ *
+ *   GET   /                       ?department=&guestId= → ServiceRequest[]
+ *   GET   /performance?days=30    timing per person (services/taskTimer.performance)
+ *   POST  /                       { guestId?, guestName?, title, department, priority, location, notes, minutes?, assignedTo? }
+ *   PATCH /:id                    { status?, priority?, department?, location?, notes?, title?, resolution?, verified?, assignedTo?, minutes? }
+ *
+ * Each request carries `source` (guest | manager | system) and the time allowed (`minutes`; the department's standard
+ * when not given). The clock (`timer`) runs from assignment to done and keeps counting past the time allowed.
  */
 
 const express = require('express');
@@ -21,6 +29,8 @@ const SELECT = `SELECT r.*, COALESCE(r.guest_name, u.full_name) AS display_name,
                   LEFT JOIN users v ON v.id = r.verified_by
                   LEFT JOIN staff_ratings sr ON sr.context = 'request' AND sr.context_id = r.id`;
 const assignment = require('../../services/assignment');
+const taskTimer = require('../../services/taskTimer');
+const departureClean = require('../../services/departureClean');
 
 function toRequest(r) {
   return {
@@ -45,6 +55,10 @@ function toRequest(r) {
     verifiedAt: isoTime(r.verified_at),
     rating: r.guest_rating || null,
     ratingComment: r.guest_comment || null,
+    source: r.source || 'guest',
+    kind: r.metadata?.kind || null,
+    minutes: r.time_allowed_minutes || null,
+    timer: taskTimer.requestClock(r),
   };
 }
 
@@ -53,6 +67,14 @@ async function one(id) {
   if (!rows.length) throw httpError(404, 'Request not found');
   return toRequest(rows[0]);
 }
+
+router.get(
+  '/performance',
+  ah(async (req, res) => {
+    const days = Math.max(1, Math.min(365, parseInt(req.query.days, 10) || 30));
+    res.json({ days, standards: await taskTimer.standards(), people: await taskTimer.performance({ days }) });
+  }),
+);
 
 router.get(
   '/',
@@ -72,21 +94,34 @@ router.get(
   }),
 );
 
-/** POST { guestId, title, department, priority, location, notes } */
+/**
+ * POST { guestId?, guestName?, title, department, priority, location, notes, minutes?, assignedTo? }
+ * No guest: a task for the property (e.g. a clean after a departure). `minutes`: time allowed, else the department's
+ * standard. `assignedTo`: a person, 'auto' (the least busy of the department) or nothing (assign later).
+ */
 router.post(
   '/',
   ah(async (req, res) => {
     const { guestId, guestName, title, department = 'Concierge', priority = 'Normal', location, notes } = req.body || {};
+    let { assignedTo } = req.body || {};
     if (!title) throw httpError(400, 'title is required');
     if (!TYPE_OF[department]) throw httpError(400, `Unknown department "${department}"`);
     const guest = await findGuest(null, guestId);
+    const minutes = await taskTimer.minutesFor(department, req.body?.minutes);
+    if (assignedTo === 'auto') {
+      const pick = await assignment.suggest(department);
+      if (!pick) throw httpError(409, `Nobody is in ${department} yet — add the team in HQ → Staff`);
+      assignedTo = pick.id;
+    }
+    if (assignedTo) await assignment.person(assignedTo);
     const { rows } = await db.query(
       `WITH n AS (SELECT nextval(pg_get_serial_sequence('service_requests', 'id')) AS id)
-       INSERT INTO service_requests (id, request_number, guest_id, guest_name, booking_id, apartment_id, request_type, department, title, description, priority, location, metadata)
+       INSERT INTO service_requests (id, request_number, guest_id, guest_name, booking_id, apartment_id, request_type, department, title, description, priority, location, metadata,
+                                     source, time_allowed_minutes, assigned_to, assigned_at)
        SELECT n.id, '#' || n.id, $1, $2,
               (SELECT id FROM bookings WHERE user_id = $1 AND status IN ('checked_in', 'confirmed') ORDER BY status = 'checked_in' DESC, check_in_date LIMIT 1),
               (SELECT apartment_id FROM bookings WHERE user_id = $1 AND status IN ('checked_in', 'confirmed') ORDER BY status = 'checked_in' DESC, check_in_date LIMIT 1),
-              $3, $4, $5, $6, $7, $8, $9
+              $3, $4, $5, $6, $7, $8, $9, 'manager', $10, $11::int, CASE WHEN $11::int IS NULL THEN NULL ELSE NOW() END
          FROM n RETURNING id`,
       [
         guest?.id ?? null,
@@ -98,9 +133,18 @@ router.post(
         PRIORITY_IN[priority] || 'normal',
         location || null,
         JSON.stringify({ createdBy: req.user.id }),
+        minutes,
+        assignedTo || null,
       ],
     );
     const request = await one(rows[0].id);
+    if (request.assignedTo) {
+      await assignment.notifyAssignee(req.app, request.assignedTo.id, {
+        title: `${request.department} request for you`,
+        body: `${request.title} · ${request.location || request.guestName || ''} · ${minutes} min${request.priority === 'High' ? ' · urgent' : ''}`,
+        key: `request:${request.id}`,
+      });
+    }
     emit(req, 'service-request:created', request);
     await notify(req, `New ${department} request`, `${title}${request.guestName ? ` · ${request.guestName}` : ''}`, { link: '/requests' });
     res.status(201).json(request);
@@ -112,7 +156,7 @@ router.patch(
   '/:id',
   ah(async (req, res) => {
     const before = await one(req.params.id);
-    const { status, priority, department, location, notes, title, resolution, verified } = req.body || {};
+    const { status, priority, department, location, notes, title, resolution, verified, minutes } = req.body || {};
     let { assignedTo } = req.body || {};
     const sets = [];
     const params = [];
@@ -137,6 +181,8 @@ router.patch(
     if (notes !== undefined) set('description', notes);
     if (title !== undefined) set('title', title);
     if (resolution !== undefined) set('resolution_notes', String(resolution || '').slice(0, 2000) || null);
+    // The time allowed can be changed (e.g. a bigger job than it looked); the clock keeps its start.
+    if (minutes !== undefined) set('time_allowed_minutes', taskTimer.cleanMinutes(minutes));
     if (verified === true) {
       if (!['Completed'].includes(status || before.status)) throw httpError(409, 'Check the work once it is done');
       set('verified_by', req.user.id);
@@ -158,6 +204,10 @@ router.patch(
       await db.query(`UPDATE service_requests SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
     }
     const request = await one(req.params.id);
+    if (status && status !== before.status && request.kind === departureClean.KIND) {
+      const raw = (await db.query('SELECT id, apartment_id, metadata FROM service_requests WHERE id = $1', [request.id])).rows[0];
+      await departureClean.progress(req.app, raw, status === 'In Progress' ? 'start' : status === 'Completed' ? 'done' : null, request.assignedTo?.name);
+    }
     if (status && status !== before.status) {
       await addTimeline(null, request.guestId, `${request.title} – ${status}`, 'Service Request', { performedBy: req.user.id });
       const words = { 'In Progress': 'is being taken care of', Completed: 'is done', Scheduled: 'is scheduled', Cancelled: 'was cancelled', 'On Hold': 'is on hold' };
@@ -180,3 +230,4 @@ router.patch(
 );
 
 module.exports = router;
+module.exports.one = one;
