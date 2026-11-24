@@ -546,6 +546,16 @@ router.post('/', async (req, res) => {
   const invalidDates = await stayError(check_in_date, check_out_date);
   if (invalidDates) return res.status(400).json({ success: false, message: invalidDates });
 
+  // A guest flagged for breaking the house rules (FAY OS → Guest 360 → Conduct): 'decline' refuses at once, 'review'
+  // turns the booking into a request for Faysha to accept or decline (no payment). The guest is never told why.
+  const conduct = require('../services/conduct');
+  const flagged = await conduct.restrictionFor({ userId: req.user?.id || null, email: guest_email, phone: guest_phone });
+  if (flagged?.booking_restriction === 'decline') {
+    conduct.announce(req.app, flagged, { where: `Tried to book ${check_in_date} → ${check_out_date}` }).catch(() => {});
+    return res.status(403).json({ success: false, code: 'BOOKING_NOT_ACCEPTED', message: conduct.DECLINED_MESSAGE });
+  }
+  const review = flagged?.booking_restriction === 'review';
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -581,16 +591,27 @@ router.post('/', async (req, res) => {
       INSERT INTO bookings (
         booking_number, apartment_id, user_id, guest_name, guest_email, guest_phone, guest_id_number,
         check_in_date, check_out_date, number_of_guests, price_per_night, number_of_nights, total_price, discount_amount, final_price,
-        status, special_requests, access_code, temporary_password
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending', $16, $17, $18)
+        status, special_requests, access_code, temporary_password, review_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending', $16, $17, $18, $19)
       RETURNING *
     `, [
       bookingNumber, apartment_id, accountInfo.userId, String(guest_name).trim(), guest_email, String(guest_phone).trim(), guest_id_number || null,
       check_in_date, check_out_date, number_of_guests, pricing.price_per_night, pricing.number_of_nights, pricing.total_price,
       pricing.discount_amount, pricing.final_price, special_requests || null, accessCode,
       // A new account's first password is emailed with the confirmation once paid, then cleared.
-      accountInfo.isNewAccount ? accountInfo.temporaryPassword : null
+      accountInfo.isNewAccount ? accountInfo.temporaryPassword : null,
+      review ? 'pending' : null
     ]);
+
+    // The terms of stay accepted at the terms step (also recorded again with the payment). A booking request has no
+    // payment, so this is where its acceptance is kept.
+    if (req.body.terms_accepted === true) {
+      await client.query(
+        `UPDATE bookings SET terms_accepted = TRUE, terms_accepted_at = COALESCE($2::timestamp, CURRENT_TIMESTAMP),
+                terms_version = COALESCE(terms_version, (SELECT version FROM legal_documents WHERE slug = 'terms')) WHERE id = $1`,
+        [bookingResult.rows[0].id, req.body.terms_accepted_at || null]
+      );
+    }
 
     await client.query('COMMIT');
 
@@ -602,7 +623,12 @@ router.post('/', async (req, res) => {
     });
 
     // This endpoint is public: the response never carries sign-in details or the access code.
-    const { temporary_password, access_code, ...booking } = bookingResult.rows[0];
+    const { temporary_password, access_code, review_status, ...booking } = bookingResult.rows[0];
+    if (review) {
+      await conduct.announce(req.app, flagged, { booking: bookingResult.rows[0], where: `${check_in_date} → ${check_out_date}` });
+      // A request: the website and the app show REVIEW_MESSAGE instead of the payment step.
+      return res.status(201).json({ success: true, review: true, message: conduct.REVIEW_MESSAGE, booking: { ...booking, status: 'requested' } });
+    }
     res.status(201).json({
       success: true,
       message: 'Booking created successfully',
@@ -684,6 +710,10 @@ router.post('/:id/confirm', async (req, res) => {
         success: false,
         message: 'Booking not found'
       });
+    }
+    // A booking request is confirmed by a manager (FAY OS → Reservations → Accept), never by the guest.
+    if (bookingResult.rows[0].review_status === 'pending') {
+      return res.status(409).json({ success: false, message: 'This booking request is awaiting confirmation by our reservations team.' });
     }
 
     const booking = bookingResult.rows[0];

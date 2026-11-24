@@ -134,7 +134,7 @@ export default function Visitors() {
 
       <section className="card" style={{ gap: 10 }}>
         <span className="card-title">Added to a stay</span>
-        <span className="sub">People who will sleep in a residence (a visitor staying over, family arriving later). Like a hotel, overnight guests are welcome once registered, within the residence’s capacity. A visitor registered for the night keeps using their pass at the gate. Discreet guests show as “Private guest”: use “Check ID” at the gate to see the name.</span>
+        <span className="sub">People who will sleep in a residence (a visitor staying over, family arriving later). Like a hotel, overnight guests are welcome once registered, within the residence’s capacity. Residents are never told the limits or refused in the app: a request beyond them is flagged here and the call is yours. A visitor registered for the night keeps using their pass at the gate. Discreet guests show as “Private guest”: use “Check ID” at the gate to see the name.</span>
         {stayGuests.length === 0 ? <span className="sub">No requests.</span> : null}
         {stayGuests.map((g) => (
           <div key={g.id} className="row-line" style={{ display: 'flex', gap: 12, padding: '10px 0', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -146,6 +146,7 @@ export default function Visitors() {
                 {g.fee ? ` · ${g.fee.toLocaleString('en-US')} XAF to the bill` : ''}
               </div>
               {g.note ? <div className="sub">“{g.note}”</div> : null}
+              {g.flag ? <div className="sub" style={{ color: '#ff6b6b' }}><Icon name="flag" size={14} /> {g.flag}</div> : null}
             </div>
             <Pill tone={{ pending: '#e8b84a', approved: '#3fd283', declined: '#d94040' }[g.status] || '#8f897d'}>{{ pending: 'To approve', approved: 'Registered', declined: 'Declined' }[g.status] || g.status}</Pill>
             {g.discreet && !revealed[g.id] ? (
@@ -160,7 +161,20 @@ export default function Visitors() {
             ) : null}
             {g.status === 'pending' ? (
               <div className="kit-actions">
-                <button type="button" className="btn-gold" onClick={() => act(opsApi.stayGuestAction(g.id, 'approve'), `${g.fullName} is registered on the stay`)}>Approve</button>
+                {g.flag ? (
+                  <button
+                    type="button"
+                    className="fay-btn-outline"
+                    style={{ borderColor: '#ff6b6b' }}
+                    onClick={() => {
+                      if (window.confirm(`${g.flag}.\n\nApprove anyway? Your name is recorded with the approval.`)) act(opsApi.stayGuestAction(g.id, 'approve', { override: true }), `${g.fullName} is registered (over capacity, your call)`);
+                    }}
+                  >
+                    Approve anyway
+                  </button>
+                ) : (
+                  <button type="button" className="btn-gold" onClick={() => act(opsApi.stayGuestAction(g.id, 'approve'), `${g.fullName} is registered on the stay`)}>Approve</button>
+                )}
                 <button
                   type="button"
                   className="fay-btn-outline"

@@ -83,3 +83,15 @@ export const people = (id) =>
       return { bookingId: id, booked: r.guests || 1, capacity: null, tonight: { booked: r.guests || 1, added: 0, total: r.guests || 1 }, guests: [], visitors: [], visitorsToday: 0 };
     },
   );
+
+/** POST /reservations/:id/review { decision: 'accept' | 'decline' } — a booking request from a flagged guest. */
+export const review = (id, decision) =>
+  withMock(
+    () => api.post(`/reservations/${id}/review`, { decision }),
+    () =>
+      mutate((d) => {
+        const r = d.reservations.find((x) => x.id === id);
+        Object.assign(r, { review: decision === 'accept' ? 'accepted' : 'declined', status: decision === 'accept' ? 'Confirmed' : 'Cancelled' });
+        return r;
+      }),
+  );

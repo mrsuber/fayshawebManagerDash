@@ -150,6 +150,9 @@ router.post('/create-intent', async (req, res) => {
     if (booking.status !== 'pending') {
       return res.status(409).json({ success: false, message: booking.status === 'cancelled' ? 'This booking has expired. Please book again.' : 'This booking is already paid' });
     }
+    if (booking.review_status === 'pending') {
+      return res.status(409).json({ success: false, message: 'This booking request is awaiting confirmation by our reservations team; no payment is needed yet.' });
+    }
     const stripe = await getStripe();
     const { stripe: stripeKeys } = await paymentSettings.load();
     if (!stripe) {
@@ -238,6 +241,9 @@ router.post('/mobile-money', async (req, res) => {
     const booking = bookingResult.rows[0];
     if (booking.status !== 'pending') {
       return res.status(409).json({ success: false, message: 'This booking is no longer awaiting payment' });
+    }
+    if (booking.review_status === 'pending') {
+      return res.status(409).json({ success: false, message: 'This booking request is awaiting confirmation by our reservations team; no payment is needed yet.' });
     }
 
     await pool.query(

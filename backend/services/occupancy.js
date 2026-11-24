@@ -90,11 +90,16 @@ async function postGuestFee(g, by = null, q = db) {
 const normal = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
- * Checks a new visitor pass against the policy. → { flag, forceApproval } or throws a 400 with the reason.
+ * Checks a new visitor pass against the policy. → { flag, forceApproval } or throws a 400.
+ *
+ * Only the visiting hours (a house rule the guest sees) refuse a pass. The limits (people per visit, per day, visits per
+ * day and week, the same visitor most days) are for the team, not the guest: a pass beyond them is not refused, it waits
+ * for a manager with the reason in `flag`, and the guest only sees "awaiting confirmation". The manager decides.
  */
 async function checkVisit({ stay, date, from, until, people, name, phone }, p) {
   const fail = (m) => Object.assign(new Error(m), { status: 400 });
-  if (people > p.maxPeoplePerVisit) throw fail(`Up to ${p.maxPeoplePerVisit} people per visit. For a larger gathering, plan it with us as an event.`);
+  const flags = [];
+  if (people > p.maxPeoplePerVisit) flags.push(`${people} people on one pass (policy: ${p.maxPeoplePerVisit})`);
   if (from && from < p.visitFrom) throw fail(`Visiting hours start at ${p.visitFrom}`);
   if (until && until > p.visitUntil) throw fail(`Visitors leave by ${p.visitUntil}. To have someone stay the night, add them to your stay.`);
   if (from && until && until <= from) throw fail('The visit must end after it starts');
@@ -103,13 +108,13 @@ async function checkVisit({ stay, date, from, until, people, name, phone }, p) {
       WHERE booking_id = $1 AND visit_date = $2 AND status IN ('pending', 'approved', 'arrived', 'left')`,
     [stay.id, date],
   )).rows[0];
-  if (sameDay.passes >= p.maxPassesPerDay) throw fail(`You already have ${sameDay.passes} visits that day (the limit is ${p.maxPassesPerDay}).`);
-  if (sameDay.people + people > p.maxVisitorsPerDay) throw fail(`That would make ${sameDay.people + people} visitors that day; the limit is ${p.maxVisitorsPerDay}.`);
+  if (sameDay.passes >= p.maxPassesPerDay) flags.push(`visit ${sameDay.passes + 1} that day (policy: ${p.maxPassesPerDay})`);
+  else if (sameDay.people + people > p.maxVisitorsPerDay) flags.push(`${sameDay.people + people} visitors that day (policy: ${p.maxVisitorsPerDay})`);
   const week = (await db.query(
     `SELECT COUNT(*)::int AS n FROM visitor_passes WHERE booking_id = $1 AND visit_date BETWEEN $2::date - 6 AND $2::date AND status IN ('pending', 'approved', 'arrived', 'left')`,
     [stay.id, date],
   )).rows[0].n;
-  if (week >= p.maxPassesPerWeek) throw fail(`You have reached ${p.maxPassesPerWeek} visits in 7 days. The front desk can help if you need more.`);
+  if (week >= p.maxPassesPerWeek) flags.push(`visit ${week + 1} in 7 days (policy: ${p.maxPassesPerWeek})`);
   // The same person most days is someone living here unregistered: flag it and ask the team.
   const key = normal(name);
   const tel = String(phone || '').replace(/\D/g, '').slice(-8);
@@ -120,10 +125,9 @@ async function checkVisit({ stay, date, from, until, people, name, phone }, p) {
         AND (regexp_replace(lower(visitor_name), '[^a-z0-9]', '', 'g') = $3 OR ($4 <> '' AND right(regexp_replace(COALESCE(visitor_phone, ''), '\\D', '', 'g'), 8) = $4))`,
     [stay.id, date, key, tel],
   )).rows[0].n;
-  if (days + 1 >= p.frequentVisitorDays) {
-    return { flag: `Frequent visitor: ${days + 1} days in a week. If they are staying, they should be added to the stay.`, forceApproval: true };
-  }
-  return { flag: null, forceApproval: false };
+  if (days + 1 >= p.frequentVisitorDays) flags.push(`frequent visitor: ${days + 1} days in a week — may be living here unregistered`);
+  if (!flags.length) return { flag: null, forceApproval: false };
+  return { flag: `Over the visitor policy: ${flags.join('; ')}`.slice(0, 255), forceApproval: true };
 }
 
 /**

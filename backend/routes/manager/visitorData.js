@@ -34,6 +34,7 @@ const stayGuestOut = async (id, { reveal = false } = {}) => {
   const hidden = g.discreet && !reveal ? { fullName: 'Private guest', phone: null, relation: null, note: null } : {};
   return {
     ...toStayGuest(g),
+    flag: g.flag || null, // staff only: e.g. over the residence's capacity
     host: g.host,
     booking: g.booking_number,
     bookingId: g.booking_id,

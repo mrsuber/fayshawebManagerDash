@@ -380,7 +380,13 @@ router.post(
     // Capacity again: other guests may have been added since it was asked.
     const cap = await occupancy.capacityOf(g.apartment_id);
     const peak = Number(g.number_of_guests) + (await occupancy.peakOccupancy(g.booking_id, g.from_date, g.to_date, { excludeId: g.id }));
-    if (peak + 1 > cap) throw httpError(409, `Residence ${g.unit_number} sleeps up to ${cap}: with ${peak} registered on some of those nights this guest cannot be added`);
+    // Over capacity is the manager's call: refused unless they confirm ({ override: true }), and the override is recorded.
+    if (peak + 1 > cap && req.body?.override !== true) {
+      throw httpError(409, `Residence ${g.unit_number} sleeps up to ${cap}: with ${peak} registered on some of those nights this would be ${peak + 1}. Approve anyway?`);
+    }
+    if (peak + 1 > cap) {
+      await db.query(`UPDATE stay_guests SET flag = LEFT(COALESCE(flag || ' · ', '') || $2, 255) WHERE id = $1`, [g.id, `Approved over capacity by ${req.user.fullName}`]);
+    }
     await db.query(`UPDATE stay_guests SET status = 'approved', decided_by = $2, decided_at = NOW() WHERE id = $1`, [g.id, req.user.id]);
     await occupancy.postGuestFee(g, req.user.id);
     await resolve(req.app, `stay-guest:${g.id}`);

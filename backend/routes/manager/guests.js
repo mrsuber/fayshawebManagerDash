@@ -95,6 +95,92 @@ async function moveGuest(req, res, kind) {
   res.json(await fullGuest(await guestRow(row.id)));
 }
 
+// ---------------------------------------------------------------- Conduct (services/conduct): staff only
+/** GET → { incidents, lastYear, serious, advise, blocked, kinds } */
+router.get('/:id/conduct', ah(async (req, res) => res.json(await require('../../services/conduct').record((await guestRow(req.params.id)).id))));
+
+/** POST { kind, severity?: minor|serious, note, bookingId?, charge? } — records a breach of the house rules (a charge goes to the bill). */
+router.post(
+  '/:id/incidents',
+  ah(async (req, res) => {
+    const conduct = require('../../services/conduct');
+    const g = await guestRow(req.params.id);
+    const { kind, severity = 'minor' } = req.body || {};
+    const note = String(req.body?.note || '').trim().slice(0, 2000);
+    if (!conduct.KINDS[kind]) throw httpError(400, 'What happened? Choose a kind');
+    if (!['minor', 'serious'].includes(severity)) throw httpError(400, 'Severity is minor or serious');
+    if (!note) throw httpError(400, 'Describe what happened');
+    const charge = req.body?.charge === undefined || req.body?.charge === null || req.body?.charge === '' ? null : Number(req.body.charge);
+    if (charge !== null && !(charge >= 0)) throw httpError(400, 'Enter the charge as a number');
+    const bookingId = req.body?.bookingId || g.booking_id || null;
+    await tx(async (q) => {
+      await q.query(
+        `INSERT INTO guest_incidents (guest_id, booking_id, kind, severity, note, charge, recorded_by) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [g.id, bookingId, kind, severity, note, charge || null, req.user.id],
+      );
+      // Damage is the guest's responsibility (terms 6.2 and 6.3): the cost goes on their bill.
+      if (charge > 0 && bookingId) {
+        await q.query(
+          `INSERT INTO folio_charges (guest_id, booking_id, description, category, amount, source_type, created_by) VALUES ($1, $2, $3, 'Damages', $4, 'incident', $5)`,
+          [g.id, bookingId, `${conduct.KINDS[kind]} · ${note}`.slice(0, 255), charge, req.user.id],
+        );
+      }
+    });
+    await addTimeline(null, g.id, `Incident recorded: ${conduct.KINDS[kind]}${severity === 'serious' ? ' (serious)' : ''}`, 'Conduct', { performedBy: req.user.id });
+    const rec = await conduct.record(g.id);
+    if (rec.advise) {
+      await notify(req, `Consider flagging future bookings · ${g.full_name}`, `${rec.lastYear} incident${rec.lastYear > 1 ? 's' : ''} in 12 months${rec.serious ? `, ${rec.serious} serious` : ''}. Guest 360 → Conduct.`, {
+        link: `/guest360?guest=${g.id}`, level: 'action', category: 'front-desk', dedupeKey: `conduct-advise:${g.id}:${rec.lastYear}`,
+      });
+    }
+    res.status(201).json(rec);
+  }),
+);
+
+/** DELETE an incident recorded by mistake. */
+router.delete(
+  '/:id/incidents/:incidentId',
+  ah(async (req, res) => {
+    const g = await guestRow(req.params.id);
+    const { rowCount } = await db.query('DELETE FROM guest_incidents WHERE id = $1 AND guest_id = $2', [req.params.incidentId, g.id]);
+    if (!rowCount) throw httpError(404, 'Incident not found');
+    res.json(await require('../../services/conduct').record(g.id));
+  }),
+);
+
+/**
+ * POST { mode: 'review' | 'decline', reason } — flags the guest (their account, email or phone) for future bookings on the
+ * website and the app: 'review' holds each booking for Faysha to accept or decline; 'decline' declines it at once.
+ * The reason stays on the record and is never shown to the guest.
+ */
+router.post(
+  '/:id/restrict',
+  ah(async (req, res) => {
+    const g = await guestRow(req.params.id);
+    const mode = req.body?.mode === 'decline' ? 'decline' : 'review';
+    const reason = String(req.body?.reason || '').trim().slice(0, 1000);
+    if (!reason) throw httpError(400, 'Give the reason (kept on the record, never shown to the guest)');
+    await db.query(
+      'UPDATE users SET booking_restriction = $2, booking_restricted_at = NOW(), booking_restriction_reason = $3, booking_restricted_by = $4 WHERE id = $1',
+      [g.id, mode, reason, req.user.id],
+    );
+    const what = mode === 'decline' ? 'Future bookings declined automatically' : 'Future bookings held for review';
+    await addTimeline(null, g.id, what, 'Conduct', { performedBy: req.user.id });
+    await notify(req, `${what} · ${g.full_name}`, `${req.user.fullName}: ${reason}`.slice(0, 300), { link: `/guest360?guest=${g.id}`, category: 'front-desk' });
+    res.json(await require('../../services/conduct').record(g.id));
+  }),
+);
+
+router.post(
+  '/:id/unrestrict',
+  ah(async (req, res) => {
+    const g = await guestRow(req.params.id);
+    await db.query('UPDATE users SET booking_restriction = NULL, booking_restricted_at = NULL, booking_restriction_reason = NULL, booking_restricted_by = NULL WHERE id = $1', [g.id]);
+    await addTimeline(null, g.id, 'Bookings accepted normally again', 'Conduct', { performedBy: req.user.id });
+    res.json(await require('../../services/conduct').record(g.id));
+  }),
+);
+
 router.post('/:id/check-in', ah((req, res) => moveGuest(req, res, 'in')));
 router.post('/:id/check-out', ah((req, res) => moveGuest(req, res, 'out')));
 

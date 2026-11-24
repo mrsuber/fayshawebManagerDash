@@ -75,11 +75,12 @@ function BookingRow({ r, onOpen }) {
         {r.guestName}
         {r.addedGuests?.registered ? <span style={{ color: 'var(--gold)', fontSize: 12 }}> +{r.addedGuests.registered} overnight</span> : null}
         {r.addedGuests?.pending ? <span style={{ color: 'var(--dim)', fontSize: 12 }}> · {r.addedGuests.pending} to approve</span> : null}
+        {r.conduct ? <span title={r.conduct.flag || `${r.conduct.incidents} incident(s) on record`} style={{ color: '#ff6b6b', fontSize: 12 }}> ⚑</span> : null}
       </span>
       <span style={{ color: 'var(--text-3)' }}>{r.residence}</span>
       <span style={{ color: 'var(--text-3)' }}>{range(r)}</span>
       <span>{money(r.totalAmount)}</span>
-      <span style={{ padding: '3px 6px', borderRadius: 3, fontSize: 12, textAlign: 'center', background: SC[r.status] }}>{r.status}</span>
+      <span style={{ padding: '3px 6px', borderRadius: 3, fontSize: 12, textAlign: 'center', background: r.review === 'pending' ? '#c43a3a' : SC[r.status] }}>{r.review === 'pending' ? 'To review' : r.status}</span>
     </div>
   );
 }
@@ -186,6 +187,18 @@ export default function Reservations() {
       })
       .catch((e) => toast(e.message, 'error'));
 
+  const review = (r, decision) => {
+    if (decision === 'decline' && !window.confirm(`Decline ${r.guestName}'s booking request ${r.number}? The dates are released and the guest is told politely, without a reason.`)) return;
+    reservationsApi
+      .review(r.id, decision)
+      .then(() => {
+        toast(decision === 'accept' ? `${r.number} accepted — the guest gets their confirmation` : `${r.number} declined`);
+        setOpen(null);
+        refresh();
+      })
+      .catch((e) => toast(e.message, 'error'));
+  };
+
   const startCancel = (r) => {
     setOpen(null);
     setCancelling({ r, reason: '', refund: true, quote: null });
@@ -247,8 +260,13 @@ export default function Reservations() {
     if (nights < 1) return Promise.reject(new Error('Check-out must be after check-in'));
     const pkg = packages.items.find((p) => p.id === Number(v.packageId));
     const guest = byId[v.guestId];
-    return reservationsApi
-      .create({
+    // A guest flagged for conduct: the server asks "Book anyway?" and the manager decides.
+    const send = (body) =>
+      reservationsApi.create(body).catch((e) => {
+        if (/Book anyway\?$/.test(e.message) && window.confirm(e.message)) return reservationsApi.create({ ...body, override: true });
+        throw e;
+      });
+    return send({
         guestId: guest?.id,
         guestName: guest?.name || v.guestName,
         residence: v.residence,
@@ -260,8 +278,7 @@ export default function Reservations() {
         packageId: pkg?.id,
         package: pkg?.name,
         totalAmount: nights * (pkg ? pkg.price : unit.type.rate),
-      })
-      .then((r) => {
+      }).then((r) => {
         toast(`${r.number} confirmed – ${r.guestName}, ${r.residence}`);
         setDate(moment(r.checkIn).toDate());
         refresh();
@@ -361,7 +378,7 @@ export default function Reservations() {
           <span style={{ color: 'var(--text-3)' }}>{moment(r.bookedAt).format('MMM D')}</span>
           <span>{r.guestName}</span>
           <span style={{ color: 'var(--text-3)' }}>{r.residence}</span>
-          <span style={{ padding: '3px 6px', borderRadius: 3, fontSize: 12, textAlign: 'center', background: SC[r.status] }}>{r.status}</span>
+          <span style={{ padding: '3px 6px', borderRadius: 3, fontSize: 12, textAlign: 'center', background: r.review === 'pending' ? '#c43a3a' : SC[r.status] }}>{r.review === 'pending' ? 'To review' : r.status}</span>
         </div>
       ))}
     </Card>
@@ -636,6 +653,17 @@ export default function Reservations() {
             </DialogTitle>
             <DialogContent>
               <div className="col" style={{ gap: 6, fontSize: 14 }}>
+                {open.review === 'pending' ? (
+                  <div style={{ border: '1px solid #c43a3a', background: 'rgba(196,58,58,.1)', borderRadius: 8, padding: 12, marginBottom: 6 }}>
+                    <strong>Booking request to review</strong>
+                    <div className="sub" style={{ marginTop: 4 }}>
+                      This guest is flagged{open.conduct?.flag ? `: ${open.conduct.flag}` : ''}{open.conduct?.incidents ? ` · ${open.conduct.incidents} incident(s) on record` : ''}. No payment was taken; the dates are held until you decide.
+                      Accept confirms it (paid on the bill); Decline releases the dates and the guest gets a polite message that does not say why.
+                    </div>
+                  </div>
+                ) : open.conduct ? (
+                  <span style={{ color: '#ff6b6b', fontSize: 13 }}>⚑ {open.conduct.flag || `${open.conduct.incidents} incident(s) on record`} — Guest 360 → Conduct</span>
+                ) : null}
                 {open.cancellationReason && (
                   <span style={{ color: 'var(--muted)' }}>
                     Cancelled{open.cancelledBy ? ` by ${open.cancelledBy}` : ''}: {open.cancellationReason}
@@ -658,7 +686,13 @@ export default function Reservations() {
               </div>
             </DialogContent>
             <DialogActions>
-              {open.status === 'Pending' && <Button onClick={() => setStatus(open, 'Confirmed')}>Confirm</Button>}
+              {open.review === 'pending' ? (
+                <>
+                  <Button color="error" onClick={() => review(open, 'decline')}>Decline</Button>
+                  <Button variant="contained" onClick={() => review(open, 'accept')}>Accept booking</Button>
+                </>
+              ) : null}
+              {open.status === 'Pending' && open.review !== 'pending' && <Button onClick={() => setStatus(open, 'Confirmed')}>Confirm</Button>}
               {['Pending', 'Confirmed'].includes(open.status) && open.checkIn > today() && (
                 <Button
                   onClick={() => {
@@ -679,7 +713,7 @@ export default function Reservations() {
                   Cancel Booking
                 </Button>
               )}
-              {['Pending', 'Confirmed'].includes(open.status) && (
+              {['Pending', 'Confirmed'].includes(open.status) && open.review !== 'pending' && (
                 <Button
                   variant="contained"
                   onClick={() => {

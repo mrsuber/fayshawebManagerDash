@@ -5,7 +5,8 @@
  *  - card checkouts: CARD_HOLD_MINUTES (default 60) after the booking was made;
  *  - mobile money awaiting staff confirmation: MOBILE_MONEY_HOLD_HOURS (default 48).
  *
- * Bookings created by staff (FAY OS reservations) never expire on their own.
+ * Bookings created by staff (FAY OS reservations) and booking requests waiting for a manager's review never expire on
+ * their own.
  */
 const db = require('../config/database');
 
@@ -21,6 +22,7 @@ async function releaseExpiredHolds(q = db, app = null) {
           SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, cancellation_reason = $1
         WHERE b.status = 'pending'
           AND b.created_by IS NULL
+          AND b.review_status IS DISTINCT FROM 'pending' -- a booking request waits for a manager, not for a payment
           AND (
             b.created_at < NOW() - make_interval(hours => $3)
             OR (b.created_at < NOW() - make_interval(mins => $2)

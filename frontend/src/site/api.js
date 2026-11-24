@@ -125,7 +125,7 @@ export async function getUnit(id) {
   return a ? { ...toUnit(a), categoryId: a.category_id } : null;
 }
 
-/** Creates a pending booking (held until payment). Returns the API booking row. */
+/** Creates a pending booking (held until payment), or a booking request (`review: true`) the team confirms first. */
 export async function createBooking(payload) {
   if (USE_MOCKS) return mock.createBooking(payload);
   const avail = await call(
@@ -138,7 +138,8 @@ export async function createBooking(payload) {
   );
   if (!avail.available) throw new Error('That residence was just booked for these dates. Please choose another.');
   const data = await call(http.post('/bookings', payload), 'Could not create the booking');
-  return data.booking;
+  // review: a booking request our team confirms before any payment (the guest is not told why).
+  return data.review ? { ...data.booking, review: true, reviewMessage: data.message } : data.booking;
 }
 
 /** Starts a card payment, in `currency` when the guest chose one (converted at the recorded rate) else XAF. */

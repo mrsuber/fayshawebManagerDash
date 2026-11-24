@@ -39,7 +39,7 @@ export default function BookStayScreen({ navigation }) {
   const [cardComplete, setCardComplete] = useState(false);
   const [booking, setBooking] = useState(null);
   const [accountCreated, setAccountCreated] = useState(false);
-  const [result, setResult] = useState(null); // 'confirmed' | 'pending' (team confirms) | 'waiting' (approve on the phone)
+  const [result, setResult] = useState(null); // 'confirmed' | 'pending' (team confirms) | 'waiting' (approve on the phone) | 'review' (a request our team accepts first)
   const [momoPayment, setMomoPayment] = useState(null);
   const [payConfig, setPayConfig] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -159,10 +159,14 @@ export default function BookStayScreen({ navigation }) {
       guest_email: details.email.trim().toLowerCase(),
       guest_phone: details.phone.trim(),
       special_requests: details.requests.trim() || null,
+      terms_accepted: terms.terms && terms.rules,
+      terms_accepted_at: terms.terms && terms.rules ? new Date().toISOString() : null,
     });
-    setBooking(created.booking);
+    // review: a booking request our team confirms before any payment (the guest is not told why).
+    const b = created.review ? { ...created.booking, review: true, reviewMessage: created.message } : created.booking;
+    setBooking(b);
     setAccountCreated(Boolean(created.accountCreated));
-    return created.booking;
+    return b;
   };
 
   const pay = async () => {
@@ -170,6 +174,12 @@ export default function BookStayScreen({ navigation }) {
     setError('');
     const acceptedAt = new Date().toISOString();
     try {
+      // A booking request (our team confirms it first): no payment details needed.
+      const created = await ensureBooking();
+      if (created.review) {
+        setResult('review');
+        return;
+      }
       if (method === 'card') {
         if (!payConfig?.publishableKey) throw new Error('Card payments are not available right now. Please choose mobile money.');
         await applyStripeKey(payConfig.publishableKey);
@@ -207,6 +217,7 @@ export default function BookStayScreen({ navigation }) {
   if (result) {
     const confirmed = result === 'confirmed';
     const waiting = result === 'waiting';
+    const requested = result === 'review';
     return (
       <Screen>
         <View style={s.done}>
@@ -214,9 +225,11 @@ export default function BookStayScreen({ navigation }) {
             <Ionicons name={confirmed ? 'checkmark' : 'time-outline'} size={34} color={COLORS.background} />
           </View>
           <Eyebrow style={{ textAlign: 'center', marginTop: 22 }}>{booking?.booking_number}</Eyebrow>
-          <Heading size={26} style={{ textAlign: 'center' }}>{confirmed ? 'Your stay is confirmed' : waiting ? 'Approve on your phone' : 'Almost there'}</Heading>
+          <Heading size={26} style={{ textAlign: 'center' }}>{confirmed ? 'Your stay is confirmed' : waiting ? 'Approve on your phone' : requested ? 'Request received' : 'Almost there'}</Heading>
           <Body style={{ textAlign: 'center', marginTop: 12 }}>
-            {confirmed
+            {requested
+              ? `Thank you. Our reservations team will confirm your booking for ${dayLabel(stay.checkIn, { weekday: true })} shortly — we will let you know by email and in the app. No payment is taken until then.`
+              : confirmed
               ? `We look forward to welcoming you on ${dayLabel(stay.checkIn, { weekday: true })}. Your confirmation and digital key are on their way to ${details.email.trim()}.`
               : waiting
                 ? `Your phone (${momoPhone}) shows a ${method === 'mtn' ? 'MTN Mobile Money' : 'Orange Money'} payment of ${xafExact(total)}. Enter your PIN to approve it — this screen updates by itself.`
@@ -336,6 +349,8 @@ export default function BookStayScreen({ navigation }) {
             ['key-outline', 'Your digital access codes are sent by email before arrival and live in the app.'],
             ['return-up-back-outline', 'Cancellation: full refund minus fees more than 14 days before check-in, 50% from 7 to 14 days, none within 7 days or for a no-show.'],
             ['people-outline', 'Respect the maximum occupancy, quiet hours and our neighbours. No smoking indoors; pets only with written approval.'],
+            ['shield-checkmark-outline', 'You are responsible for your children, your visitors and any damage they cause. Visitors come within visiting hours; anyone staying the night is registered on your stay.'],
+            ['alert-circle-outline', 'Serious or repeated breaches of the house rules may end the stay and mean we cannot accept future bookings.'],
             ['cube-outline', 'Deliveries go to your private deposit box, opened with your own PIN.'],
           ].map(([icon, text]) => (
             <View key={icon} style={s.termRow}>
@@ -350,7 +365,7 @@ export default function BookStayScreen({ navigation }) {
         </Card>
         <View style={{ marginTop: 14 }}>
           <Checkbox checked={terms.terms} onChange={(v) => setTerms({ ...terms, terms: v })}>I have read and accept the Terms of Service and the Privacy Policy.</Checkbox>
-          <Checkbox checked={terms.rules} onChange={(v) => setTerms({ ...terms, rules: v })}>I agree to the house rules and the deposit box policy.</Checkbox>
+          <Checkbox checked={terms.rules} onChange={(v) => setTerms({ ...terms, rules: v })}>I agree to the house rules (including responsibility for my children, my visitors and any damage) and the deposit box policy.</Checkbox>
         </View>
       </>
     );

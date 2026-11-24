@@ -148,6 +148,25 @@ export default function TermsBody() {
           <li>We may charge your payment method for repair or replacement costs</li>
           <li>Lost key cards or access devices may incur replacement fees</li>
         </ul>
+
+        <h3>
+          6.3 Children, visitors and damage
+        </h3>
+        <ul>
+          <li>Children are the responsibility of the guest who booked at all times, inside the residence and on the estate; they must not be left alone in the residence or in common areas</li>
+          <li>The booking guest is responsible for their visitors and overnight guests: their behaviour, respect of the house rules and any damage they cause</li>
+          <li>Visitors are welcome within visiting hours and the limits of our visitor policy; anyone staying the night must be registered on the stay, within the residence’s maximum occupancy</li>
+          <li>Damage to the residence, its furniture, equipment or the estate caused by the guest, their children or their visitors is charged to the guest at the cost of repair or replacement</li>
+        </ul>
+
+        <h3>
+          6.4 Breaches of the house rules
+        </h3>
+        <ul>
+          <li>Our team may record breaches of these Terms and the house rules (for example visitors after hours, more people than the residence sleeps, noise, damage or children left unsupervised)</li>
+          <li>A serious or repeated breach may end the stay without refund of the remaining nights</li>
+          <li>Faysha may decline future bookings from a guest who has seriously or repeatedly breached these Terms</li>
+        </ul>
       </div>
 
       <div>

@@ -4,7 +4,7 @@
  */
 
 const express = require('express');
-const { db, ah, httpError, isoDate, isoTime, displayTime, notify, getSetting } = require('./lib');
+const { db, ah, httpError, isoDate, isoTime, displayTime, notify, getSetting, addTimeline, emit } = require('./lib');
 
 const { finalizeStay, handOverDepositBox } = require('../../services/stayKeys');
 
@@ -24,7 +24,10 @@ const SELECT = `
              AND (NOW() AT TIME ZONE '${TZ_SQL}')::date >= g.from_date
              AND (NOW() AT TIME ZONE '${TZ_SQL}')::date < g.to_date)::int AS added_tonight,
          (SELECT COUNT(*) FROM stay_guests g WHERE g.booking_id = b.id AND g.status = 'approved')::int AS added_registered,
-         (SELECT COUNT(*) FROM stay_guests g WHERE g.booking_id = b.id AND g.status = 'pending')::int AS added_pending
+         (SELECT COUNT(*) FROM stay_guests g WHERE g.booking_id = b.id AND g.status = 'pending')::int AS added_pending,
+         -- Guest flagged for conduct (Guest 360 → Conduct): staff only.
+         (SELECT u.booking_restriction_reason FROM users u WHERE u.id = b.user_id) AS flag_reason,
+         (SELECT COUNT(*) FROM guest_incidents i WHERE i.guest_id = b.user_id)::int AS incidents
     FROM bookings b
     JOIN apartments a ON a.id = b.apartment_id
     JOIN apartment_categories c ON c.id = a.category_id
@@ -57,6 +60,9 @@ function toReservation(b, cur) {
     totalAmount: Number(b.final_price),
     balanceDue: Math.max(0, Number(b.final_price) - Number(b.paid)),
     addedGuests: { tonight: b.added_tonight || 0, registered: b.added_registered || 0, pending: b.added_pending || 0 },
+    // A booking request from a flagged guest: 'pending' until a manager accepts or declines it (POST /:id/review).
+    review: b.review_status || null,
+    conduct: b.flag_reason || b.incidents ? { flag: b.flag_reason || null, incidents: b.incidents || 0 } : null,
     currency: cur,
   };
 }
@@ -104,6 +110,11 @@ router.post(
 
     const guest = (await db.query('SELECT id, full_name, email, phone FROM users WHERE id = $1 AND deleted_at IS NULL', [guestId])).rows[0];
     if (!guest) throw httpError(400, 'Guest not found');
+    // A guest flagged for breaking the house rules: booked by staff only with an explicit override ({ override: true }).
+    const flagged = await require('../../services/conduct').restrictionFor({ userId: guest.id, email: guest.email, phone: guest.phone });
+    if (flagged && req.body?.override !== true) {
+      throw httpError(409, `${guest.full_name} is flagged (${flagged.booking_restriction === 'decline' ? 'bookings declined' : 'bookings reviewed'})${flagged.booking_restriction_reason ? `: ${flagged.booking_restriction_reason}` : ''}. Book anyway?`);
+    }
     const apt = (
       await db.query(
         `SELECT a.id, a.unit_number, COALESCE(a.custom_price, c.base_price) AS rate, COALESCE(a.max_occupancy, c.max_guests) AS max_guests
@@ -193,6 +204,54 @@ router.patch(
     }
     if (status === 'confirmed') await finalizeStay(req.params.id, { app: req.app });
     res.json(await one(req.params.id));
+  }),
+);
+
+/**
+ * POST /:id/review { decision: 'accept' | 'decline' } — a booking request from a flagged guest.
+ * Accept: confirmed (keys and confirmation email as usual); the stay is paid on the bill, like a front-desk booking.
+ * Decline: the dates are released and the guest gets a polite message that does not say why.
+ */
+router.post(
+  '/:id/review',
+  ah(async (req, res) => {
+    const decision = req.body?.decision;
+    if (!['accept', 'decline'].includes(decision)) throw httpError(400, 'decision must be accept or decline');
+    const b = (await db.query(`SELECT * FROM bookings WHERE id = $1`, [req.params.id])).rows[0];
+    if (!b) throw httpError(404, 'Reservation not found');
+    if (b.review_status !== 'pending' || b.status !== 'pending') throw httpError(409, 'This booking is not waiting for a decision');
+    if (decision === 'accept') {
+      try {
+        await db.query(
+          `UPDATE bookings SET status = 'confirmed', confirmed_at = NOW(), review_status = 'accepted', reviewed_by = $2, reviewed_at = NOW(), created_by = COALESCE(created_by, $2) WHERE id = $1`,
+          [b.id, req.user.id],
+        );
+      } catch (e) {
+        if (e.code === '23P01') throw httpError(409, 'Those dates are no longer free');
+        throw e;
+      }
+      await finalizeStay(b.id, { app: req.app });
+    } else {
+      await db.query(
+        `UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancellation_reason = 'Booking request not accepted', review_status = 'declined', reviewed_by = $2, reviewed_at = NOW() WHERE id = $1`,
+        [b.id, req.user.id],
+      );
+      const text = `We are sorry: we are unable to accept your booking request ${b.booking_number} for ${isoDate(b.check_in_date)} → ${isoDate(b.check_out_date)}. No payment was taken. For any question, please contact our reservations team.`;
+      if (b.user_id) {
+        require('../../services/guestPush').notifyGuest(req.app, b.user_id, { title: `Booking request ${b.booking_number}`, body: text, event: 'stay:updated', data: { id: b.id, screen: 'MyStays' } }).catch(() => {});
+      }
+      if (b.guest_email) {
+        const { layout } = require('../../services/emailLayout');
+        require('../../services/email.service')
+          .sendEmail({ to: b.guest_email, subject: `Your booking request ${b.booking_number}`, text, html: layout({ title: 'Your booking request', intro: `Dear ${b.guest_name},`, body: `<p>${text}</p>` }) })
+          .catch((e) => console.error('Decline email failed:', e.message));
+      }
+    }
+    await require('../../services/notify').resolve(req.app, `booking-review:${b.id}`);
+    await addTimeline(null, b.user_id, `Booking request ${b.booking_number} ${decision === 'accept' ? 'accepted' : 'declined'} by ${req.user.fullName}`, 'Reservation', { bookingId: b.id, performedBy: req.user.id });
+    const out = await one(b.id);
+    emit(req, 'reservation:updated', out);
+    res.json(out);
   }),
 );
 

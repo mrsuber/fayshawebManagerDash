@@ -155,6 +155,8 @@ function BookFlow({ cardEnabled, momoAutomatic }) {
       guest_email: guest.email.trim(),
       guest_phone: guest.phone.trim(),
       special_requests: guest.requests.trim() || null,
+      terms_accepted: termsOk,
+      terms_accepted_at: termsOk ? new Date().toISOString() : null,
     });
     setBooking(b);
     return b;
@@ -166,6 +168,12 @@ function BookFlow({ cardEnabled, momoAutomatic }) {
     const acceptedAt = new Date().toISOString();
     try {
       const b = await ensureBooking();
+      if (b.review) {
+        // A request: no payment now; our team confirms it.
+        setResult('review');
+        go(3);
+        return;
+      }
       if (method === 'card') {
         const intent = await createCardPayment(b.id, displayCurrency());
         if (!USE_MOCKS) {
@@ -327,11 +335,13 @@ function BookFlow({ cardEnabled, momoAutomatic }) {
                 </span>
                 <div>
                   <h1 ref={headRef} tabIndex={-1} className="fs-h1" style={{ fontSize: 44, outline: 'none' }}>
-                    {result === 'confirmed' ? t('book.ready') : result === 'waiting' ? t('book.approve') : t('book.pending')}
+                    {result === 'confirmed' ? t('book.ready') : result === 'waiting' ? t('book.approve') : result === 'review' ? t('book.requested') : t('book.pending')}
                   </h1>
                   <p className="fs-muted" style={{ margin: '4px 0 0', fontSize: 14 }}>
                     {result === 'waiting'
                       ? t('book.approveNote')
+                      : result === 'review'
+                      ? `${booking?.booking_number} · ${t('book.requestedNote')}`
                       : `${booking?.booking_number} · ${result === 'confirmed' ? t('book.sentTo') : t('book.emailLater')} ${guest.email}`}
                   </p>
                 </div>

@@ -21,7 +21,8 @@ const at = (time) => {
 
 /**
  * Visitors under the house rules: day passes (QR, code and directions for the gate) within visiting hours, a
- * discreet option, and — for anyone who will sleep here — adding them to the stay, within the residence's capacity.
+ * discreet option, and — for anyone who will sleep here — adding them to the stay. The visitor limits and the residence's
+ * capacity are checked by the team (a request beyond them waits for confirmation); the app never shows them.
  */
 export default function VisitorsScreen({ navigation }) {
   const { data, loading, error, reload, refreshing, refresh } = useLoad(() => apiClient.get('/guest/visitors', { params: { full: 1 } }));
@@ -32,7 +33,7 @@ export default function VisitorsScreen({ navigation }) {
   const [nightFor, setNightFor] = useState(null); // { pass, to, discreet }
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState('');
-  const policy = data?.policy || { visitFrom: '08:00', visitUntil: '22:00', maxPeoplePerVisit: 4, allowDiscreet: true };
+  const policy = data?.policy || { visitFrom: '08:00', visitUntil: '22:00', maxPeoplePerVisit: 20, allowDiscreet: true };
 
   const share = (p) =>
     Share.share({
@@ -143,7 +144,7 @@ export default function VisitorsScreen({ navigation }) {
           <Ionicons name="shield-checkmark-outline" size={18} color={COLORS.primary} />
           <Text style={s.rulesTitle}>House rules for visitors</Text>
         </View>
-        <Text style={s.rule}>• Visits from {policy.visitFrom} to {policy.visitUntil}, up to {policy.maxPeoplePerVisit} people per pass.</Text>
+        <Text style={s.rule}>• Visits from {policy.visitFrom} to {policy.visitUntil}.</Text>
         <Text style={s.rule}>• Visitors show the pass and their ID at the gate. Add their email and we send them the pass. We tell you when they arrive.</Text>
         <Text style={s.rule}>• Staying the night is welcome: register them on your stay (tap “Staying the night” on their pass, or below).</Text>
         {policy.allowDiscreet ? <Text style={s.rule}>• Prefer privacy? Visits and overnight guests can be discreet: staff lists show “Private visitor”.</Text> : null}
@@ -193,7 +194,6 @@ export default function VisitorsScreen({ navigation }) {
       <Card>
         <Body muted style={{ fontSize: 13 }}>
           Someone joining you overnight is registered on your stay, so security knows they live here for those nights.
-          {data?.capacity ? ` Your residence sleeps up to ${data.capacity}; your booking is for ${data.booked}.` : ''}
           {policy.extraGuestFeePerNight ? ` ${xaf(policy.extraGuestFeePerNight)} per guest per night is added to your bill.` : ''}
         </Body>
         {guests.map((g) => {
@@ -243,7 +243,7 @@ export default function VisitorsScreen({ navigation }) {
                 <PickerField label={`Leaving by (≤ ${policy.visitUntil})`} mode="time" value={form.until} onChange={(until) => setForm({ ...form, until })} />
               </View>
             </View>
-            <Stepper label="People" value={form.people} min={1} max={policy.maxPeoplePerVisit || 4} onChange={(people) => setForm({ ...form, people })} />
+            <Stepper label="People" value={form.people} min={1} max={policy.maxPeoplePerVisit || 20} onChange={(people) => setForm({ ...form, people })} />
             <Field label="Car plate (optional)" value={form.vehicle} onChangeText={(vehicle) => setForm({ ...form, vehicle })} autoCapitalize="characters" />
             <Field label="Note for security (optional)" value={form.note} onChangeText={(note) => setForm({ ...form, note })} multiline maxLength={300} />
             {policy.allowDiscreet ? (
@@ -310,7 +310,6 @@ export default function VisitorsScreen({ navigation }) {
           <>
             <Body muted style={{ fontSize: 13, marginBottom: 12 }}>
               {nightFor.pass.visitorName} is registered on your stay, so security knows they are your guest tonight. Their pass keeps working at the gate until they leave.
-              {data?.capacity ? ` Your residence sleeps up to ${data.capacity}.` : ''}
               {policy.extraGuestFeePerNight ? ` ${xaf(policy.extraGuestFeePerNight)} per night is added to your bill.` : ''}
             </Body>
             <PickerField label="Leaves on" value={nightFor.to} minimumDate={addDays(new Date(`${nightFor.pass.date}T12:00:00`), 1)} onChange={(to) => setNightFor({ ...nightFor, to })} />

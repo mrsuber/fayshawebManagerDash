@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { guestsApi, serviceRequestsApi } from '../api';
 import { Card, Icon, Placeholder } from '../components/ui';
 import StayPeople from '../components/StayPeople';
+import ConductCard from './guest360/ConductCard';
 import ViewAllDialog from '../components/ViewAllDialog';
 import { useToast } from '../context/ToastContext';
 import useApi from '../hooks/useApi';
@@ -40,7 +41,7 @@ const TABS = ['Overview', 'Stay Details', 'Preferences', 'Journey', 'Communicati
 
 /** Which cards each tab shows (Overview = the original dashboard + All Guests). */
 const LAYOUT = {
-  Overview: ['stay', 'people', 'preferences', 'services', 'requests', 'bookings', 'timeline', 'guests', 'history', 'insights', 'quick'],
+  Overview: ['stay', 'people', 'preferences', 'services', 'requests', 'bookings', 'timeline', 'guests', 'history', 'insights', 'conduct', 'quick'],
   'Stay Details': ['stay', 'people', 'services', 'bookings', 'requests', 'timeline', 'quick'],
   Preferences: ['preferences', 'insights', 'quick'],
   Journey: ['timelineFull'],
@@ -164,6 +165,8 @@ export default function Guest360() {
             <StayPeople people={guest.household} compact heading={false} onChanged={refresh} />
           </Card>
         ) : null;
+      case 'conduct':
+        return <ConductCard key={`${id}-${guestId}`} guestId={guestId} guestName={guest.name} />;
       case 'preferences':
         return <PreferencesCard key={id} guest={guest} onEdit={() => actions.open('preferences')} />;
       case 'services':
