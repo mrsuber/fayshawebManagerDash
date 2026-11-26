@@ -34,6 +34,7 @@ router.use('/content', require('./content'));
 router.use('/events', require('./events'));
 router.use(require('./frontdesk'));
 router.use(require('./quality'));
+router.use(require('./teamPerformance')); // Team performance: each team member's record and work history
 router.use(require('./assets'));
 router.use(require('./wellnessCatalog'));
 router.use(require('./wellnessBookings'));

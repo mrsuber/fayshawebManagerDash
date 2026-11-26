@@ -150,6 +150,12 @@
       "title": "Team desk",
       "sub": "Messages with the team, time off to decide, and warnings — the managers’ side of My work.",
       "tag": "A team that is heard."
+    },
+    "staff": {
+      "label": "Team performance",
+      "title": "Team performance",
+      "sub": "Every team member's record: work done, on time, guests' ratings — and each person's full work history.",
+      "tag": "Great work, seen."
     }
   },
   "layout": {

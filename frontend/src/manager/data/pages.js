@@ -24,6 +24,7 @@ export const PAGES = {
   analytics: { icon: 'monitoring' },
   quality: { icon: 'reviews' },
   team: { icon: 'groups' },
+  staff: { icon: 'leaderboard' },
   ai: { icon: 'neurology' },
   settings: { icon: 'settings' },
 };
@@ -36,7 +37,7 @@ export const TOP = [
   ['guests', 'guest360', ['guest360', 'journey', 'comms', 'enquiries']],
   ['reservations', 'reservations', ['reservations']],
   ['residences', 'residences', ['residences', 'housekeeping', 'maintenance', 'assets']],
-  ['operations', 'requests', ['requests', 'transport', 'lockers', 'visitors', 'team']],
+  ['operations', 'requests', ['requests', 'transport', 'lockers', 'visitors', 'team', 'staff']],
   ['wellness', 'wellness', ['wellness']],
   ['dining', 'dining', ['dining']],
   ['experiences', 'experiences', ['experiences']],

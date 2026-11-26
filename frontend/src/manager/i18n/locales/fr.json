@@ -150,6 +150,12 @@
       "title": "Bureau de l’équipe",
       "sub": "Messages avec l’équipe, congés à décider et avertissements — le côté managers de Mon travail.",
       "tag": "Une équipe écoutée."
+    },
+    "staff": {
+      "label": "Performance",
+      "title": "Performance de l’équipe",
+      "sub": "Le bilan de chaque membre de l’équipe : travail fait, ponctualité, notes des clients — et tout son historique.",
+      "tag": "Le bon travail, reconnu."
     }
   },
   "layout": {
