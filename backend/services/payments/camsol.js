@@ -103,9 +103,11 @@ async function checkKeys() {
   if (camsol.source === 'simulated') return { result: 'simulated', message: 'No keys: payments are simulated (no money moves)' };
   if (!camsol.secretKey) return { result: 'missing', message: 'No PayWithCAMSOL secret key is set' };
   try {
-    const res = await fetch(`${camsol.baseUrl}/api/v1/balance/refill/faysha-key-check-${Date.now()}/status`, { headers: { 'X-API-Key': camsol.secretKey } });
+    // A UUID-shaped id: PayWithCAMSOL can error (500) on ids it can't parse, which says nothing about the key.
+    const res = await fetch(`${camsol.baseUrl}/api/v1/balance/refill/${crypto.randomUUID()}/status`, { headers: { 'X-API-Key': camsol.secretKey } });
     if ([400, 404, 422].includes(res.status) || res.ok) return { result: 'ok', message: 'Connected' };
     if ([401, 403].includes(res.status)) return { result: 'refused', message: 'PayWithCAMSOL refused this key' };
+    if (res.status >= 500) return { result: 'unreachable', message: `Key not refused, but PayWithCAMSOL answered ${res.status} to the test lookup — confirm with a small real payment` };
     return { result: 'unreachable', message: `PayWithCAMSOL answered ${res.status}` };
   } catch {
     return { result: 'unreachable', message: 'PayWithCAMSOL could not be reached' };
